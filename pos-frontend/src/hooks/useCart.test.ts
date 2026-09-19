@@ -164,4 +164,58 @@ describe("useCart", () => {
     expect(result.current.taxAmount).toBeCloseTo(15.25);
     expect(result.current.total).toBeCloseTo(100);
   });
+
+  // ------------------------------------------------------------------
+  // track_stock (V59)
+  // ------------------------------------------------------------------
+
+  describe("made-to-order products (trackStock === false)", () => {
+    // The trap this guards: Product.stockQuantity is a server-side SUM over
+    // stock_levels, so an untracked product reports 0. Keying the guard off the
+    // number rather than the flag makes every dish permanently unsellable.
+    const dish = () =>
+      makeProduct({ id: "food-1", name: "Chicken Fried Rice", basePrice: 850, stockQuantity: 0, trackStock: false });
+
+    it("can be added even though its stock reads zero", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(dish()));
+
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.subtotal).toBe(850);
+    });
+
+    it("has no quantity ceiling", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(dish()));
+      act(() => result.current.updateQuantity("food-1", 40));
+
+      expect(result.current.items[0].cartQuantity).toBe(40);
+      expect(result.current.subtotal).toBe(34000);
+    });
+
+    it("is unaffected by the selected branch having no stock row", () => {
+      const { result } = renderHook(() => useCart(null, "branch-1"));
+      act(() => result.current.addToCart(dish()));
+      act(() => result.current.addToCart(dish()));
+
+      expect(result.current.items[0].cartQuantity).toBe(2);
+    });
+
+    it("still enforces the ceiling for a tracked product", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(makeProduct({ stockQuantity: 1, trackStock: true })));
+      act(() => result.current.addToCart(makeProduct({ stockQuantity: 1, trackStock: true })));
+
+      expect(result.current.items[0].cartQuantity).toBe(1);
+    });
+
+    it("treats a missing trackStock flag as tracked, so pre-V59 payloads are unchanged", () => {
+      const { result } = renderHook(() => useCart());
+      // No trackStock key at all — what a response cached before V59 looks like.
+      const legacy = makeProduct({ stockQuantity: 0 });
+      act(() => result.current.addToCart(legacy));
+
+      expect(result.current.items).toHaveLength(0);
+    });
+  });
 });

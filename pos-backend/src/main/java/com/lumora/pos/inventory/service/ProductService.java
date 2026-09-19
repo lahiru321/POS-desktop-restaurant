@@ -159,6 +159,7 @@ public class ProductService {
                 .lowStockThreshold(request.getLowStockThreshold())
                 .imageUrl(request.getImageUrl())
                 .isActive(request.isActive())
+                .trackStock(request.isTrackStock())
                 .build();
 
         // 2. Set Category
@@ -187,9 +188,35 @@ public class ProductService {
         ProductEntity savedProduct = productRepository.save(product);
 
         // 4. Initialize Stock Level(s)
+        //
+        // Skipped entirely for a made-to-order product (V59). There is nothing to
+        // count, and the default-branch path below throws "No branches found for
+        // tenant" — a hard stop that must not apply to a dish cooked from
+        // ingredients. An untracked product simply has no stock_levels row.
+        if (savedProduct.isTrackStock()) {
+            initializeStockLevels(savedProduct, request, tenantId);
+        }
+
+        ProductResponse response = mapToResponse(savedProduct);
+
+        // Audit: Record new product creation
+        auditService.logCreate("PRODUCT", response.getId(), response);
+
+        return response;
+    }
+
+    /**
+     * Creates the stock_levels row(s) a newly-created tracked product needs — one
+     * per branch when the request names them, otherwise a single row at the default
+     * branch carrying the requested opening quantity.
+     *
+     * <p>Only ever called for a product with {@code trackStock == true}: a
+     * made-to-order item has no unit count, and the default-branch path here throws
+     * when the tenant has no branches at all, which must not block creating a dish.
+     */
+    private void initializeStockLevels(ProductEntity savedProduct, ProductRequest request, UUID tenantId) {
         try {
             if (request.getBranchStockLevels() != null && !request.getBranchStockLevels().isEmpty()) {
-                int totalStock = 0;
                 for (BranchStockRequest bsr : request.getBranchStockLevels()) {
                     com.lumora.pos.branch.entity.BranchEntity branch = branchRepository
                             .findByIdAndTenantId(bsr.getBranchId(), tenantId)
@@ -203,7 +230,6 @@ public class ProductService {
                             .build();
                     stockLevel.setTenantId(tenantId);
                     stockLevelRepository.save(stockLevel);
-                    totalStock += bsr.getQuantity();
                 }
                 // Update product (Compatibility - Note: setStockQuantity is now derived)
                 productRepository.save(savedProduct);
@@ -227,13 +253,6 @@ public class ProductService {
                 throw e;
             throw new BusinessException("Failed to initialize stock level: " + e.getMessage());
         }
-
-        ProductResponse response = mapToResponse(savedProduct);
-
-        // Audit: Record new product creation
-        auditService.logCreate("PRODUCT", response.getId(), response);
-
-        return response;
     }
 
     @Transactional
@@ -261,6 +280,11 @@ public class ProductService {
         product.setLowStockThreshold(request.getLowStockThreshold());
         product.setImageUrl(request.getImageUrl());
         product.setActive(request.isActive());
+        // Switching tracking ON does not retro-create stock_levels rows — the product
+        // simply reads 0 until stock is adjusted in, which is the same state as any
+        // product that has sold out. Switching it OFF leaves existing rows alone so
+        // the history stays intact and flipping back restores the old count.
+        product.setTrackStock(request.isTrackStock());
 
         // 2. Update Category
         if (request.getCategoryId() != null) {
@@ -304,6 +328,13 @@ public class ProductService {
         ProductEntity product = productRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new BusinessException("Product not found"));
 
+        // A made-to-order product has no stock to move (V59). Returning a dish
+        // restores nothing, so this is a no-op rather than an error — the caller
+        // (ReturnService) is processing a legitimate refund either way.
+        if (!product.isTrackStock()) {
+            return;
+        }
+
         int oldQuantity = product.getStockQuantity();
         int newQuantity = oldQuantity + quantityChange;
         if (newQuantity < 0) {
@@ -346,6 +377,13 @@ public class ProductService {
         UUID tenantId = TenantContext.getTenantId();
         ProductEntity product = productRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new BusinessException("Product not found"));
+
+        // A made-to-order product has no stock to move (V59). Without this the
+        // return path would create a stock_levels row for something that never had
+        // one, inventing inventory out of a refund.
+        if (!product.isTrackStock()) {
+            return;
+        }
 
         int oldQuantity = product.getStockQuantity();
         int newQuantity = oldQuantity + quantityChange;
@@ -463,6 +501,7 @@ public class ProductService {
                 .lowStockThreshold(product.getLowStockThreshold())
                 .imageUrl(product.getImageUrl())
                 .isActive(product.isActive())
+                .trackStock(product.isTrackStock())
                 .categoryId(product.getCategory() != null ? product.getCategory().getId() : null)
                 .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
                 .brandId(product.getBrand() != null ? product.getBrand().getId() : null)

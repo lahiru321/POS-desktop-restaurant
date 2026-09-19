@@ -54,4 +54,15 @@ public class ProductRequest {
 
     @Builder.Default
     private boolean isActive = true;
+
+    /**
+     * False for made-to-order items: no stock_levels row is created, the sale
+     * never deducts, and fractional quantities are allowed (V59).
+     *
+     * <p>Defaults true so an older client that omits the field keeps today's
+     * behaviour. {@code stockQuantity} stays required either way — send 0 for an
+     * untracked product rather than changing the contract for every caller.
+     */
+    @Builder.Default
+    private boolean trackStock = true;
 }

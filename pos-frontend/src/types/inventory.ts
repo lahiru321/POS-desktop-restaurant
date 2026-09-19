@@ -44,6 +44,14 @@ export interface Product {
   primarySupplierId?: string;
   primarySupplierName?: string;
   stockLevels?: StockLevel[];
+  /**
+   * False for a made-to-order item: it has no stock_levels row, never runs out,
+   * and may be sold in fractional quantities.
+   *
+   * Optional so a response cached from before V59 still type-checks; every read
+   * must default it to `true`, which is the behaviour those older products had.
+   */
+  trackStock?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +70,8 @@ export interface ProductRequest {
   brandId?: string;
   primarySupplierId?: string;
   isActive: boolean;
+  /** False = made to order: no stock row is created and sales never deduct. */
+  trackStock: boolean;
   branchStockLevels?: { branchId: string; quantity: number }[];
 }
 

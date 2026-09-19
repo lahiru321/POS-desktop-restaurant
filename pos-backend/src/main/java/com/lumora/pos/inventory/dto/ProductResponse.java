@@ -33,6 +33,10 @@ public class ProductResponse {
     @JsonProperty("isActive")
     private boolean isActive;
 
+    // No @JsonProperty needed: Lombok's getter is isTrackStock(), and stripping
+    // the "is" prefix yields "trackStock" — already the name the frontend wants.
+    private boolean trackStock;
+
     private UUID categoryId;
     private String categoryName;
 

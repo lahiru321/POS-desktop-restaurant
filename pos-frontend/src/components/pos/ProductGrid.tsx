@@ -57,12 +57,16 @@ export function ProductGrid({
     <div className="flex-1 p-4 pt-0 overflow-y-auto custom-scrollbar">
       <div ref={containerRef} data-product-grid className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {products.map((product, index) => {
+          // Made to order (V59): no stock_levels row, so the server's derived
+          // stockQuantity is 0 and the tile would render as permanently out of
+          // stock. Such a product has no ceiling and never blocks a sale.
+          const untracked = product.trackStock === false;
           const displayStock = selectedBranchId && product.stockLevels
             ? (product.stockLevels.find(sl => sl.branchId === selectedBranchId)?.quantity || 0)
             : product.stockQuantity;
           const cartQty = cartQuantities?.[product.id] ?? 0;
-          const outOfStock = displayStock <= 0;
-          const atLimit = !outOfStock && cartQty >= displayStock;
+          const outOfStock = !untracked && displayStock <= 0;
+          const atLimit = !untracked && !outOfStock && cartQty >= displayStock;
 
           return (
           <Card
@@ -107,7 +111,11 @@ export function ProductGrid({
                   <span className={outOfStock ? 'text-gray-500 font-bold' : 'text-primary font-bold'}>
                     {CURRENCY.symbol} {product.basePrice.toFixed(2)}
                   </span>
-                  {outOfStock ? (
+                  {untracked ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                      Made to order
+                    </span>
+                  ) : outOfStock ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-500">
                       Out of stock
                     </span>

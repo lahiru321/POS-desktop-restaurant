@@ -18,6 +18,7 @@ import { Branch } from "@/services/branchService";
 import { useRouter, useSearchParams } from "next/navigation";
 import { QK } from "@/lib/queryKeys";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, Save, Sparkles, PencilLine, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -36,6 +37,8 @@ const productSchema = z.object({
   brandId: z.string().uuid().optional().nullable(),
   primarySupplierId: z.string().uuid().optional().nullable(),
   isActive: z.boolean().default(true),
+  // False = made to order: no stock row, no shortage block, sells freely.
+  trackStock: z.boolean().default(true),
   imageUrl: z.string().optional(),
   branchStockLevels: z.record(z.string().uuid(), z.coerce.number().int().min(0)).optional(),
 });
@@ -103,10 +106,16 @@ export default function ProductForm({ initialData }: ProductFormProps) {
       brandId: initialData?.brandId || null,
       primarySupplierId: initialData?.primarySupplierId || null,
       isActive: initialData?.isActive ?? true,
+      trackStock: initialData?.trackStock ?? true,
       imageUrl: initialData?.imageUrl || "",
       branchStockLevels: {},
     },
   });
+
+  // Drives the Inventory card: an untracked product has no stock count and no
+  // low-stock threshold to show. stockQuantity stays in the payload as 0 — the
+  // API still requires it, and the server ignores it when tracking is off.
+  const trackStock = form.watch("trackStock");
 
   const searchParams = useSearchParams();
   const barcodeFromUrl = searchParams.get("barcode");
@@ -328,7 +337,31 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                 <CardTitle className="text-lg">Inventory</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!initialData && branches && branches.length > 1 ? (
+                <FormField
+                  control={form.control}
+                  name="trackStock"
+                  render={({ field }) => (
+                    <FormItem className="flex items-start justify-between gap-4 space-y-0 rounded-lg border border-border p-3">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-sm">Track stock</FormLabel>
+                        <p className="text-[11px] leading-snug text-muted-foreground">
+                          {field.value
+                            ? "Counted in units. Sales deduct stock and stop at zero."
+                            : "Made to order. No stock count, never runs out, sells in any quantity."}
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          aria-label="Track stock for this product"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {!trackStock ? null : !initialData && branches && branches.length > 1 ? (
                   <div className="space-y-4">
                     <label className="text-sm font-semibold text-muted-foreground">Initial Stock per Branch</label>
                     {branches.map((branch: Branch) => (
@@ -378,19 +411,21 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                     )}
                   />
                 )}
-                <FormField
-                  control={form.control}
-                  name="lowStockThreshold"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Low Stock Threshold</FormLabel>
-                      <FormControl>
-                        <Input type="number" className="bg-background border-border" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {trackStock && (
+                  <FormField
+                    control={form.control}
+                    name="lowStockThreshold"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Low Stock Threshold</FormLabel>
+                        <FormControl>
+                          <Input type="number" className="bg-background border-border" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </CardContent>
             </Card>
 

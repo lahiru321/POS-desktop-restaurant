@@ -43,10 +43,28 @@ function getProductTaxRate(product: Product, taxContext: TaxContext | null): num
 }
 
 /**
+ * True when a line has no stock ceiling: an open/custom line, or a made-to-order
+ * product (V59).
+ *
+ * `trackStock` is optional on the type so pre-V59 cached payloads still parse;
+ * `!== false` therefore reads a missing flag as "tracked", which is what those
+ * products were.
+ */
+function isUnlimited(product: Product | CartItem): boolean {
+  if ('isCustom' in product && product.isCustom) return true;
+  return product.trackStock === false;
+}
+
+/**
  * Returns the in-stock quantity for the currently selected branch. Falls back
  * to the global stockQuantity only when no branch is selected.
+ *
+ * Made-to-order products are unbounded: `Product.stockQuantity` is a server-side
+ * SUM over stock_levels, so an untracked product reports 0 and would otherwise be
+ * unsellable. The ceiling must come from the flag, never from the number.
  */
 function stockForBranch(product: Product, branchId?: string): number {
+  if (isUnlimited(product)) return Number.MAX_SAFE_INTEGER;
   if (branchId && product.stockLevels) {
     return product.stockLevels.find(sl => sl.branchId === branchId)?.quantity ?? 0;
   }
@@ -122,7 +140,7 @@ export const useCart = (
     setItems((prevItems) => {
       const item = prevItems.find(i => i.id === productId);
       if (!item) return prevItems;
-      const branchStock = item.isCustom ? Number.MAX_SAFE_INTEGER : stockForBranch(item, selectedBranchId);
+      const branchStock = stockForBranch(item, selectedBranchId);
       if (quantity > branchStock) {
         toast.error(`Only ${branchStock} in stock at this branch`);
         return prevItems;

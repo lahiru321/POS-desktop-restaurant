@@ -227,31 +227,40 @@ public class SaleService {
                                         throw new BusinessException("Product " + product.getName() + " is inactive and cannot be sold.");
                                 }
 
-                                // Stock is integer; reject fractional quantity until fractional stock
-                                // is properly modelled. Without this, .intValue() truncation silently
-                                // deducts the wrong amount.
-                                if (itemReq.getQuantity().stripTrailingZeros().scale() > 0) {
-                                        throw new BusinessException(
-                                                        "Fractional quantities are not supported for product: " + product.getName());
+                                // Stock-tracked goods deduct under a pessimistic lock. A made-to-order
+                                // product (track_stock = false, V59) has no unit count: no stock row is
+                                // required, no shortage can occur, and fractional quantities are allowed
+                                // because the INTEGER stock_levels.quantity is never touched.
+                                //
+                                // Pricing, tax and COGS below are identical either way — this branch is
+                                // only about inventory.
+                                if (product.isTrackStock()) {
+                                        // Stock is integer; reject fractional quantity until fractional stock
+                                        // is properly modelled. Without this, .intValue() truncation silently
+                                        // deducts the wrong amount.
+                                        if (itemReq.getQuantity().stripTrailingZeros().scale() > 0) {
+                                                throw new BusinessException(
+                                                                "Fractional quantities are not supported for product: " + product.getName());
+                                        }
+                                        int qty = itemReq.getQuantity().intValueExact();
+
+                                        // Branch-specific Stock Check & Deduction (Pessimistic Lock)
+                                        StockLevelEntity stockLevel = stockLevelRepository
+                                                        .findByProductAndBranchForUpdate(product.getId(), finalBranchId, tenantId)
+                                                        .orElseThrow(() -> new BusinessException(
+                                                                        "Stock record not found for product: " + product.getName()
+                                                                                        + " in the selected branch"));
+
+                                        if (stockLevel.getQuantity() < qty) {
+                                                throw new BusinessException(
+                                                                "Insufficient stock for product: " + product.getName()
+                                                                                + " in the selected branch");
+                                        }
+
+                                        // Deduct Stock from Branch
+                                        stockLevel.setQuantity(stockLevel.getQuantity() - qty);
+                                        stockLevelRepository.save(stockLevel);
                                 }
-                                int qty = itemReq.getQuantity().intValueExact();
-
-                                // Branch-specific Stock Check & Deduction (Pessimistic Lock)
-                                StockLevelEntity stockLevel = stockLevelRepository
-                                                .findByProductAndBranchForUpdate(product.getId(), finalBranchId, tenantId)
-                                                .orElseThrow(() -> new BusinessException(
-                                                                "Stock record not found for product: " + product.getName()
-                                                                                + " in the selected branch"));
-
-                                if (stockLevel.getQuantity() < qty) {
-                                        throw new BusinessException(
-                                                        "Insufficient stock for product: " + product.getName()
-                                                                        + " in the selected branch");
-                                }
-
-                                // Deduct Stock from Branch
-                                stockLevel.setQuantity(stockLevel.getQuantity() - qty);
-                                stockLevelRepository.save(stockLevel);
 
                                 lineLabel = product.getName();
                                 item.setProductId(product.getId());
