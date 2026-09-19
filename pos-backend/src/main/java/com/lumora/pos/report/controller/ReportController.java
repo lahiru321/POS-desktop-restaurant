@@ -63,6 +63,14 @@ public class ReportController {
                 "Top customers retrieved successfully"));
     }
 
+    @GetMapping("/customer-credit")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<Page<CustomerCreditRecord>>> getCustomerCredit(Pageable pageable) {
+        return ResponseEntity.ok(ApiResponse.success(
+                reportService.getCustomerCredit(pageable),
+                "Customer credit report retrieved successfully"));
+    }
+
     @GetMapping("/tax-summary")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<TaxSummaryReport>> getTaxSummary(

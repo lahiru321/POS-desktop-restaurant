@@ -48,6 +48,7 @@ public class CashSessionDtos {
         private BigDecimal expectedBalance;
         private BigDecimal cashSalesTotal;      // sum of cash tendered for all sales in this session
         private BigDecimal cashRefundsTotal;    // sum of CASH refunds issued during this session
+        private BigDecimal cashRepaymentsTotal; // sum of CASH store-credit repayments taken in this session
         private BigDecimal variance;            // closingBalance - expectedBalance; positive = over, negative = short
         private String status;
         private LocalDateTime openedAt;

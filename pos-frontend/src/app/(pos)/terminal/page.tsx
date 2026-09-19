@@ -45,7 +45,7 @@ import { Product } from '@/types/inventory';
 export default function TerminalPage() {
   // State
   const [search, setSearch] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'ONLINE' | 'SPLIT'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'ONLINE' | 'SPLIT' | 'CREDIT'>('CASH');
   const [tenderOpen, setTenderOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [cashTendered, setCashTendered] = useState(0);
@@ -70,6 +70,7 @@ export default function TerminalPage() {
 
   // Auth & Navigation
   const { user, loginMethod } = useAuthStore();
+  const storeCreditEnabled = useAuthStore((state) => state.hasFeature('STORE_CREDIT'));
   const router = useRouter();
   const queryClient = useQueryClient();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
@@ -196,6 +197,21 @@ export default function TerminalPage() {
   useEffect(() => {
     setPointsToRedeem(0);
   }, [selectedCustomer?.id]);
+
+  // Store credit for the attached customer. CREDIT is only offered when the
+  // feature is on, a customer is attached, and they have a credit limit set.
+  const creditLimit = selectedCustomer?.creditLimit ?? 0;
+  const creditBalance = selectedCustomer?.creditBalance ?? 0;
+  const availableCredit = Math.max(0, creditLimit - creditBalance);
+  const creditEligible = storeCreditEnabled && !!selectedCustomer && creditLimit > 0;
+
+  // If credit stops being an option (customer cleared / switched), fall back to cash.
+  useEffect(() => {
+    if (!creditEligible && paymentMethod === 'CREDIT') {
+      setPaymentMethod('CASH');
+      setCashTendered(0);
+    }
+  }, [creditEligible, paymentMethod]);
 
   useEffect(() => {
     setGridIndex((i) => Math.min(i, Math.max(0, filteredProducts.length - 1)));
@@ -379,7 +395,8 @@ export default function TerminalPage() {
   // Expected cash in the open drawer, for the logout warning copy.
   const drawerExpected =
     (activeSession?.openingBalance ?? 0) +
-    (activeSession?.cashSalesTotal ?? 0) -
+    (activeSession?.cashSalesTotal ?? 0) +
+    (activeSession?.cashRepaymentsTotal ?? 0) -
     (activeSession?.cashRefundsTotal ?? 0);
 
   const handleFetchSummary = async () => {
@@ -682,6 +699,9 @@ export default function TerminalPage() {
         pointValue={tenantInfo?.loyaltyPointValue ?? 0}
         pointsToRedeem={pointsToRedeem}
         onPointsToRedeemChange={setPointsToRedeem}
+        creditEnabled={creditEligible}
+        availableCredit={availableCredit}
+        creditBalance={creditBalance}
       />
 
       <ShortcutsOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />

@@ -48,6 +48,7 @@ public class FeatureGuardInterceptor implements HandlerInterceptor {
         // "/api/v1/expense" matches both /expenses and /expense-categories
         FEATURE_ROUTES.put("/api/v1/expense", "EXPENSES");
         FEATURE_ROUTES.put("/api/v1/finance", "FINANCIAL_REPORTS");
+        FEATURE_ROUTES.put("/api/v1/credit", "STORE_CREDIT");
         // Core features (SALES, INVENTORY, REPORTS, CUSTOMERS, EMPLOYEES)
         // are granted to all plans by default, but we could add them here if needed.
     }

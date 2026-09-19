@@ -1,0 +1,58 @@
+name,sku,barcode,description,category,brand,basePrice,costPrice,stockQuantity,lowStockThreshold
+Bananas (1kg),GRO-PRD-001,10010001,Fresh ripe bananas sold per kilogram,Produce,Local Farms,220,150,150,20
+Red Apples (1kg),GRO-PRD-002,10010002,Crisp red apples sold per kilogram,Produce,Local Farms,950,650,120,15
+Carrots (1kg),GRO-PRD-003,10010003,Fresh whole carrots sold per kilogram,Produce,Local Farms,280,190,100,15
+Tomatoes (1kg),GRO-PRD-004,10010004,Fresh vine tomatoes sold per kilogram,Produce,Local Farms,320,220,90,15
+Potatoes (1kg),GRO-PRD-005,10010005,Fresh potatoes sold per kilogram,Produce,Local Farms,260,180,200,25
+Onions (1kg),GRO-PRD-006,10010006,Fresh big onions sold per kilogram,Produce,Local Farms,300,210,180,25
+Lettuce Head,GRO-PRD-007,10010007,Fresh iceberg lettuce head,Produce,Local Farms,180,120,60,10
+Whole Milk (1L),GRO-DRY-001,10020001,Fresh whole milk 1 litre carton,Dairy & Eggs,DairyPure,480,380,80,15
+Low Fat Milk (1L),GRO-DRY-002,10020002,Low fat milk 1 litre carton,Dairy & Eggs,DairyPure,500,400,70,15
+Large Eggs (12 pack),GRO-DRY-003,10020003,Farm fresh large eggs pack of 12,Dairy & Eggs,FarmFresh,720,540,90,15
+Cheddar Cheese Block (200g),GRO-DRY-004,10020004,Mature cheddar cheese block 200g,Dairy & Eggs,DairyPure,950,700,50,10
+Butter (250g),GRO-DRY-005,10020005,Salted butter block 250g,Dairy & Eggs,DairyPure,650,480,60,10
+Plain Yogurt (500g),GRO-DRY-006,10020006,Natural plain yogurt tub 500g,Dairy & Eggs,DairyPure,320,220,55,10
+White Bread Loaf,GRO-BAK-001,10030001,Sliced white bread loaf 700g,Bakery,BakeHouse,130,90,70,10
+Wholemeal Bread Loaf,GRO-BAK-002,10030002,Sliced wholemeal bread loaf 700g,Bakery,BakeHouse,150,100,60,10
+Croissants (4 pack),GRO-BAK-003,10030003,Butter croissants pack of 4,Bakery,BakeHouse,480,320,40,8
+Bagels (6 pack),GRO-BAK-004,10030004,Plain bagels pack of 6,Bakery,BakeHouse,420,280,35,8
+Bottled Water (1.5L),GRO-BEV-001,10040001,Natural spring water 1.5 litre,Beverages,AquaPure,100,65,300,40
+Orange Juice (1L),GRO-BEV-002,10040002,100% pure orange juice 1 litre,Beverages,SunSip,550,380,90,15
+Cola Soft Drink (2L),GRO-BEV-003,10040003,Classic cola soft drink 2 litre bottle,Beverages,FizzCo,380,260,150,20
+Ground Coffee (250g),GRO-BEV-004,10040004,Medium roast ground coffee 250g,Beverages,MorningBrew,1250,900,60,10
+Green Tea Bags (25 pack),GRO-BEV-005,10040005,Green tea bags pack of 25,Beverages,LeafBlend,480,320,70,10
+Energy Drink (250ml),GRO-BEV-006,10040006,Energy drink can 250ml,Beverages,VoltUp,250,170,120,20
+Potato Chips (150g),GRO-SNK-001,10050001,Salted potato chips 150g bag,Snacks,CrispyBite,320,220,140,20
+Chocolate Bar (100g),GRO-SNK-002,10050002,Milk chocolate bar 100g,Snacks,CocoaLove,380,260,160,20
+Mixed Nuts (200g),GRO-SNK-003,10050003,Roasted mixed nuts 200g pack,Snacks,NutHarvest,850,600,70,10
+Popcorn (100g),GRO-SNK-004,10050004,Butter flavoured popcorn 100g bag,Snacks,CrispyBite,220,150,90,15
+Digestive Biscuits (300g),GRO-SNK-005,10050005,Digestive biscuits pack 300g,Snacks,BakeHouse,480,330,80,15
+Frozen Mixed Vegetables (1kg),GRO-FRZ-001,10060001,Frozen mixed vegetables bag 1kg,Frozen Foods,ArcticHarvest,650,450,60,10
+Frozen Chicken Nuggets (500g),GRO-FRZ-002,10060002,Frozen breaded chicken nuggets 500g,Frozen Foods,ArcticHarvest,950,680,50,10
+Vanilla Ice Cream (1L),GRO-FRZ-003,10060003,Vanilla ice cream tub 1 litre,Frozen Foods,CreamyDream,850,600,40,8
+Frozen Pizza (Margherita),GRO-FRZ-004,10060004,Frozen margherita pizza 350g,Frozen Foods,ArcticHarvest,780,550,45,8
+Canned Baked Beans (400g),GRO-CAN-001,10070001,Baked beans in tomato sauce 400g,Canned Goods,PantryPlus,320,220,120,15
+Canned Tuna in Oil (185g),GRO-CAN-002,10070002,Tuna chunks in oil 185g can,Canned Goods,OceanCatch,450,320,100,15
+Canned Sweetcorn (330g),GRO-CAN-003,10070003,Sweetcorn kernels 330g can,Canned Goods,PantryPlus,280,190,110,15
+Canned Tomato Soup (400g),GRO-CAN-004,10070004,Classic tomato soup 400g can,Canned Goods,PantryPlus,340,230,90,15
+White Rice (2kg),GRO-GRN-001,10080001,Long grain white rice 2kg bag,Grains & Pasta,GoldenHarvest,520,400,80,15
+Spaghetti Pasta (500g),GRO-GRN-002,10080002,Durum wheat spaghetti pasta 500g,Grains & Pasta,PastaBella,320,220,110,15
+Rolled Oats (1kg),GRO-GRN-003,10080003,Whole grain rolled oats 1kg,Grains & Pasta,GoldenHarvest,650,450,70,10
+All-Purpose Flour (1kg),GRO-GRN-004,10080004,All-purpose white flour 1kg,Grains & Pasta,GoldenHarvest,280,190,90,15
+Tomato Ketchup (500g),GRO-CND-001,10090001,Classic tomato ketchup bottle 500g,Condiments & Sauces,SaucyCo,480,320,90,15
+Mayonnaise (400g),GRO-CND-002,10090002,Creamy mayonnaise jar 400g,Condiments & Sauces,SaucyCo,550,380,70,10
+Soy Sauce (300ml),GRO-CND-003,10090003,Naturally brewed soy sauce 300ml,Condiments & Sauces,OrientTaste,380,260,60,10
+Olive Oil (500ml),GRO-CND-004,10090004,Extra virgin olive oil 500ml bottle,Condiments & Sauces,GoldenPress,2200,1600,50,8
+White Sugar (1kg),GRO-CND-005,10090005,Refined white sugar 1kg bag,Condiments & Sauces,PantryPlus,260,190,100,15
+Table Salt (500g),GRO-CND-006,10090006,Iodised table salt 500g,Condiments & Sauces,PantryPlus,90,55,120,20
+Dish Washing Liquid (500ml),GRO-HH-001,10100001,Lemon scented dish washing liquid 500ml,Household,CleanShine,420,290,80,15
+Laundry Detergent (2kg),GRO-HH-002,10100002,Powder laundry detergent 2kg,Household,CleanShine,1350,950,40,8
+Toilet Paper (12 rolls),GRO-HH-003,10100003,Soft toilet paper pack of 12 rolls,Household,SoftTouch,1450,1050,60,10
+Paper Towels (2 rolls),GRO-HH-004,10100004,Absorbent paper towel rolls pack of 2,Household,SoftTouch,650,450,70,10
+Trash Bags (30 pack),GRO-HH-005,10100005,Heavy duty trash bags pack of 30,Household,CleanShine,550,380,50,10
+Toothpaste (100ml),GRO-PC-001,10110001,Mint fluoride toothpaste 100ml,Personal Care,FreshSmile,380,260,70,10
+Shampoo (400ml),GRO-PC-002,10110002,Nourishing shampoo bottle 400ml,Personal Care,PureGlow,780,550,50,10
+Bar Soap (3 pack),GRO-PC-003,10110003,Moisturising bar soap pack of 3,Personal Care,PureGlow,420,290,60,10
+Chicken Breast (1kg),GRO-MT-001,10120001,Fresh boneless chicken breast per kg,Meat & Seafood,FarmFresh,1350,1050,45,8
+Ground Beef (1kg),GRO-MT-002,10120002,Fresh ground beef per kg,Meat & Seafood,FarmFresh,2200,1750,40,8
+Salmon Fillet (500g),GRO-MT-003,10120003,Fresh salmon fillet 500g,Meat & Seafood,OceanCatch,1950,1500,30,6

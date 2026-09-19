@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CreditCard, Banknote, QrCode, SplitSquareHorizontal, Loader2, CheckCircle2, Star } from 'lucide-react';
+import { CreditCard, Banknote, QrCode, SplitSquareHorizontal, Loader2, CheckCircle2, Star, Wallet } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,7 @@ import { NumberPad } from '@/components/ui/number-pad';
 import { QuickTenderButtons } from '@/components/ui/quick-tender-buttons';
 import { CURRENCY, cn } from '@/lib/utils';
 
-export type PaymentMethod = 'CASH' | 'CARD' | 'ONLINE' | 'SPLIT';
+export type PaymentMethod = 'CASH' | 'CARD' | 'ONLINE' | 'SPLIT' | 'CREDIT';
 
 interface TenderOverlayProps {
   open: boolean;
@@ -41,14 +41,20 @@ interface TenderOverlayProps {
   pointValue?: number;
   pointsToRedeem?: number;
   onPointsToRedeemChange?: (points: number) => void;
+  /** Store credit — the control only renders when the program is on and a
+   *  customer is attached. availableCredit is that customer's remaining headroom. */
+  creditEnabled?: boolean;
+  availableCredit?: number;
+  creditBalance?: number;
 }
 
-const PAYMENT_OPTIONS: { method: PaymentMethod; icon: typeof Banknote; label: string }[] = [
+const BASE_PAYMENT_OPTIONS: { method: PaymentMethod; icon: typeof Banknote; label: string }[] = [
   { method: 'CASH', icon: Banknote, label: 'Cash' },
   { method: 'CARD', icon: CreditCard, label: 'Card' },
   { method: 'ONLINE', icon: QrCode, label: 'Online' },
   { method: 'SPLIT', icon: SplitSquareHorizontal, label: 'Split' },
 ];
+const CREDIT_OPTION = { method: 'CREDIT' as PaymentMethod, icon: Wallet, label: 'Credit' };
 
 const TENDER_PRESETS = [100, 500, 1000, 2000, 5000];
 
@@ -78,8 +84,13 @@ export function TenderOverlay({
   pointValue = 0,
   pointsToRedeem = 0,
   onPointsToRedeemChange,
+  creditEnabled = false,
+  availableCredit = 0,
+  creditBalance = 0,
 }: TenderOverlayProps) {
   const [cashStr, setCashStr] = useState(cashTendered > 0 ? String(cashTendered) : '');
+
+  const paymentOptions = creditEnabled ? [...BASE_PAYMENT_OPTIONS, CREDIT_OPTION] : BASE_PAYMENT_OPTIONS;
 
   // Loyalty redemption. Points are capped to the balance and to what the bill can
   // absorb (you can't redeem more than the total). The discount is recomputed from
@@ -91,6 +102,11 @@ export function TenderOverlay({
   const redeemPts = Math.max(0, Math.min(pointsToRedeem, maxRedeemablePoints));
   const loyaltyDiscount = loyaltyActive ? +(redeemPts * pointValue).toFixed(2) : 0;
   const amountDue = Math.max(0, +(total - loyaltyDiscount).toFixed(2));
+
+  // Store credit: the amount due goes on the customer's account. Blocked when it
+  // would exceed their remaining headroom (the backend re-validates authoritatively).
+  const creditActive = paymentMethod === 'CREDIT';
+  const creditExceeds = creditActive && amountDue > availableCredit;
 
   useEffect(() => {
     if (cashTendered === 0) setCashStr('');
@@ -114,13 +130,13 @@ export function TenderOverlay({
   const cashChange = paymentMethod === 'CASH' && cashTendered > amountDue ? cashTendered - amountDue : 0;
   const cashShort =
     paymentMethod === 'CASH' && cashTendered > 0 && cashTendered < amountDue ? amountDue - cashTendered : 0;
-  const completeDisabled = isProcessing || cashShort > 0;
+  const completeDisabled = isProcessing || cashShort > 0 || creditExceeds;
 
   // Keyboard inside the overlay: digits/decimal/backspace edit the cash amount,
   // ←/→ switch payment method, F10 = exact, Enter = complete. (Esc closes via Radix.)
   useEffect(() => {
     if (!open) return;
-    const methods: PaymentMethod[] = ['CASH', 'CARD', 'ONLINE', 'SPLIT'];
+    const methods: PaymentMethod[] = paymentOptions.map((o) => o.method);
     const onKey = (e: KeyboardEvent) => {
       if (typeof e.key !== 'string') return;
       // Don't hijack keystrokes while the user is typing in a field (e.g. the
@@ -131,8 +147,9 @@ export function TenderOverlay({
       }
       if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
         e.preventDefault();
-        const i = methods.indexOf(paymentMethod);
-        onPaymentMethodChange(methods[(i + (e.key === 'ArrowRight' ? 1 : 3)) % 4]);
+        const n = methods.length;
+        const i = Math.max(0, methods.indexOf(paymentMethod));
+        onPaymentMethodChange(methods[(i + (e.key === 'ArrowRight' ? 1 : n - 1)) % n]);
         return;
       }
       if (e.key === 'F10') { e.preventDefault(); if (amountDue > 0) setTender(amountDue); return; }
@@ -164,8 +181,12 @@ export function TenderOverlay({
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
-          <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Payment method">
-            {PAYMENT_OPTIONS.map(({ method, icon: Icon, label }) => {
+          <div
+            className={cn('grid gap-2', paymentOptions.length >= 5 ? 'grid-cols-5' : 'grid-cols-4')}
+            role="radiogroup"
+            aria-label="Payment method"
+          >
+            {paymentOptions.map(({ method, icon: Icon, label }) => {
               const isSelected = paymentMethod === method;
               return (
                 <button
@@ -272,6 +293,32 @@ export function TenderOverlay({
                 )}
               </div>
               <NumberPad value={cashStr} onChange={updateCash} />
+            </div>
+          ) : creditActive ? (
+            <div className={cn(
+              'rounded-xl border p-4 text-sm space-y-2',
+              creditExceeds ? 'border-warning/40 bg-warning/5' : 'border-primary/30 bg-primary/5'
+            )}>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Charge to account</span>
+                <span className="font-bold text-foreground tabular-nums">{CURRENCY.symbol} {amountDue.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Available credit</span>
+                <span className="font-medium text-foreground tabular-nums">{CURRENCY.symbol} {availableCredit.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-border/60 pt-2">
+                <span className="text-muted-foreground">New balance after</span>
+                <span className="font-semibold text-foreground tabular-nums">
+                  {CURRENCY.symbol} {(creditBalance + amountDue).toFixed(2)}
+                </span>
+              </div>
+              {creditExceeds && (
+                <p className="text-warning font-semibold pt-1">
+                  Exceeds available credit by {CURRENCY.symbol} {(amountDue - availableCredit).toFixed(2)}.
+                  Take a lower amount on another method or raise the limit.
+                </p>
+              )}
             </div>
           ) : (
             <div className="rounded-xl border border-border bg-background/40 p-4 text-sm text-muted-foreground">

@@ -14,6 +14,7 @@ export interface CashSession {
   expectedBalance: number | null;
   cashSalesTotal: number | null;
   cashRefundsTotal: number | null;
+  cashRepaymentsTotal: number | null;
   variance: number | null;
   status: 'OPEN' | 'CLOSED';
   openedAt: string;

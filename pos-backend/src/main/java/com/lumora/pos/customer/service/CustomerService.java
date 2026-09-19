@@ -44,6 +44,8 @@ public class CustomerService {
                 .email(request.getEmail())
                 .address(request.getAddress())
                 .loyaltyPoints(0)
+                .creditLimit(request.getCreditLimit() != null ? request.getCreditLimit() : java.math.BigDecimal.ZERO)
+                .creditBalance(java.math.BigDecimal.ZERO)
                 .build();
 
         customer.setTenantId(TenantContext.getTenantId());
@@ -60,6 +62,11 @@ public class CustomerService {
         customer.setPhone(request.getPhone());
         customer.setEmail(request.getEmail());
         customer.setAddress(request.getAddress());
+        // Null leaves the existing limit untouched; the outstanding balance is never
+        // editable here (it only moves through credit sales and repayments).
+        if (request.getCreditLimit() != null) {
+            customer.setCreditLimit(request.getCreditLimit());
+        }
 
         return mapToResponse(customerRepository.save(customer));
     }
@@ -99,6 +106,8 @@ public class CustomerService {
                 .email(customer.getEmail())
                 .address(customer.getAddress())
                 .loyaltyPoints(customer.getLoyaltyPoints())
+                .creditLimit(customer.getCreditLimit())
+                .creditBalance(customer.getCreditBalance())
                 .createdAt(customer.getCreatedAt())
                 .build();
     }

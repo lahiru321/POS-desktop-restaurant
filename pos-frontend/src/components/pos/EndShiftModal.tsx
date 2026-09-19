@@ -34,7 +34,8 @@ export function EndShiftModal({ open, onClose, onEnded }: EndShiftModalProps) {
 
   const expected = useMemo(() => {
     if (!active) return 0;
-    return (active.openingBalance ?? 0) + (active.cashSalesTotal ?? 0) - (active.cashRefundsTotal ?? 0);
+    return (active.openingBalance ?? 0) + (active.cashSalesTotal ?? 0)
+      + (active.cashRepaymentsTotal ?? 0) - (active.cashRefundsTotal ?? 0);
   }, [active]);
 
   const varianceLive = useMemo(() => {

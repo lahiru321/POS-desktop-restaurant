@@ -34,6 +34,7 @@ const sampleSession: CashSession = {
   expectedBalance: null,
   cashSalesTotal: 0,
   cashRefundsTotal: 0,
+  cashRepaymentsTotal: 0,
   variance: null,
   status: "OPEN",
   openedAt: "2026-04-29T09:00:00Z",

@@ -4,6 +4,8 @@ import com.lumora.pos.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
+
 @Entity
 @Table(name = "customers")
 @Getter
@@ -27,4 +29,14 @@ public class CustomerEntity extends BaseEntity {
 
     @Builder.Default
     private Integer loyaltyPoints = 0;
+
+    /** Admin-set maximum the customer may owe on store credit. 0 = no credit allowed. */
+    @Column(name = "credit_limit", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal creditLimit = BigDecimal.ZERO;
+
+    /** Current outstanding store-credit balance (amount owed). Kept in sync with the credit ledger. */
+    @Column(name = "credit_balance", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal creditBalance = BigDecimal.ZERO;
 }

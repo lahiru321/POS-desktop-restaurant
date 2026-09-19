@@ -28,4 +28,12 @@ public interface CustomerRepository extends JpaRepository<CustomerEntity, UUID> 
             "LOWER(c.lastName) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
             "c.phone LIKE CONCAT('%', :query, '%'))")
     Page<CustomerEntity> searchCustomers(UUID tenantId, String query, Pageable pageable);
+
+    /**
+     * Customers with a store-credit account — either a limit granted or an
+     * outstanding balance owed. Highest balance first for the receivables report.
+     */
+    @Query("SELECT c FROM CustomerEntity c WHERE c.tenantId = :tenantId AND " +
+            "(c.creditLimit > 0 OR c.creditBalance > 0) ORDER BY c.creditBalance DESC")
+    Page<CustomerEntity> findCreditAccounts(UUID tenantId, Pageable pageable);
 }

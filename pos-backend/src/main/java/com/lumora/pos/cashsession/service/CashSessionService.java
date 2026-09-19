@@ -12,6 +12,7 @@ import com.lumora.pos.cashsession.entity.CashSessionEntity;
 import com.lumora.pos.cashsession.repository.CashSessionRepository;
 import com.lumora.pos.common.exception.BusinessException;
 import com.lumora.pos.common.exception.ResourceNotFoundException;
+import com.lumora.pos.credit.repository.CreditTransactionRepository;
 import com.lumora.pos.employee.entity.TimeRecord;
 import com.lumora.pos.employee.repository.TimeRecordRepository;
 import com.lumora.pos.returns.repository.ReturnRepository;
@@ -38,6 +39,7 @@ public class CashSessionService {
     private final UserRepository userRepository;
     private final SaleRepository saleRepository;
     private final ReturnRepository returnRepository;
+    private final CreditTransactionRepository creditTransactionRepository;
     private final BranchRepository branchRepository;
     private final BranchAccessGuard branchAccessGuard;
 
@@ -93,7 +95,8 @@ public class CashSessionService {
         session.setOpenedAt(LocalDateTime.now());
         session.setNotes(request.getNotes());
 
-        return mapToResponse(cashSessionRepository.save(session), user, BigDecimal.ZERO, BigDecimal.ZERO);
+        return mapToResponse(cashSessionRepository.save(session), user, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO);
     }
 
     /**
@@ -110,8 +113,9 @@ public class CashSessionService {
         if (cashSales == null) cashSales = BigDecimal.ZERO;
 
         BigDecimal cashRefunds = getCashRefunds(session.getTenantId(), session.getOpenedAt(), LocalDateTime.now());
+        BigDecimal cashRepayments = getCashRepayments(session.getId());
 
-        BigDecimal expected = session.getOpeningBalance().add(cashSales).subtract(cashRefunds);
+        BigDecimal expected = session.getOpeningBalance().add(cashSales).add(cashRepayments).subtract(cashRefunds);
         BigDecimal variance = request.getClosingBalance().subtract(expected);
 
         session.setClosingBalance(request.getClosingBalance());
@@ -134,7 +138,7 @@ public class CashSessionService {
 
         CashSessionEntity saved = cashSessionRepository.save(session);
         UserEntity user = userRepository.findById(userId).orElse(null);
-        return mapToResponse(saved, user, cashSales, cashRefunds);
+        return mapToResponse(saved, user, cashSales, cashRefunds, cashRepayments);
     }
 
     /**
@@ -155,7 +159,8 @@ public class CashSessionService {
             if (cashSales == null) cashSales = BigDecimal.ZERO;
 
             BigDecimal cashRefunds = getCashRefunds(session.getTenantId(), session.getOpenedAt(), LocalDateTime.now());
-            BigDecimal expected = session.getOpeningBalance().add(cashSales).subtract(cashRefunds);
+            BigDecimal cashRepayments = getCashRepayments(session.getId());
+            BigDecimal expected = session.getOpeningBalance().add(cashSales).add(cashRepayments).subtract(cashRefunds);
 
             session.setExpectedBalance(expected);
             session.setStatus(CashSessionEntity.Status.CLOSED);
@@ -187,9 +192,10 @@ public class CashSessionService {
         if (cashSales == null) cashSales = BigDecimal.ZERO;
 
         BigDecimal cashRefunds = getCashRefunds(session.getTenantId(), session.getOpenedAt(), LocalDateTime.now());
+        BigDecimal cashRepayments = getCashRepayments(session.getId());
 
         UserEntity user = userRepository.findById(userId).orElse(null);
-        return mapToResponse(session, user, cashSales, cashRefunds);
+        return mapToResponse(session, user, cashSales, cashRefunds, cashRepayments);
     }
 
     /**
@@ -206,8 +212,15 @@ public class CashSessionService {
         return v != null ? v : BigDecimal.ZERO;
     }
 
+    /** Cash taken in as store-credit repayments during this drawer session. */
+    private BigDecimal getCashRepayments(UUID sessionId) {
+        BigDecimal v = creditTransactionRepository.sumCashRepaymentsBySessionId(sessionId);
+        return v != null ? v : BigDecimal.ZERO;
+    }
+
     private CashSessionResponse mapToResponse(CashSessionEntity session, UserEntity user,
-                                              BigDecimal cashSales, BigDecimal cashRefunds) {
+                                              BigDecimal cashSales, BigDecimal cashRefunds,
+                                              BigDecimal cashRepayments) {
         return CashSessionResponse.builder()
                 .id(session.getId())
                 .userId(session.getUserId())
@@ -222,6 +235,7 @@ public class CashSessionService {
                 .expectedBalance(session.getExpectedBalance())
                 .cashSalesTotal(cashSales)
                 .cashRefundsTotal(cashRefunds)
+                .cashRepaymentsTotal(cashRepayments)
                 .variance(session.getVariance())
                 .status(session.getStatus().name())
                 .openedAt(session.getOpenedAt())

@@ -32,7 +32,8 @@ export type Feature =
   | 'API_ACCESS'
   | 'EXPENSES'
   | 'FINANCIAL_REPORTS'
-  | 'BRANCH_RESTRICTIONS';
+  | 'BRANCH_RESTRICTIONS'
+  | 'STORE_CREDIT';
 
 // ──────────────────────────────────────────────
 // Tenant Summary (used in list view)

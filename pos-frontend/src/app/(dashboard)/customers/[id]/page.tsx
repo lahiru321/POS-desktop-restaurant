@@ -3,10 +3,12 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
-import { ChevronLeft, Mail, Phone, MapPin, Star, Calendar, Receipt, ShoppingBag, Loader2 } from 'lucide-react';
+import { ChevronLeft, Mail, Phone, MapPin, Star, Calendar, Receipt, ShoppingBag, Loader2, Wallet } from 'lucide-react';
 import { customerService } from '@/services/customerService';
 import { salesService, SaleResponse } from '@/services/salesService';
 import { loyaltyService, LoyaltyTransaction } from '@/services/loyaltyService';
+import { CustomerCreditPanel } from '@/components/customers/CustomerCreditPanel';
+import { useAuthStore } from '@/stores/authStore';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -28,6 +30,7 @@ export default function CustomerProfilePage() {
   const customerId = params.id as string;
   const [salesPage, setSalesPage] = useState(0);
   const [loyaltyPage, setLoyaltyPage] = useState(0);
+  const creditEnabled = useAuthStore((state) => state.hasFeature('STORE_CREDIT'));
 
   const { data: customer, isLoading: customerLoading } = useQuery({
     queryKey: ['customer', customerId],
@@ -136,6 +139,11 @@ export default function CustomerProfilePage() {
           <TabsTrigger value="loyalty" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Star size={16} className="mr-2" /> Loyalty Activity
           </TabsTrigger>
+          {creditEnabled && (
+            <TabsTrigger value="credit" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Wallet size={16} className="mr-2" /> Store Credit
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="history" className="mt-6">
@@ -323,6 +331,12 @@ export default function CustomerProfilePage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {creditEnabled && (
+          <TabsContent value="credit" className="mt-6">
+            <CustomerCreditPanel customerId={customerId} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

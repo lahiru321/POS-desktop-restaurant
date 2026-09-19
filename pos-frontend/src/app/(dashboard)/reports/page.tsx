@@ -31,6 +31,7 @@ import { ProfitabilityTab } from "./_tabs/ProfitabilityTab";
 import { SupplierSalesTab } from "./_tabs/SupplierSalesTab";
 import { StockVarianceTab } from "./_tabs/StockVarianceTab";
 import { CashReconciliationTab } from "./_tabs/CashReconciliationTab";
+import { CreditReportTab } from "./_tabs/CreditReportTab";
 import { BranchFilter } from "@/components/reports/BranchFilter";
 
 export default function ReportsPage() {
@@ -130,6 +131,12 @@ export default function ReportsPage() {
             <Wallet size={16} />
             <span>Cash Reconciliation</span>
           </TabsTrigger>
+          <FeatureGuard feature="STORE_CREDIT">
+            <TabsTrigger value="customer-credit" className="gap-2 px-3">
+              <Wallet size={16} />
+              <span>Accounts Receivable</span>
+            </TabsTrigger>
+          </FeatureGuard>
         </TabsList>
 
         <TabsContent value="sales" className="space-y-6">
@@ -192,6 +199,12 @@ export default function ReportsPage() {
         <TabsContent value="cash-reconciliation" className="space-y-6">
           <CashReconciliationTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
         </TabsContent>
+
+        <FeatureGuard feature="STORE_CREDIT">
+          <TabsContent value="customer-credit" className="space-y-6">
+            <CreditReportTab />
+          </TabsContent>
+        </FeatureGuard>
       </Tabs>
 
       {returnSaleId && (

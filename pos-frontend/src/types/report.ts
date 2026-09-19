@@ -70,6 +70,17 @@ export interface TopCustomerRecord {
   loyaltyPoints: number;
 }
 
+export interface CustomerCreditRecord {
+  customerId: string;
+  customerName: string;
+  email: string | null;
+  phone: string | null;
+  creditLimit: number;
+  creditBalance: number;
+  availableCredit: number;
+  lastRepaymentAt: string | null;
+}
+
 export interface TaxLineItem {
   paymentMethod: string;
   transactionCount: number;

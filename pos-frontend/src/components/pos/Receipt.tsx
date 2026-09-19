@@ -161,7 +161,7 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(function Receipt
       ) : (
         <p className="flex justify-between mt-1">
           <span>Paid:</span>
-          <span>{sale.paymentMethod}</span>
+          <span>{sale.paymentMethod === 'CREDIT' ? 'On Account' : sale.paymentMethod}</span>
         </p>
       )}
 

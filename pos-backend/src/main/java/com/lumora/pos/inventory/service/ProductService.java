@@ -17,6 +17,7 @@ import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.inventory.repository.ProductSpecification;
 import com.lumora.pos.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -385,7 +386,20 @@ public class ProductService {
         // Audit: Record deleted product snapshot BEFORE deletion
         ProductResponse deletedState = mapToResponse(product);
 
-        productRepository.delete(product);
+        // Purchase-order items, return items, inventory adjustments and stock
+        // transfers all hold a restricting FK to products(id), so a product with
+        // any of that history cannot be removed. (Sales are exempt by design:
+        // sale_items.product_id carries no FK so history survives deletion.)
+        // Flush inside the method — otherwise the constraint would only fire at
+        // commit, escaping this catch and surfacing as a 500.
+        try {
+            productRepository.delete(product);
+            productRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(
+                    "This product has purchase, return or stock history and cannot be deleted. "
+                            + "Deactivate it instead to hide it from the catalog.");
+        }
 
         auditService.logDelete("PRODUCT", id, deletedState);
     }

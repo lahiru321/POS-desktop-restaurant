@@ -6,6 +6,7 @@ import com.lumora.pos.cashsession.entity.CashSessionEntity;
 import com.lumora.pos.cashsession.repository.CashSessionRepository;
 import com.lumora.pos.cashsession.service.CashSessionService;
 import com.lumora.pos.common.exception.BusinessException;
+import com.lumora.pos.credit.service.CreditService;
 import com.lumora.pos.inventory.entity.ProductEntity;
 import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.loyalty.dto.LoyaltyConfig;
@@ -72,6 +73,7 @@ public class SaleService {
     private final PasswordEncoder passwordEncoder;
     private final LoyaltyService loyaltyService;
     private final TenantInfoService tenantInfoService;
+    private final CreditService creditService;
 
     /** Window during which a cashier may self-correct their own last sale
      *  without a manager PIN. Sales older than this — or sales rung by
@@ -164,7 +166,21 @@ public class SaleService {
                 }
 
                 sale.setPaymentMethod(SaleEntity.PaymentMethod.valueOf(request.getPaymentMethod().toUpperCase()));
-                sale.setPaymentStatus(SaleEntity.PaymentStatus.PAID);
+
+                // CREDIT ("on account") sales are fulfilled now but not paid — the amount
+                // is charged to the customer's store-credit balance (validated against
+                // their limit after totals are known). They stay PENDING; accounts
+                // receivable is tracked at the customer-balance level, not per sale.
+                boolean creditSale = sale.getPaymentMethod() == SaleEntity.PaymentMethod.CREDIT;
+                if (creditSale) {
+                        if (customer == null) {
+                                throw new BusinessException("Credit sales require a customer to be attached");
+                        }
+                        creditService.assertEnabled(tenantId);
+                        sale.setPaymentStatus(SaleEntity.PaymentStatus.PENDING);
+                } else {
+                        sale.setPaymentStatus(SaleEntity.PaymentStatus.PAID);
+                }
 
                 // Pricing mode is resolved once and stamped on the sale so reprints
                 // stay faithful if the tenant later flips it. Inclusive (LK default):
@@ -364,15 +380,23 @@ public class SaleService {
 
                 SaleEntity savedSale = saleRepository.save(sale);
 
+                // Charge a credit sale to the customer's account. Runs in this same
+                // transaction, so an over-limit hard-block throws and rolls back the
+                // whole sale (including the stock deduction above).
+                if (creditSale) {
+                        creditService.charge(customer, savedSale.getId(), savedSale.getNetAmount());
+                }
+
                 // Loyalty ledger — redeem first (debit the spent points), then earn on
                 // the final amount paid. Both append a ledger row and keep the customer's
-                // running balance in sync. Earn only on a PAID sale.
+                // running balance in sync. Earn on a completed sale — PAID, or CREDIT
+                // (the goods were delivered even though payment is on account).
                 if (customer != null) {
                         if (pointsRedeemed > 0) {
                                 loyaltyService.recordRedeem(customer, savedSale.getId(), pointsRedeemed,
                                                 "Redeemed on sale " + savedSale.getInvoiceNumber());
                         }
-                        if (savedSale.getPaymentStatus() == SaleEntity.PaymentStatus.PAID) {
+                        if (savedSale.getPaymentStatus() == SaleEntity.PaymentStatus.PAID || creditSale) {
                                 int earnedPoints = loyalty.pointsForSpend(savedSale.getNetAmount());
                                 loyaltyService.recordEarn(customer, savedSale.getId(), earnedPoints);
                         }
@@ -678,7 +702,9 @@ public class SaleService {
                         customerId = sale.getCustomer().getId();
                         customerName = sale.getCustomer().getFirstName() + " " + sale.getCustomer().getLastName();
                         loyaltyBalance = sale.getCustomer().getLoyaltyPoints();
-                        if (sale.getPaymentStatus() == SaleEntity.PaymentStatus.PAID) {
+                        // Points are earned on completed sales: PAID or CREDIT (on account).
+                        if (sale.getPaymentStatus() == SaleEntity.PaymentStatus.PAID
+                                        || sale.getPaymentMethod() == SaleEntity.PaymentMethod.CREDIT) {
                                 earnedPoints = loyaltyService.getConfig().pointsForSpend(sale.getNetAmount());
                         } else {
                                 earnedPoints = 0;

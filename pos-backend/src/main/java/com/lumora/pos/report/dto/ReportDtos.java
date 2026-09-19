@@ -97,6 +97,19 @@ public class ReportDtos {
 
     @Data
     @Builder
+    public static class CustomerCreditRecord {
+        private UUID customerId;
+        private String customerName;
+        private String email;
+        private String phone;
+        private BigDecimal creditLimit;
+        private BigDecimal creditBalance;
+        private BigDecimal availableCredit;
+        private java.time.LocalDateTime lastRepaymentAt;
+    }
+
+    @Data
+    @Builder
     public static class TaxSummaryReport {
         private BigDecimal totalTaxCollected;
         private int totalTransactions;
