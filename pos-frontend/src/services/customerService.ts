@@ -9,6 +9,10 @@ export interface Customer {
   email?: string;
   address?: string;
   loyaltyPoints: number;
+  /** Admin-set store-credit limit (0 = no credit allowed). */
+  creditLimit?: number;
+  /** Current outstanding credit balance (amount owed); read-only. */
+  creditBalance?: number;
   createdAt: string;
 }
 
@@ -18,6 +22,8 @@ export interface CustomerRequest {
   phone?: string;
   email?: string;
   address?: string;
+  /** Store-credit limit. Omit to leave the existing limit unchanged. */
+  creditLimit?: number;
 }
 
 export const customerService = {

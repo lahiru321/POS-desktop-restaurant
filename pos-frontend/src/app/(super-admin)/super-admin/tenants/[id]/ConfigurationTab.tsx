@@ -40,13 +40,13 @@ const PLAN_DEFAULTS: Record<PlanTier, { maxLocations: number; maxUsers: number; 
     maxLocations: 3,
     maxUsers: 15,
     maxProducts: 5000,
-    features: ['SALES', 'INVENTORY', 'REPORTS', 'CUSTOMERS', 'EMPLOYEES', 'PURCHASE_ORDERS', 'RETURNS', 'TAX_CONFIG', 'EXPENSES', 'FINANCIAL_REPORTS'],
+    features: ['SALES', 'INVENTORY', 'REPORTS', 'CUSTOMERS', 'EMPLOYEES', 'PURCHASE_ORDERS', 'RETURNS', 'TAX_CONFIG', 'EXPENSES', 'FINANCIAL_REPORTS', 'STORE_CREDIT'],
   },
   ENTERPRISE: {
     maxLocations: 999,
     maxUsers: 999,
     maxProducts: 999999,
-    features: ['SALES', 'INVENTORY', 'REPORTS', 'CUSTOMERS', 'EMPLOYEES', 'PURCHASE_ORDERS', 'STOCK_TRANSFERS', 'RETURNS', 'TAX_CONFIG', 'TIME_CLOCK', 'ADVANCED_ANALYTICS', 'API_ACCESS', 'EXPENSES', 'FINANCIAL_REPORTS'],
+    features: ['SALES', 'INVENTORY', 'REPORTS', 'CUSTOMERS', 'EMPLOYEES', 'PURCHASE_ORDERS', 'STOCK_TRANSFERS', 'RETURNS', 'TAX_CONFIG', 'TIME_CLOCK', 'ADVANCED_ANALYTICS', 'API_ACCESS', 'EXPENSES', 'FINANCIAL_REPORTS', 'STORE_CREDIT'],
   },
 };
 
@@ -67,6 +67,7 @@ const ALL_FEATURES: { key: Feature; label: string; description: string; icon: Re
   { key: 'EXPENSES', label: 'Expenses', description: 'Operating expense tracking', icon: <Wallet className="w-4 h-4" />, tier: 'advanced' },
   { key: 'FINANCIAL_REPORTS', label: 'Financial Reports', description: 'Net P&L and cash flow', icon: <TrendingUp className="w-4 h-4" />, tier: 'advanced' },
   { key: 'BRANCH_RESTRICTIONS', label: 'Branch Access Control', description: 'Limit staff to assigned branches', icon: <Building2 className="w-4 h-4" />, tier: 'advanced' },
+  { key: 'STORE_CREDIT', label: 'Store Credit', description: 'Buy-now-pay-later customer accounts', icon: <Wallet className="w-4 h-4" />, tier: 'advanced' },
 ];
 
 interface Props {

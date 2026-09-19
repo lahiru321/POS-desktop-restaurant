@@ -18,7 +18,8 @@ export const ShiftSummary: React.FC<ShiftSummaryProps> = ({ summary, session, on
   if (!summary) return null;
 
   const drawerExpected = session
-    ? (session.openingBalance ?? 0) + (session.cashSalesTotal ?? 0) - (session.cashRefundsTotal ?? 0)
+    ? (session.openingBalance ?? 0) + (session.cashSalesTotal ?? 0)
+        + (session.cashRepaymentsTotal ?? 0) - (session.cashRefundsTotal ?? 0)
     : null;
 
   return (
@@ -102,6 +103,12 @@ export const ShiftSummary: React.FC<ShiftSummaryProps> = ({ summary, session, on
                   <span className="text-gray-500">Cash Sales</span>
                   <span className="text-success">+{CURRENCY.symbol} {(session.cashSalesTotal ?? 0).toFixed(2)}</span>
                 </div>
+                {(session.cashRepaymentsTotal ?? 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Credit Repayments</span>
+                    <span className="text-success">+{CURRENCY.symbol} {(session.cashRepaymentsTotal ?? 0).toFixed(2)}</span>
+                  </div>
+                )}
                 {(session.cashRefundsTotal ?? 0) > 0 && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Cash Refunds</span>

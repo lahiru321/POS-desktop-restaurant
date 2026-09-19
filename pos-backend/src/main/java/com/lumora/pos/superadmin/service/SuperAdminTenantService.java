@@ -268,7 +268,7 @@ public class SuperAdminTenantService {
         // A desktop install is a single paid till — give it the full feature set.
         List<String> features = List.of("SALES", "INVENTORY", "REPORTS", "CUSTOMERS", "EMPLOYEES",
                 "PURCHASE_ORDERS", "STOCK_TRANSFERS", "RETURNS", "TAX_CONFIG", "TIME_CLOCK",
-                "ADVANCED_ANALYTICS", "API_ACCESS", "EXPENSES", "FINANCIAL_REPORTS");
+                "ADVANCED_ANALYTICS", "API_ACCESS", "EXPENSES", "FINANCIAL_REPORTS", "STORE_CREDIT");
 
         TenantConfigurationEntity config = TenantConfigurationEntity.builder()
                 .tenantId(tenant.getId())

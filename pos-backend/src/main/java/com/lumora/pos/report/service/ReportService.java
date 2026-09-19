@@ -15,6 +15,7 @@ import com.lumora.pos.sales.repository.SaleRepository;
 import com.lumora.pos.auth.repository.UserRepository;
 import com.lumora.pos.branch.service.BranchAccessGuard;
 import com.lumora.pos.customer.repository.CustomerRepository;
+import com.lumora.pos.credit.repository.CreditTransactionRepository;
 import com.lumora.pos.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -36,6 +37,7 @@ public class ReportService {
         private final ProductRepository productRepository;
         private final UserRepository userRepository;
         private final CustomerRepository customerRepository;
+        private final CreditTransactionRepository creditTransactionRepository;
         private final PurchaseOrderItemRepository purchaseOrderItemRepository;
         private final InventoryAdjustmentRepository inventoryAdjustmentRepository;
         private final CashSessionRepository cashSessionRepository;
@@ -222,6 +224,32 @@ public class ReportService {
                                 .totalSpent((BigDecimal) row[5])
                                 .loyaltyPoints(((Number) row[6]).intValue())
                                 .build());
+        }
+
+        /**
+         * Accounts-receivable report: every customer with a store-credit account
+         * (a limit granted or a balance owed), highest outstanding first.
+         */
+        @Transactional(readOnly = true)
+        public Page<CustomerCreditRecord> getCustomerCredit(Pageable pageable) {
+                UUID tenantId = TenantContext.getTenantId();
+                return customerRepository.findCreditAccounts(tenantId, pageable)
+                                .map(c -> {
+                                        BigDecimal limit = c.getCreditLimit() != null ? c.getCreditLimit() : BigDecimal.ZERO;
+                                        BigDecimal balance = c.getCreditBalance() != null ? c.getCreditBalance() : BigDecimal.ZERO;
+                                        return CustomerCreditRecord.builder()
+                                                        .customerId(c.getId())
+                                                        .customerName((c.getFirstName() + " "
+                                                                        + (c.getLastName() != null ? c.getLastName() : "")).trim())
+                                                        .email(c.getEmail())
+                                                        .phone(c.getPhone())
+                                                        .creditLimit(limit)
+                                                        .creditBalance(balance)
+                                                        .availableCredit(limit.subtract(balance).max(BigDecimal.ZERO))
+                                                        .lastRepaymentAt(creditTransactionRepository
+                                                                        .findLastRepaymentAt(c.getId(), tenantId))
+                                                        .build();
+                                });
         }
 
         @Transactional(readOnly = true)

@@ -5,6 +5,7 @@ import {
   InventoryValuationReport,
   EmployeePerformanceRecord,
   TopCustomerRecord,
+  CustomerCreditRecord,
   TaxSummaryReport,
   ProfitabilityReport,
   SoldItemsBySupplierReport,
@@ -43,6 +44,13 @@ export const reportService = {
   getTopCustomers: (page = 0, size = 20) =>
     api
       .get<ApiResponse<Page<TopCustomerRecord>>>("/reports/top-customers", {
+        params: { page, size },
+      })
+      .then((res) => res.data.data),
+
+  getCustomerCredit: (page = 0, size = 20) =>
+    api
+      .get<ApiResponse<Page<CustomerCreditRecord>>>("/reports/customer-credit", {
         params: { page, size },
       })
       .then((res) => res.data.data),

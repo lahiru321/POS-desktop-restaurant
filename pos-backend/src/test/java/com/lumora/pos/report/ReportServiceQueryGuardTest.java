@@ -55,6 +55,7 @@ class ReportServiceQueryGuardTest {
     @Mock private ProductRepository productRepository;
     @Mock private UserRepository userRepository;
     @Mock private CustomerRepository customerRepository;
+    @Mock private com.lumora.pos.credit.repository.CreditTransactionRepository creditTransactionRepository;
     @Mock private PurchaseOrderItemRepository purchaseOrderItemRepository;
     @Mock private InventoryAdjustmentRepository inventoryAdjustmentRepository;
     @Mock private CashSessionRepository cashSessionRepository;
@@ -67,8 +68,8 @@ class ReportServiceQueryGuardTest {
     void setUp() {
         reportService = new ReportService(
                 saleRepository, productRepository, userRepository, customerRepository,
-                purchaseOrderItemRepository, inventoryAdjustmentRepository, cashSessionRepository,
-                branchAccessGuard
+                creditTransactionRepository, purchaseOrderItemRepository, inventoryAdjustmentRepository,
+                cashSessionRepository, branchAccessGuard
         );
         TenantContext.setTenantId(tenantId);
     }

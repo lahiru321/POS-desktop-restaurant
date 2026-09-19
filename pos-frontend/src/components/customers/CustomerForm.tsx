@@ -14,7 +14,9 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { FeatureGuard } from '@/components/auth/FeatureGuard';
 import { CustomerRequest } from '@/services/customerService';
+import { CURRENCY } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 
 const customerSchema = z.object({
@@ -23,6 +25,7 @@ const customerSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email("Invalid email").optional().or(z.literal('')),
   address: z.string().optional(),
+  creditLimit: z.number().min(0, "Must be 0 or more").optional(),
 });
 
 interface CustomerFormProps {
@@ -40,6 +43,7 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({ initialData, onSubmi
       phone: initialData?.phone || '',
       email: initialData?.email || '',
       address: initialData?.address || '',
+      creditLimit: initialData?.creditLimit ?? 0,
     },
   });
 
@@ -118,8 +122,38 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({ initialData, onSubmi
           )}
         />
 
-        <Button 
-          type="submit" 
+        <FeatureGuard feature="STORE_CREDIT">
+          <FormField
+            control={form.control}
+            name="creditLimit"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-foreground">Credit Limit ({CURRENCY.symbol})</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="0.00"
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
+                    value={field.value ?? 0}
+                    onChange={(e) => field.onChange(e.target.value === '' ? 0 : Number(e.target.value))}
+                    className="bg-background border-border"
+                  />
+                </FormControl>
+                <p className="text-xs text-muted-foreground">
+                  Maximum this customer may owe on store credit. 0 disables buying on credit.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </FeatureGuard>
+
+        <Button
+          type="submit"
           disabled={isLoading}
           className="w-full bg-primary hover:bg-primary font-bold h-11"
         >
