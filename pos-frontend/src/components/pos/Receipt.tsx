@@ -89,12 +89,20 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(function Receipt
             ? item.productName.slice(0, ITEM_NAME_MAX - 1) + '…'
             : item.productName;
         const lineTotal = item.unitPrice * item.quantity;
+        // An add-on is a child row on the sale; indent it under its dish so the
+        // bill reads the way the cashier rang it.
+        const isAddon = !!item.parentItemId;
         return (
-          <div key={idx} className="grid grid-cols-[1fr_28px_52px_56px] gap-1">
-            <span className="truncate">{name}</span>
-            <span className="text-right">{item.quantity}</span>
-            <span className="text-right">{fmt(item.unitPrice)}</span>
-            <span className="text-right">{fmt(lineTotal)}</span>
+          <div key={idx}>
+            <div className="grid grid-cols-[1fr_28px_52px_56px] gap-1">
+              <span className="truncate">{isAddon ? `  + ${name}` : name}</span>
+              <span className="text-right">{item.quantity}</span>
+              <span className="text-right">{fmt(item.unitPrice)}</span>
+              <span className="text-right">{fmt(lineTotal)}</span>
+            </div>
+            {item.notes && (
+              <div className="pl-2 italic">* {item.notes}</div>
+            )}
           </div>
         );
       })}

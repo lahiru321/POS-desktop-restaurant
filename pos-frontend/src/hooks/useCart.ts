@@ -4,12 +4,55 @@ import { toast } from 'sonner';
 import { TaxRate } from '@/services/taxService';
 import { Category } from '@/types/inventory';
 
+/** One add-on chosen on a cart line. Quantity is per parent unit. */
+export interface CartItemTopping {
+  toppingId: string;
+  name: string;
+  quantity: number;
+  /** For a PROMPT topping this is the cashier's typed figure; the server re-checks it. */
+  unitPrice: number;
+  priceMode: 'FIXED' | 'PROMPT';
+}
+
 export interface CartItem extends Product {
+  /**
+   * Identity of this cart LINE, not of the product.
+   *
+   * A burger with cheese and a burger without are two lines of the same product,
+   * so the product id can no longer serve as the key. Every cart callback takes
+   * this instead.
+   */
+  lineId: string;
   cartQuantity: number;
   /** Per-line discount amount in tenant currency. Default 0. Capped at line subtotal. */
   discountAmount: number;
   /** True for an open/custom line not in the catalog (no productId, no stock). */
   isCustom?: boolean;
+  toppings?: CartItemTopping[];
+  /** Free text for the kitchen and the bill: "no chilli". */
+  notes?: string;
+}
+
+/**
+ * Stable signature for a line, so "burger + cheese" merges with another
+ * "burger + cheese" but not with "burger + cheese + onions" — and a typed-price
+ * topping never merges with the same topping rung at a different price.
+ */
+export function lineKey(
+  productId: string,
+  toppings: CartItemTopping[] = [],
+  notes = '',
+): string {
+  const signature = [...toppings]
+    .sort((a, b) => a.toppingId.localeCompare(b.toppingId))
+    .map((t) => `${t.toppingId}:${t.quantity}:${t.unitPrice}`)
+    .join('|');
+  return `${productId}#${signature}#${notes.trim()}`;
+}
+
+/** What one unit of a line costs in add-ons. */
+function toppingsPerUnit(item: CartItem): number {
+  return (item.toppings ?? []).reduce((sum, t) => sum + t.unitPrice * t.quantity, 0);
 }
 
 export interface TaxContext {
@@ -80,18 +123,28 @@ export const useCart = (
 ) => {
   const [items, setItems] = useState<CartItem[]>([]);
 
-  const addToCart = useCallback((product: Product) => {
+  const addToCart = useCallback((
+    product: Product,
+    toppings: CartItemTopping[] = [],
+    notes = '',
+  ) => {
     setItems((prevItems) => {
       const branchStock = stockForBranch(product, selectedBranchId);
-      const existingItem = prevItems.find((item) => item.id === product.id);
+      const key = lineKey(product.id, toppings, notes);
+      // Stock is a product-level ceiling, so it counts every line of this
+      // product, not just the one being merged into.
+      const productQuantity = prevItems
+        .filter((item) => item.id === product.id)
+        .reduce((sum, item) => sum + item.cartQuantity, 0);
+      const existingItem = prevItems.find((item) => item.lineId === key);
 
       if (existingItem) {
-        if (existingItem.cartQuantity >= branchStock) {
+        if (productQuantity >= branchStock) {
           toast.error(`Only ${branchStock} in stock at this branch`);
           return prevItems;
         }
         return prevItems.map((item) =>
-          item.id === product.id
+          item.lineId === key
             ? { ...item, cartQuantity: item.cartQuantity + 1 }
             : item
         );
@@ -101,17 +154,30 @@ export const useCart = (
         toast.error("Product out of stock at this branch");
         return prevItems;
       }
+      if (productQuantity >= branchStock) {
+        toast.error(`Only ${branchStock} in stock at this branch`);
+        return prevItems;
+      }
 
-      return [...prevItems, { ...product, cartQuantity: 1, discountAmount: 0 }];
+      return [...prevItems, {
+        ...product,
+        lineId: key,
+        cartQuantity: 1,
+        discountAmount: 0,
+        toppings: toppings.length > 0 ? toppings : undefined,
+        notes: notes.trim() || undefined,
+      }];
     });
   }, [selectedBranchId]);
 
   /** Adds an open/custom line (item not in the catalog) — no stock, no productId. */
   const addCustomItem = useCallback((name: string, price: number, quantity: number = 1) => {
+    const syntheticId = `custom-${crypto.randomUUID()}`;
     setItems((prevItems) => [
       ...prevItems,
       {
-        id: `custom-${crypto.randomUUID()}`,
+        id: syntheticId,
+        lineId: syntheticId,
         name: name.trim(),
         sku: '',
         basePrice: price,
@@ -127,26 +193,34 @@ export const useCart = (
     ]);
   }, []);
 
-  const removeFromCart = useCallback((productId: string) => {
-    setItems((prevItems) => prevItems.filter((item) => item.id !== productId));
+  const removeFromCart = useCallback((lineId: string) => {
+    setItems((prevItems) => prevItems.filter((item) => item.lineId !== lineId));
   }, []);
 
-  const updateQuantity = useCallback((productId: string, quantity: number) => {
+  const updateQuantity = useCallback((lineId: string, quantity: number) => {
     if (quantity <= 0) {
-      removeFromCart(productId);
+      removeFromCart(lineId);
       return;
     }
 
     setItems((prevItems) => {
-      const item = prevItems.find(i => i.id === productId);
+      const item = prevItems.find(i => i.lineId === lineId);
       if (!item) return prevItems;
       const branchStock = stockForBranch(item, selectedBranchId);
-      if (quantity > branchStock) {
+      // Other lines of the same product already consume part of the ceiling.
+      const otherLines = prevItems
+        .filter(i => i.id === item.id && i.lineId !== lineId)
+        .reduce((sum, i) => sum + i.cartQuantity, 0);
+      if (quantity + otherLines > branchStock) {
         toast.error(`Only ${branchStock} in stock at this branch`);
         return prevItems;
       }
       return prevItems.map((i) => {
-        if (i.id !== productId) return i;
+        if (i.lineId !== lineId) return i;
+        // Cap against the DISH's subtotal only, never the topping-inclusive
+        // figure: the backend's "discount exceeds line subtotal" guard compares
+        // against the parent line alone, and a client that allowed more would
+        // have the sale rejected at checkout.
         const newSubtotal = i.basePrice * quantity;
         const clamped = Math.min(i.discountAmount, newSubtotal);
         return { ...i, cartQuantity: quantity, discountAmount: clamped };
@@ -154,10 +228,10 @@ export const useCart = (
     });
   }, [removeFromCart, selectedBranchId]);
 
-  const setItemDiscount = useCallback((productId: string, discount: number) => {
+  const setItemDiscount = useCallback((lineId: string, discount: number) => {
     setItems((prevItems) =>
       prevItems.map((item) => {
-        if (item.id !== productId) return item;
+        if (item.lineId !== lineId) return item;
         const subtotal = item.basePrice * item.cartQuantity;
         const safe = Math.max(0, Math.min(discount, subtotal));
         if (safe !== discount) {
@@ -172,8 +246,13 @@ export const useCart = (
     setItems([]);
   }, []);
 
+  // Includes add-ons, because that is what the backend accumulates: a topping is
+  // its own sale_items row with its own subtotal.
   const subtotal = useMemo(
-    () => items.reduce((sum, item) => sum + item.basePrice * item.cartQuantity, 0),
+    () => items.reduce(
+      (sum, item) => sum + (item.basePrice + toppingsPerUnit(item)) * item.cartQuantity,
+      0,
+    ),
     [items]
   );
 
@@ -201,14 +280,24 @@ export const useCart = (
         name = resolvedTax?.name || 'Tax';
       }
 
-      const lineSubtotal = item.basePrice * item.cartQuantity;
-      const taxableBase = Math.max(0, lineSubtotal - item.discountAmount);
-      // Round each line's tax to 2dp before summing, mirroring the backend
-      // (per line, HALF_UP). Inclusive: extract the VAT already inside the price
-      // (base − base/(1+rate)). Exclusive: add VAT on top (base × rate).
-      const lineTax = taxInclusive
-        ? taxableBase - Math.round((taxableBase / (1 + rate)) * 100) / 100
-        : Math.round(taxableBase * rate * 100) / 100;
+      // Round per SUB-LINE, not per cart line. The backend stores a topping as
+      // its own sale_items row and rounds each row to 2dp, so folding the dish
+      // and its add-ons into one base before rounding drifts by up to a cent per
+      // topping — and the drift only shows up at the drawer.
+      const parentBase = Math.max(0, item.basePrice * item.cartQuantity - item.discountAmount);
+      const bases = [
+        parentBase,
+        ...(item.toppings ?? []).map(t => t.unitPrice * t.quantity * item.cartQuantity),
+      ];
+
+      // Inclusive: extract the VAT already inside the price (base − base/(1+rate)).
+      // Exclusive: add VAT on top (base × rate). HALF_UP at 2dp, mirroring
+      // SaleService.applyLineMath.
+      const roundTax = (base: number) => taxInclusive
+        ? base - Math.round((base / (1 + rate)) * 100) / 100
+        : Math.round(base * rate * 100) / 100;
+
+      const lineTax = bases.reduce((sum, base) => sum + roundTax(base), 0);
       return { rate, name, amount: lineTax };
     });
 

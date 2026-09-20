@@ -1,6 +1,20 @@
 import api from "./api";
 import { ApiResponse } from "@/types/common";
 
+/**
+ * One add-on on a line.
+ *
+ * `unitPrice` is only consulted for a topping whose stored price_mode is PROMPT.
+ * For a FIXED topping the server bills its configured price and discards this
+ * value, so sending it is harmless but pointless.
+ */
+export interface SaleItemToppingRequest {
+  toppingId: string;
+  /** Per parent unit — "double cheese" is 2. */
+  quantity: number;
+  unitPrice?: number;
+}
+
 export interface SaleItemRequest {
   /** Catalog product id; null/omitted for a custom/open line (then itemName is set). */
   productId: string | null;
@@ -9,6 +23,10 @@ export interface SaleItemRequest {
   quantity: number;
   unitPrice: number;
   discountAmount: number;
+  /** Free text for the kitchen and the bill. */
+  notes?: string;
+  /** Each becomes its own child sale_items row. */
+  toppings?: SaleItemToppingRequest[];
 }
 
 export interface SaleRequest {
@@ -33,6 +51,15 @@ export interface SaleItemResponse {
   discountAmount?: number;
   taxAmount?: number;
   totalAmount: number;
+  /** The dish this add-on modifies; null for a top-level line. */
+  parentItemId?: string | null;
+  /**
+   * Set when this line is an add-on. Both a topping and a custom/open line carry
+   * a null productId, so this is what tells the receipt which it is.
+   */
+  toppingId?: string | null;
+  sortOrder?: number;
+  notes?: string | null;
 }
 
 export interface SaleResponse {

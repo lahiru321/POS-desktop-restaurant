@@ -36,6 +36,9 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashMap;
+import com.lumora.pos.restaurant.entity.ToppingEntity;
+import com.lumora.pos.restaurant.repository.ToppingRepository;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,11 +77,94 @@ public class SaleService {
     private final LoyaltyService loyaltyService;
     private final TenantInfoService tenantInfoService;
     private final CreditService creditService;
+    private final ToppingRepository toppingRepository;
 
     /** Window during which a cashier may self-correct their own last sale
      *  without a manager PIN. Sales older than this — or sales rung by
      *  another cashier — require a MANAGER/ADMIN PIN. */
     static final Duration CASHIER_SELF_SERVE_WINDOW = Duration.ofMinutes(5);
+
+    /**
+     * The per-line money math, in exactly one place.
+     *
+     * <p>Sets quantity, unit price, discount, tax and total on {@code item} and
+     * returns the VAT, which the caller accumulates. Two modes, stamped on the sale:
+     *
+     * <ul>
+     *   <li><b>INCLUSIVE</b> — unitPrice already contains VAT. Extract it from the
+     *       discounted line: net = lineNet / (1 + rate), VAT = lineNet − net. The
+     *       customer pays the inclusive amount, so totalAmount = lineNet.</li>
+     *   <li><b>EXCLUSIVE</b> — VAT is added on top of the discounted line, so the
+     *       customer pays net + VAT.</li>
+     * </ul>
+     *
+     * <p>Both a dish and its add-ons go through here, so there is still exactly one
+     * copy of the HALF_UP scale-2 arithmetic. Rounding is per row, which is why the
+     * client must round per sub-line too or the two totals drift by a cent per
+     * topping.
+     */
+    private BigDecimal applyLineMath(SaleItemEntity item,
+                    BigDecimal unitPrice,
+                    BigDecimal quantity,
+                    BigDecimal discount,
+                    BigDecimal taxRate,
+                    boolean taxInclusive) {
+            item.setQuantity(quantity);
+            item.setUnitPrice(unitPrice);
+            item.setDiscountAmount(discount);
+
+            BigDecimal lineNet = unitPrice.multiply(quantity).subtract(discount);
+            BigDecimal itemTax;
+            BigDecimal lineTotal;
+            if (taxInclusive) {
+                    BigDecimal exVat = lineNet.divide(
+                                    BigDecimal.ONE.add(taxRate), 2, RoundingMode.HALF_UP);
+                    itemTax = lineNet.subtract(exVat);
+                    lineTotal = lineNet;
+            } else {
+                    itemTax = lineNet.multiply(taxRate).setScale(2, RoundingMode.HALF_UP);
+                    lineTotal = lineNet.add(itemTax);
+            }
+
+            item.setTaxAmount(itemTax);
+            item.setTotalAmount(lineTotal);
+            return itemTax;
+    }
+
+    /**
+     * Decides what an add-on actually costs.
+     *
+     * <p>This is the one place where a client-supplied price is honoured for
+     * something that has a catalogue entry, and the exemption is deliberately
+     * narrow: it is opt-in per topping via a server-side {@code price_mode} column
+     * no client can set, and it is bounded by {@code max_price}. A FIXED topping
+     * bills its configured price and the request's number is discarded, exactly as
+     * a catalogue product's is.
+     */
+    private BigDecimal resolveToppingPrice(ToppingEntity topping,
+                    SaleRequest.SaleItemToppingRequest request) {
+            if (topping.getPriceMode() != ToppingEntity.PriceMode.PROMPT) {
+                    return topping.getDefaultPrice();
+            }
+
+            BigDecimal typed = request.getUnitPrice();
+            if (typed == null) {
+                    throw new BusinessException("A price is required for " + topping.getName());
+            }
+            if (typed.signum() < 0) {
+                    throw new BusinessException(
+                                    "Price for " + topping.getName() + " cannot be negative");
+            }
+            if (topping.getMaxPrice() != null && typed.compareTo(topping.getMaxPrice()) > 0) {
+                    throw new BusinessException("Price for " + topping.getName()
+                                    + " exceeds the allowed maximum of " + topping.getMaxPrice());
+            }
+            return typed.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private List<SaleRequest.SaleItemToppingRequest> safeToppings(SaleRequest.SaleItemRequest itemReq) {
+            return itemReq.getToppings() != null ? itemReq.getToppings() : List.of();
+    }
 
     /** Store calendar zone. Timestamps are stored as UTC wall-clock, so any
      *  "today"/day-boundary logic must resolve the date in this zone (not the
@@ -192,6 +278,10 @@ public class SaleService {
                 BigDecimal totalTax = BigDecimal.ZERO;
                 BigDecimal totalDiscount = BigDecimal.ZERO;
 
+                // Runs across the whole sale, not per line, so a topping always sorts
+                // immediately after the dish it belongs to.
+                int sortOrder = 0;
+
                 for (SaleRequest.SaleItemRequest itemReq : request.getItems()) {
                         SaleItemEntity item = new SaleItemEntity();
                         item.setSale(sale);
@@ -278,38 +368,64 @@ public class SaleService {
                                                                 + " for " + lineLabel);
                         }
 
-                        item.setQuantity(itemReq.getQuantity());
-                        item.setUnitPrice(unitPrice);
-                        item.setDiscountAmount(discount);
-
-                        // Tax: per line, HALF_UP, scale 2. Two modes (stamped on the sale):
-                        //  - INCLUSIVE: unitPrice already contains VAT. Extract it from the
-                        //    discounted line — net = lineNet / (1 + rate), VAT = lineNet − net.
-                        //    The customer pays the inclusive amount, so totalAmount = lineNet.
-                        //  - EXCLUSIVE: VAT is added on top of the discounted line, so the
-                        //    customer pays net + VAT.
-                        // Either way taxAmount is the VAT and item totalAmount is what was paid.
-                        BigDecimal lineNet = subtotal.subtract(discount);
-                        BigDecimal itemTax;
-                        BigDecimal lineTotal;
-                        if (taxInclusive) {
-                                BigDecimal exVat = lineNet.divide(
-                                                BigDecimal.ONE.add(taxRate), 2, RoundingMode.HALF_UP);
-                                itemTax = lineNet.subtract(exVat);
-                                lineTotal = lineNet;
-                        } else {
-                                itemTax = lineNet.multiply(taxRate).setScale(2, RoundingMode.HALF_UP);
-                                lineTotal = lineNet.add(itemTax);
-                        }
-
-                        item.setTaxAmount(itemTax);
-                        item.setTotalAmount(lineTotal);
+                        item.setNotes(itemReq.getNotes());
+                        item.setSortOrder(sortOrder++);
+                        BigDecimal itemTax = applyLineMath(
+                                        item, unitPrice, itemReq.getQuantity(), discount, taxRate, taxInclusive);
 
                         sale.getItems().add(item);
 
                         totalAmount = totalAmount.add(subtotal);
                         totalTax = totalTax.add(itemTax);
                         totalDiscount = totalDiscount.add(discount);
+
+                        // Add-ons hang off this line as child rows (V61). They inherit the
+                        // parent's resolved tax rate: a topping is a modifier on a composite
+                        // supply, not a supply of its own, and a bill reading "Burger 15% /
+                        // Extra cheese 8%" would satisfy nobody.
+                        for (SaleRequest.SaleItemToppingRequest toppingReq : safeToppings(itemReq)) {
+                                ToppingEntity topping = toppingRepository
+                                                .findByIdAndTenantId(toppingReq.getToppingId(), tenantId)
+                                                .orElseThrow(() -> new BusinessException(
+                                                                "Topping not found: " + toppingReq.getToppingId()));
+                                if (!topping.isActive()) {
+                                        throw new BusinessException(
+                                                        "Topping " + topping.getName() + " is no longer available");
+                                }
+
+                                BigDecimal toppingUnitPrice = resolveToppingPrice(topping, toppingReq);
+
+                                // Quantity is per parent unit, so two burgers with extra cheese
+                                // bill two portions of cheese.
+                                BigDecimal perParent = toppingReq.getQuantity() != null
+                                                ? toppingReq.getQuantity()
+                                                : BigDecimal.ONE;
+                                BigDecimal toppingQty = perParent.multiply(itemReq.getQuantity());
+
+                                SaleItemEntity child = new SaleItemEntity();
+                                child.setSale(sale);
+                                child.setTenantId(tenantId);
+                                child.setParentItem(item);
+                                // Null productId + itemName is the V49 custom-line shape, which
+                                // every product report already filters out. toppingId is what
+                                // distinguishes this from an actual custom line.
+                                child.setProductId(null);
+                                child.setItemName(topping.getName());
+                                child.setToppingId(topping.getId());
+                                child.setSortOrder(sortOrder++);
+
+                                // Add-ons carry no discount of their own: the order-level and
+                                // line-level discount both live on the parent, and the backend's
+                                // "discount exceeds line subtotal" guard compares against the
+                                // parent's subtotal alone.
+                                BigDecimal childTax = applyLineMath(child, toppingUnitPrice, toppingQty,
+                                                BigDecimal.ZERO, taxRate, taxInclusive);
+
+                                sale.getItems().add(child);
+
+                                totalAmount = totalAmount.add(toppingUnitPrice.multiply(toppingQty));
+                                totalTax = totalTax.add(childTax);
+                        }
                 }
 
                 sale.setTotalAmount(totalAmount);
@@ -769,6 +885,10 @@ public class SaleService {
                                 .discountAmount(item.getDiscountAmount())
                                 .taxAmount(item.getTaxAmount())
                                 .totalAmount(item.getTotalAmount())
+                                .parentItemId(item.getParentItem() != null ? item.getParentItem().getId() : null)
+                                .toppingId(item.getToppingId())
+                                .sortOrder(item.getSortOrder())
+                                .notes(item.getNotes())
                                 .build();
         }
 }

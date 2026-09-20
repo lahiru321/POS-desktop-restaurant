@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useCart } from "./useCart";
+import type { CartItemTopping } from "./useCart";
 import type { Product } from "@/types/inventory";
 import type { TaxContext } from "./useCart";
 
@@ -78,14 +79,14 @@ describe("useCart", () => {
   it("removeFromCart drops the item entirely", () => {
     const { result } = renderHook(() => useCart());
     act(() => result.current.addToCart(makeProduct()));
-    act(() => result.current.removeFromCart("p1"));
+    act(() => result.current.removeFromCart(result.current.items[0].lineId));
     expect(result.current.items).toHaveLength(0);
   });
 
   it("updateQuantity to 0 removes the item", () => {
     const { result } = renderHook(() => useCart());
     act(() => result.current.addToCart(makeProduct()));
-    act(() => result.current.updateQuantity("p1", 0));
+    act(() => result.current.updateQuantity(result.current.items[0].lineId, 0));
     expect(result.current.items).toHaveLength(0);
   });
 
@@ -93,7 +94,7 @@ describe("useCart", () => {
     const product = makeProduct({ stockQuantity: 3 });
     const { result } = renderHook(() => useCart());
     act(() => result.current.addToCart(product));
-    act(() => result.current.updateQuantity("p1", 99));
+    act(() => result.current.updateQuantity(result.current.items[0].lineId, 99));
     expect(result.current.items[0].cartQuantity).toBe(1);
   });
 
@@ -187,7 +188,7 @@ describe("useCart", () => {
     it("has no quantity ceiling", () => {
       const { result } = renderHook(() => useCart());
       act(() => result.current.addToCart(dish()));
-      act(() => result.current.updateQuantity("food-1", 40));
+      act(() => result.current.updateQuantity(result.current.items[0].lineId, 40));
 
       expect(result.current.items[0].cartQuantity).toBe(40);
       expect(result.current.subtotal).toBe(34000);
@@ -216,6 +217,96 @@ describe("useCart", () => {
       act(() => result.current.addToCart(legacy));
 
       expect(result.current.items).toHaveLength(0);
+    });
+  });
+
+  // The merge key decides what counts as "the same line". Before toppings the
+  // product id was enough; now a burger with cheese and a plain burger are two
+  // lines of one product, and every callback addresses a line rather than a
+  // product.
+  describe("line identity with toppings", () => {
+    const cheese = (overrides: Partial<CartItemTopping> = {}): CartItemTopping => ({
+      toppingId: "t-cheese",
+      name: "Cheese",
+      quantity: 1,
+      unitPrice: 50,
+      priceMode: "FIXED",
+      ...overrides,
+    });
+    const onions = (): CartItemTopping => ({
+      toppingId: "t-onions",
+      name: "Onions",
+      quantity: 1,
+      unitPrice: 20,
+      priceMode: "FIXED",
+    });
+    const burger = () => makeProduct({ id: "b1", name: "Burger", basePrice: 500, trackStock: false });
+
+    it("merges two identical topping selections into one line", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(burger(), [cheese()]));
+      act(() => result.current.addToCart(burger(), [cheese()]));
+
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.items[0].cartQuantity).toBe(2);
+      // Add-ons are billed per parent unit: (500 + 50) x 2.
+      expect(result.current.subtotal).toBe(1100);
+    });
+
+    it("keeps the same product on separate lines when the toppings differ", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(burger(), [cheese()]));
+      act(() => result.current.addToCart(burger()));
+
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.subtotal).toBe(1050);
+    });
+
+    it("ignores the order toppings were picked in", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(burger(), [cheese(), onions()]));
+      act(() => result.current.addToCart(burger(), [onions(), cheese()]));
+
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.items[0].cartQuantity).toBe(2);
+    });
+
+    it("does not merge the same topping at a different typed price", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(burger(), [cheese({ priceMode: "PROMPT", unitPrice: 50 })]));
+      act(() => result.current.addToCart(burger(), [cheese({ priceMode: "PROMPT", unitPrice: 80 })]));
+
+      expect(result.current.items).toHaveLength(2);
+    });
+
+    it("separates lines that carry different kitchen notes", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(burger(), [], "no chilli"));
+      act(() => result.current.addToCart(burger(), [], "extra spicy"));
+
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items.map(i => i.notes)).toEqual(["no chilli", "extra spicy"]);
+    });
+
+    it("removes only the addressed line, leaving its sibling", () => {
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(burger(), [cheese()]));
+      act(() => result.current.addToCart(burger()));
+      act(() => result.current.removeFromCart(result.current.items[0].lineId));
+
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.items[0].toppings).toBeUndefined();
+    });
+
+    it("counts every line of a product against one stock ceiling", () => {
+      // Two lines, one shared ceiling of 1: the second add must be refused even
+      // though it is a different line key.
+      const tracked = () => makeProduct({ id: "b1", stockQuantity: 1, trackStock: true });
+      const { result } = renderHook(() => useCart());
+      act(() => result.current.addToCart(tracked(), [cheese()]));
+      act(() => result.current.addToCart(tracked()));
+
+      expect(result.current.items).toHaveLength(1);
     });
   });
 });

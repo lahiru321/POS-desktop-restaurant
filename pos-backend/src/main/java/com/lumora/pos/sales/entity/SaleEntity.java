@@ -90,7 +90,11 @@ public class SaleEntity extends BaseEntity {
     @Column(name = "loyalty_discount_amount", nullable = false)
     private BigDecimal loyaltyDiscountAmount = BigDecimal.ZERO;
 
+    // Ordered so a topping always follows the dish it belongs to. Without an
+    // explicit @OrderBy, Postgres gives no ordering guarantee and a receipt's
+    // add-on lines can drift away from their parent.
     @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("sortOrder ASC")
     private List<SaleItemEntity> items = new ArrayList<>();
 
     public enum PaymentStatus {

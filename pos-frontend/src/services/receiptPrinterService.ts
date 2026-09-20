@@ -8,6 +8,14 @@ export interface ReceiptItem {
   quantity: number;
   price: number; // unit price
   total: number; // line total (qty * price)
+  /**
+   * True for an add-on line, which prints indented beneath the dish it belongs
+   * to. Kept as a flag rather than nesting, so both the HTML receipt and the
+   * ESC/POS builder walk one flat list in the order the cashier rang it.
+   */
+  isAddon?: boolean;
+  /** "no chilli" — printed under the line it applies to. */
+  notes?: string;
 }
 
 export interface ReceiptData {

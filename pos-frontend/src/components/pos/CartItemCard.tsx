@@ -41,12 +41,16 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
     setDragX(Math.max(-120, Math.min(0, dx))); // left-only
   };
   const onTouchEnd = () => {
-    if (dragX < -80) onRemove(item.id);
+    if (dragX < -80) onRemove(item.lineId);
     setDragX(0);
     setDragging(false);
     swipeStartX.current = null;
   };
-  const grossLine = item.basePrice * item.cartQuantity;
+  // Add-ons are priced per parent unit, so they scale with the dish's quantity.
+  // The backend bills them as their own rows; this mirrors that arithmetic so
+  // the cart total and the receipt agree.
+  const addonsPerUnit = (item.toppings ?? []).reduce((sum, t) => sum + t.unitPrice * t.quantity, 0);
+  const grossLine = (item.basePrice + addonsPerUnit) * item.cartQuantity;
   const netLine = grossLine - item.discountAmount;
   const identifier = item.sku || item.barcode;
   const hasDiscount = item.discountAmount > 0;
@@ -90,6 +94,27 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
             ) : identifier ? (
               <p className="text-[11px] text-muted-foreground font-mono truncate">{identifier}</p>
             ) : null}
+
+            {item.toppings?.map((topping) => (
+              <div
+                key={topping.toppingId}
+                className="flex justify-between gap-2 pl-1 text-[11px] text-muted-foreground"
+              >
+                <span className="truncate">
+                  + {topping.name}
+                  {topping.quantity > 1 ? ` x${topping.quantity}` : ''}
+                </span>
+                <span className="tabular-nums shrink-0">
+                  {CURRENCY.symbol} {(topping.unitPrice * topping.quantity * item.cartQuantity).toFixed(2)}
+                </span>
+              </div>
+            ))}
+
+            {item.notes && (
+              <p className="pl-1 text-[11px] italic text-warning/90 truncate" title={item.notes}>
+                &ldquo;{item.notes}&rdquo;
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-2">
@@ -102,7 +127,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
                 type="button"
                 variant="ghost"
                 size="touch-icon"
-                onClick={() => onUpdateQuantity(item.id, item.cartQuantity - 1)}
+                onClick={() => onUpdateQuantity(item.lineId, item.cartQuantity - 1)}
                 disabled={item.cartQuantity <= 1}
                 aria-label="Decrease quantity"
                 className="rounded-none hover:bg-muted"
@@ -120,7 +145,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
                 type="button"
                 variant="ghost"
                 size="touch-icon"
-                onClick={() => onUpdateQuantity(item.id, item.cartQuantity + 1)}
+                onClick={() => onUpdateQuantity(item.lineId, item.cartQuantity + 1)}
                 aria-label="Increase quantity"
                 className="rounded-none hover:bg-muted"
               >
@@ -162,7 +187,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
           type="button"
           variant="ghost"
           size="touch-icon"
-          onClick={() => onRemove(item.id)}
+          onClick={() => onRemove(item.lineId)}
           aria-label={`Remove ${item.name} from cart`}
           title="Remove"
           className="self-start text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10"
@@ -177,7 +202,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
         productName={item.name}
         lineSubtotal={grossLine}
         currentDiscount={item.discountAmount}
-        onApply={(amount) => onSetDiscount(item.id, amount)}
+        onApply={(amount) => onSetDiscount(item.lineId, amount)}
       />
     </>
   );

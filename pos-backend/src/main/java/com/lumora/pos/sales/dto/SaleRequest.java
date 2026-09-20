@@ -65,10 +65,44 @@ public class SaleRequest {
         @DecimalMin(value = "0", message = "discountAmount must be non-negative")
         private BigDecimal discountAmount;
 
+        /** Free text for the kitchen and the bill: "no chilli". */
+        @Size(max = 255)
+        private String notes;
+
+        /** Add-ons chosen on this line. Each becomes its own child sale_items row. */
+        @Valid
+        private List<SaleItemToppingRequest> toppings;
+
         /** A line is valid if it references a catalog product OR carries a custom name. */
         @AssertTrue(message = "Each line must have a productId or a custom itemName")
         public boolean isProductOrName() {
             return productId != null || (itemName != null && !itemName.isBlank());
         }
+    }
+
+    /**
+     * One add-on on a line.
+     *
+     * <p>{@code unitPrice} is only ever consulted for a topping whose stored
+     * {@code price_mode} is {@code PROMPT}. For a {@code FIXED} topping the server
+     * bills its configured price and discards whatever arrives here — the same rule
+     * catalogue products live under.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SaleItemToppingRequest {
+
+        @NotNull(message = "toppingId is required")
+        private UUID toppingId;
+
+        /** Per parent unit. Defaults to 1 — "double cheese" is quantity 2. */
+        @DecimalMin(value = "0", inclusive = false, message = "topping quantity must be positive")
+        private BigDecimal quantity;
+
+        /** Required only for a PROMPT topping; ignored otherwise. */
+        @DecimalMin(value = "0", message = "topping unitPrice must be non-negative")
+        private BigDecimal unitPrice;
     }
 }

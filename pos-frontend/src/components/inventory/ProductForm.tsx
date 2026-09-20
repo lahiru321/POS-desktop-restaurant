@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { inventoryService } from "@/services/inventoryService";
 import { branchService } from "@/services/branchService";
+import { toppingService } from "@/services/toppingService";
 import { supplierService, Supplier } from "@/services/supplierService";
 import { toast } from "sonner";
 import { Product, ProductRequest, Category, Brand } from "@/types/inventory";
@@ -117,6 +118,27 @@ export default function ProductForm({ initialData }: ProductFormProps) {
   // API still requires it, and the server ignores it when tracking is off.
   const trackStock = form.watch("trackStock");
 
+  // Add-on groups are a separate resource with their own endpoint, so they are
+  // held outside the form and saved after the product, once it has an id.
+  const { data: toppingGroupOptions = [] } = useQuery({
+    queryKey: QK.toppingGroups,
+    queryFn: toppingService.getGroups,
+    staleTime: 5 * 60 * 1000,
+  });
+  const [selectedToppingGroups, setSelectedToppingGroups] = useState<string[]>([]);
+
+  const { data: existingToppingGroupIds } = useQuery({
+    queryKey: QK.productToppingGroups(initialData?.id ?? ''),
+    queryFn: () => toppingService.getGroupsForProduct(initialData!.id).then(gs => gs.map(g => g.id)),
+    enabled: !!initialData?.id,
+  });
+
+  useEffect(() => {
+    if (existingToppingGroupIds) {
+      setSelectedToppingGroups(existingToppingGroupIds);
+    }
+  }, [existingToppingGroupIds]);
+
   const searchParams = useSearchParams();
   const barcodeFromUrl = searchParams.get("barcode");
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -136,6 +158,10 @@ export default function ProductForm({ initialData }: ProductFormProps) {
         brandId: initialData.brandId || null,
         primarySupplierId: initialData.primarySupplierId || null,
         isActive: initialData.isActive ?? true,
+        // Must be reset alongside the rest: omitting it falls back to the schema
+        // default of true, which would silently re-enable stock tracking on a
+        // made-to-order product the moment anyone opened it to edit.
+        trackStock: initialData.trackStock ?? true,
         imageUrl: initialData.imageUrl || "",
         branchStockLevels: {},
       });
@@ -156,7 +182,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
   }, [barcodeFromUrl, initialData, form]);
 
   const mutation = useMutation({
-    mutationFn: (data: ProductFormValues) => {
+    mutationFn: async (data: ProductFormValues) => {
       const payload: ProductRequest = {
         ...data,
         categoryId: data.categoryId || undefined,
@@ -171,10 +197,17 @@ export default function ProductForm({ initialData }: ProductFormProps) {
         })) : undefined
       };
       
-      if (initialData) {
-        return inventoryService.updateProduct(initialData.id, payload);
+      // Add-on groups are a child resource, so they can only be attached once the
+      // product has an id. On create that means a second call after the first
+      // returns; on update the id is already known.
+      const saved = initialData
+        ? await inventoryService.updateProduct(initialData.id, payload)
+        : await inventoryService.createProduct(payload);
+
+      if (toppingGroupOptions.length > 0) {
+        await toppingService.setGroupsForProduct(saved.id, selectedToppingGroups);
       }
-      return inventoryService.createProduct(payload);
+      return saved;
     },
     onSuccess: async (updated) => {
       if (initialData) {
@@ -184,6 +217,9 @@ export default function ProductForm({ initialData }: ProductFormProps) {
         queryKey: ['products'],
         refetchType: 'all',
       });
+      // The till caches which products have add-ons; attaching a group here has
+      // to invalidate it or the new group is never offered.
+      await queryClient.invalidateQueries({ queryKey: QK.productsWithToppings });
       toast.success(initialData ? "Product updated" : "Product created");
       router.push("/inventory/products");
     },
@@ -428,6 +464,47 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                 )}
               </CardContent>
             </Card>
+
+            {/* Only shown once a tenant has authored some add-ons, so a retail
+                catalogue never grows a section it has no use for. */}
+            {toppingGroupOptions.length > 0 && (
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <CardTitle className="text-lg">Add-ons</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Groups the till will offer when this item is rung up.
+                  </p>
+                  {toppingGroupOptions.map((group) => {
+                    const checked = selectedToppingGroups.includes(group.id);
+                    return (
+                      <label
+                        key={group.id}
+                        className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/40"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setSelectedToppingGroups((prev) =>
+                              e.target.checked
+                                ? [...prev, group.id]
+                                : prev.filter((id) => id !== group.id),
+                            )
+                          }
+                          className="h-4 w-4 accent-primary"
+                        />
+                        <span className="flex-1 truncate">{group.name}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {group.toppings.length} option{group.toppings.length === 1 ? '' : 's'}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="bg-card border-border">
               <CardHeader>

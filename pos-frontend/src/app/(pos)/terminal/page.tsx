@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryService } from '@/services/inventoryService';
 import { branchService, Branch } from '@/services/branchService';
@@ -25,6 +25,8 @@ import { useConfirmDialog } from '@/components/super-admin/ConfirmDialog';
 import { POSHeader } from '@/components/pos/POSHeader';
 import { ProductSearch } from '@/components/pos/ProductSearch';
 import { ProductGrid } from '@/components/pos/ProductGrid';
+import { ToppingPickerDialog } from '@/components/pos/ToppingPickerDialog';
+import { toppingService } from '@/services/toppingService';
 import { CartItemCard } from '@/components/pos/CartItemCard';
 import { CartSummary } from '@/components/pos/CartSummary';
 import { TenderOverlay } from '@/components/pos/TenderOverlay';
@@ -165,9 +167,13 @@ export default function TerminalPage() {
 
   // Per-product cart quantities — fed to ProductGrid so it can show "at limit"
   // when a tile's cart count equals the branch stock.
+  //
+  // Summed across LINES, not assigned per line: the same product can now appear
+  // several times with different toppings, and stock is a product-level ceiling.
+  // Assigning would report only the last line and undercount the limit.
   const cartQuantities = useMemo(
     () => items.reduce<Record<string, number>>((acc, item) => {
-      acc[item.id] = item.cartQuantity;
+      acc[item.id] = (acc[item.id] ?? 0) + item.cartQuantity;
       return acc;
     }, {}),
     [items]
@@ -223,6 +229,41 @@ export default function TerminalPage() {
 
   // Custom / open line item (for products not in the catalog).
   const [customItemOpen, setCustomItemOpen] = useState(false);
+
+  // The dish awaiting add-on choices. Null when the picker is closed.
+  const [toppingProduct, setToppingProduct] = useState<Product | null>(null);
+
+  // Which products have add-ons at all. One cached call; an empty result means
+  // this tenant has no toppings configured and every tile behaves exactly as it
+  // did before, with no dialog and no extra request.
+  const { data: productsWithToppings } = useQuery({
+    queryKey: QK.productsWithToppings,
+    queryFn: toppingService.getProductIdsWithToppings,
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user && (user.roles || []).some(r => r === 'ADMIN' || r === 'MANAGER' || r === 'CASHIER'),
+  });
+  const toppingProductIds = useMemo(
+    () => new Set(productsWithToppings ?? []),
+    [productsWithToppings],
+  );
+
+  // Only fetched once the picker is actually open for a dish.
+  const { data: toppingGroups, isFetching: toppingGroupsLoading } = useQuery({
+    queryKey: QK.productToppingGroups(toppingProduct?.id ?? ''),
+    queryFn: () => toppingService.getGroupsForProduct(toppingProduct!.id),
+    enabled: !!toppingProduct,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const handleProductClick = useCallback((product: Product) => {
+    // A dish with no add-ons goes straight into the cart — the picker must never
+    // stand between a cashier and a plain item.
+    if (!toppingProductIds.has(product.id)) {
+      addToCart(product);
+      return;
+    }
+    setToppingProduct(product);
+  }, [toppingProductIds, addToCart]);
 
   // Duplicate scan protection — prevents double-fire within 500ms
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
@@ -282,12 +323,25 @@ export default function TerminalPage() {
         cashierName: `${user?.firstName} ${user?.lastName}`,
         transactionId: data.invoiceNumber,
         createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
-        items: items.map(item => ({
-          name: item.name,
-          quantity: item.cartQuantity,
-          price: item.basePrice,
-          total: item.basePrice * item.cartQuantity,
-        })),
+        // Flattened dish-then-add-ons, matching the order and the per-row
+        // amounts the backend writes to sale_items, so the printed receipt and
+        // the stored sale agree line for line.
+        items: items.flatMap(item => [
+          {
+            name: item.name,
+            quantity: item.cartQuantity,
+            price: item.basePrice,
+            total: item.basePrice * item.cartQuantity,
+            notes: item.notes,
+          },
+          ...(item.toppings ?? []).map(topping => ({
+            name: topping.name,
+            quantity: topping.quantity * item.cartQuantity,
+            price: topping.unitPrice,
+            total: topping.unitPrice * topping.quantity * item.cartQuantity,
+            isAddon: true,
+          })),
+        ]),
         subtotal: subtotal,
         tax: taxAmount,
         taxLabel: taxLabel,
@@ -360,6 +414,14 @@ export default function TerminalPage() {
         quantity: item.cartQuantity,
         unitPrice: item.basePrice,
         discountAmount: item.discountAmount,
+        notes: item.notes,
+        // The server re-resolves every price from the topping definition; a
+        // FIXED topping's unitPrice here is ignored entirely.
+        toppings: item.toppings?.map(t => ({
+          toppingId: t.toppingId,
+          quantity: t.quantity,
+          unitPrice: t.priceMode === 'PROMPT' ? t.unitPrice : undefined,
+        })),
       }))
     });
   };
@@ -503,15 +565,15 @@ export default function TerminalPage() {
       },
       incFocusedCart: () => {
         const it = items[cartIndex];
-        if (it) updateQuantity(it.id, it.cartQuantity + 1);
+        if (it) updateQuantity(it.lineId, it.cartQuantity + 1);
       },
       decFocusedCart: () => {
         const it = items[cartIndex];
-        if (it) updateQuantity(it.id, it.cartQuantity - 1);
+        if (it) updateQuantity(it.lineId, it.cartQuantity - 1);
       },
       removeFocusedCart: () => {
         const it = items[cartIndex];
-        if (it) removeFromCart(it.id);
+        if (it) removeFromCart(it.lineId);
       },
       discountFocusedCart: () => {
         (document.querySelector(`[data-cart-index="${cartIndex}"] [data-discount-trigger]`) as HTMLButtonElement | null)?.click();
@@ -592,7 +654,7 @@ export default function TerminalPage() {
             products={filteredProducts}
             isLoading={isLoading}
             searchTerm={search}
-            onProductClick={addToCart}
+            onProductClick={handleProductClick}
             selectedBranchId={selectedBranch?.id}
             cartQuantities={cartQuantities}
             focusedIndex={activeRegion === 'grid' ? gridIndex : -1}
@@ -647,7 +709,7 @@ export default function TerminalPage() {
           ) : (
             items.map((item, index) => (
               <CartItemCard
-                key={item.id}
+                key={item.lineId}
                 item={item}
                 index={index}
                 isFocused={activeRegion === 'cart' && index === cartIndex}
@@ -754,6 +816,15 @@ export default function TerminalPage() {
       />
 
       <ReturnModal saleId={returnSaleId} onClose={() => setReturnSaleId(null)} />
+
+      <ToppingPickerDialog
+        open={!!toppingProduct}
+        product={toppingProduct}
+        groups={toppingGroups ?? []}
+        isLoading={toppingGroupsLoading}
+        onClose={() => setToppingProduct(null)}
+        onAdd={(product, toppings, notes) => addToCart(product, toppings, notes)}
+      />
 
       <CustomItemModal
         open={customItemOpen}

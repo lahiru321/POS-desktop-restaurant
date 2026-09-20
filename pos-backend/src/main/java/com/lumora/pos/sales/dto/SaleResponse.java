@@ -49,5 +49,20 @@ public class SaleResponse {
         private BigDecimal discountAmount;
         private BigDecimal taxAmount;
         private BigDecimal totalAmount;
+
+        /** The dish this add-on modifies; null for a top-level line. */
+        private UUID parentItemId;
+
+        /**
+         * Set when this line is an add-on. Both a topping and a custom/open line
+         * have a null productId, so this is what tells the receipt which it is.
+         */
+        private UUID toppingId;
+
+        /** Preserves cashier order, so a topping renders under its dish. */
+        private Integer sortOrder;
+
+        /** "no chilli" — shown on the bill beneath the line. */
+        private String notes;
     }
 }

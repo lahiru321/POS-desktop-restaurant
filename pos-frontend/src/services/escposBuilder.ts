@@ -93,8 +93,17 @@ export function buildReceiptCommands(data: ReceiptData, opts: EscPosOptions): Pr
   // ── Items ─────────────────────────────────────────────────────────────
   cmds.push(sep);
   for (const item of data.items) {
-    cmds.push(leftRight(truncate(item.name, ITEM_NAME_MAX), money(item.total), width));
-    cmds.push(`  ${item.quantity} x ${money(item.price)}\n`);
+    if (item.isAddon) {
+      // Add-ons print indented under their dish, priced but without a second
+      // "qty x unit" line — that detail belongs to the item being modified.
+      cmds.push(leftRight(`  + ${truncate(item.name, ITEM_NAME_MAX - 4)}`, money(item.total), width));
+    } else {
+      cmds.push(leftRight(truncate(item.name, ITEM_NAME_MAX), money(item.total), width));
+      cmds.push(`  ${item.quantity} x ${money(item.price)}\n`);
+    }
+    if (item.notes) {
+      cmds.push(`  * ${truncate(item.notes, width - 4)}\n`);
+    }
   }
 
   // ── Summary ───────────────────────────────────────────────────────────
