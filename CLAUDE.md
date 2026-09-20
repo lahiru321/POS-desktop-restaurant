@@ -226,16 +226,18 @@ Issuance lives in a **separate Next.js app**: `D:\Lumora\Lumora License service`
 Migrations live in `pos-backend/src/main/resources/db/migration/`. Reserve the next `V<n>__` number
 before writing one — **backend CI hard-fails on duplicates**.
 
-**Highest on disk is `V58__customer_credit.sql`.** The restaurant work reserves **V59–V64**:
+**Highest on disk is `V61__sale_item_toppings.sql`.** The restaurant work reserves **V59–V64**.
+V59–V61 are written; the numbering below is what is actually on disk, which is *not* the order the
+plan first reserved — toppings landed before tables, so take the table here over the plan's:
 
-| Version | Purpose |
-|---|---|
-| `V59` | `products.track_stock` |
-| `V60` | `sale_items.parent_item_id` (self-FK, **`DEFERRABLE INITIALLY DEFERRED`**), `sort_order`, `notes` |
-| `V61` | `restaurant_areas`, `restaurant_tables`, `RESTAURANT` feature backfill |
-| `V62` | `restaurant_orders`, `restaurant_order_items`, `restaurant_order_counters` |
-| `V63` | `topping_groups`, `toppings`, `product_topping_groups`, `restaurant_order_item_toppings` |
-| `V64` | `kitchen_tickets`, `kitchen_ticket_items`, `kitchen_station` columns |
+| Version | Purpose | State |
+|---|---|---|
+| `V59` | `products.track_stock` | on disk |
+| `V60` | `topping_groups`, `toppings`, `product_topping_groups` | on disk |
+| `V61` | `sale_items.parent_item_id` (self-FK, **`DEFERRABLE INITIALLY DEFERRED`**), `topping_id`, `sort_order`, `notes` | on disk |
+| `V62` | `restaurant_areas`, `restaurant_tables`, `RESTAURANT` feature backfill | reserved |
+| `V63` | `restaurant_orders`, `restaurant_order_items`, `restaurant_order_counters` | reserved |
+| `V64` | `kitchen_tickets`, `kitchen_ticket_items`, `kitchen_station` columns | reserved |
 
 The self-FK **must** be deferrable: parent and child are both elements of the same cascaded
 `SaleEntity.items` collection, and Hibernate makes no guarantee about insert order within one entity
