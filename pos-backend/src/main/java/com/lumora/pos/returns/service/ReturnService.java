@@ -41,6 +41,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -315,10 +316,18 @@ public class ReturnService {
      * original sale happened at. Legacy sales created before V35 have no
      * branch attribution and fall back to the default-branch updateStock path
      * with a logged warning so the gap is observable in audit.
+     *
+     * A line with no productId is skipped. Both kinds of such line — a V49
+     * custom/open line and a V61 topping — are priced text with no catalogue
+     * entry and no stock_levels row, so there is nothing to restore. Without
+     * this guard the null reaches findByIdAndTenantId, matches nothing, and
+     * updateStock throws "Product not found", failing a refund the customer is
+     * owed. (Untracked products are handled a level down, in ProductService.)
      */
     private void restoreStock(ReturnEntity returnEntity, SaleEntity sale) {
         UUID branchId = sale.getBranch() != null ? sale.getBranch().getId() : null;
         for (ReturnItemEntity item : returnEntity.getItems()) {
+            if (item.getProductId() == null) continue;
             int qty = item.getQuantityReturned().intValue();
             if (branchId != null) {
                 productService.updateStockForBranch(
@@ -417,6 +426,7 @@ public class ReturnService {
         // Batch-fetch all product names in one query (avoids N+1 per item)
         List<UUID> productIds = entity.getItems().stream()
                 .map(ReturnItemEntity::getProductId)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
         Map<UUID, String> productNames = productRepository
                 .findAllByIdInAndTenantId(productIds, TenantContext.getTenantId())
@@ -452,7 +462,11 @@ public class ReturnService {
                 .id(item.getId())
                 .saleItemId(item.getSaleItem().getId())
                 .productId(item.getProductId())
-                .productName(productNames.getOrDefault(item.getProductId(), "Unknown Product"))
+                // A custom line or a topping has no product to name itself after;
+                // the sale line's own text is the only name it ever had.
+                .productName(item.getProductId() == null
+                        ? item.getSaleItem().getItemName()
+                        : productNames.getOrDefault(item.getProductId(), "Unknown Product"))
                 .quantityReturned(item.getQuantityReturned())
                 .unitPrice(item.getUnitPrice())
                 .refundAmount(item.getRefundAmount())

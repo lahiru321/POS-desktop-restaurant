@@ -10,6 +10,7 @@ import com.lumora.pos.common.exception.BusinessException;
 import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.inventory.service.ProductService;
 import com.lumora.pos.returns.dto.ReturnItemRequest;
+import com.lumora.pos.returns.dto.ReturnItemResponse;
 import com.lumora.pos.returns.dto.ReturnRequest;
 import com.lumora.pos.returns.dto.ReturnResponse;
 import com.lumora.pos.returns.entity.ReturnEntity;
@@ -222,5 +223,51 @@ class ReturnServiceTest {
         assertThat(response.getReturnType()).isEqualTo(ReturnEntity.ReturnType.DAMAGED_WRITEOFF);
         // Stock should NOT be restored
         verify(productService, never()).updateStock(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("Should refund a line with no product without touching stock")
+    void shouldRefundLineWithNullProductId() {
+        // A topping (V61) and a custom/open line (V49) both carry product_id = NULL.
+        // Before the guard this reached findByIdAndTenantId(null) and blew up with
+        // "Product not found", so the customer could not be refunded at all.
+        UUID toppingItemId = UUID.randomUUID();
+        SaleItemEntity toppingItem = new SaleItemEntity();
+        toppingItem.setId(toppingItemId);
+        toppingItem.setProductId(null);
+        toppingItem.setItemName("Extra Cheese");
+        toppingItem.setQuantity(new BigDecimal("1.00"));
+        toppingItem.setTotalAmount(new BigDecimal("50.00"));
+        saleEntity.setItems(List.of(saleItemEntity, toppingItem));
+
+        ReturnRequest request = new ReturnRequest();
+        request.setSaleId(saleId);
+        request.setReason("Refund");
+        request.setRefundMethod(ReturnEntity.RefundMethod.CASH);
+
+        ReturnItemRequest itemReq = new ReturnItemRequest();
+        itemReq.setSaleItemId(toppingItemId);
+        itemReq.setQuantity(new BigDecimal("1.00"));
+        request.setItems(List.of(itemReq));
+
+        when(saleRepository.findByIdAndTenantId(saleId, tenantId)).thenReturn(Optional.of(saleEntity));
+        when(returnRepository.findAllBySaleIdAndTenantIdOrderByCreatedAtDesc(saleId, tenantId))
+                .thenReturn(Collections.emptyList());
+        when(returnRepository.save(any(ReturnEntity.class))).thenAnswer(inv -> {
+            ReturnEntity entity = inv.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            return entity;
+        });
+
+        ReturnResponse response = returnService.createReturn(request);
+
+        assertThat(response.getRefundAmount()).isEqualByComparingTo("50.00");
+        // Nothing to put back: no catalogue entry, no stock_levels row.
+        verify(productService, never()).updateStock(any(), anyInt());
+        verify(productService, never()).updateStockForBranch(any(), any(), anyInt(), any());
+        // The line names itself, rather than showing as "Unknown Product".
+        assertThat(response.getItems()).singleElement()
+                .extracting(ReturnItemResponse::getProductName)
+                .isEqualTo("Extra Cheese");
     }
 }
