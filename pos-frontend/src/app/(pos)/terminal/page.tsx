@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryService } from '@/services/inventoryService';
 import { branchService, Branch } from '@/services/branchService';
@@ -8,18 +8,31 @@ import { taxService } from '@/services/taxService';
 import { cashSessionService } from '@/services/cashSessionService';
 import { tenantService } from '@/services/tenantService';
 import { SaleResponse, salesService, SaleRequest, SalesSummaryResponse } from '@/services/salesService';
-import { useCart, TaxContext } from '@/hooks/useCart';
-import { ShoppingCart, Loader2, Plus } from 'lucide-react';
+import { useCart, TaxContext, type CartView } from '@/hooks/useCart';
+import { useDineInCart } from '@/hooks/useDineInCart';
+import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
-import { usePosKeyboard, HOTKEY_LEGEND, POS_CUSTOM_ITEM_BUTTON_ID, type PosRegion } from '@/hooks/usePosKeyboard';
+import {
+  usePosKeyboard,
+  HOTKEY_LEGEND,
+  RESTAURANT_HOTKEY_LEGEND,
+  POS_CUSTOM_ITEM_BUTTON_ID,
+  type PosRegion,
+} from '@/hooks/usePosKeyboard';
 import { receiptPrinterService, ReceiptData } from '@/services/receiptPrinterService';
 import { Customer } from '@/services/customerService';
 import { performLogout } from '@/lib/performLogout';
 import { QK } from '@/lib/queryKeys';
+import { fc, getApiErrorMessage } from '@/lib/utils';
 import { useConfirmDialog } from '@/components/super-admin/ConfirmDialog';
+import {
+  restaurantOrderService,
+  type RepricedLine,
+  type SettleRequest,
+} from '@/services/restaurantOrderService';
 
 // POS Components
 import { POSHeader } from '@/components/pos/POSHeader';
@@ -34,6 +47,8 @@ import { CorrectPaymentModal } from '@/components/pos/CorrectPaymentModal';
 import { CorrectSalePickerModal } from '@/components/pos/CorrectSalePickerModal';
 import { ReturnModal } from '@/components/pos/ReturnModal';
 import { ShortcutsOverlay } from '@/components/pos/ShortcutsOverlay';
+import { FloorSheet } from '@/components/pos/FloorSheet';
+import { formatElapsed } from '@/components/pos/FloorPlan';
 import { CustomerSelector } from '@/components/pos/CustomerSelector';
 import { Receipt } from '@/components/pos/Receipt';
 import { ShiftSummary } from '@/components/pos/ShiftSummary';
@@ -42,9 +57,34 @@ import { EndShiftModal } from '@/components/pos/EndShiftModal';
 import { LogoutShiftWarningDialog } from '@/components/pos/LogoutShiftWarningDialog';
 import { CustomItemModal } from '@/components/pos/CustomItemModal';
 import InventoryAdjustmentModal from '@/components/inventory/InventoryAdjustmentModal';
+import { Button } from '@/components/ui/button';
 import { Product } from '@/types/inventory';
 
+/** "Chicken Kottu - Extra cheese   1,200.00 -> 1,350.00" for a toast line. */
+function describeRepricedLine(line: RepricedLine): string {
+  const name = line.toppingName ? `${line.itemName} · ${line.toppingName}` : line.itemName;
+  return `${name}  ${fc(line.orderedPrice)} → ${fc(line.billedPrice)}`;
+}
+
+/**
+ * `useSearchParams` makes this route dynamic, so the page body is wrapped in a
+ * Suspense boundary rather than the boundary being pushed up into the layout.
+ */
 export default function TerminalPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="dark h-screen flex items-center justify-center bg-background">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
+        </div>
+      }
+    >
+      <Terminal />
+    </Suspense>
+  );
+}
+
+function Terminal() {
   // State
   const [search, setSearch] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'ONLINE' | 'SPLIT' | 'CREDIT'>('CASH');
@@ -73,6 +113,8 @@ export default function TerminalPage() {
   // Auth & Navigation
   const { user, loginMethod } = useAuthStore();
   const storeCreditEnabled = useAuthStore((state) => state.hasFeature('STORE_CREDIT'));
+  // Level one of the restaurant gate: does the API even exist for this install?
+  const hasRestaurantFeature = useAuthStore((state) => state.hasFeature('RESTAURANT'));
   const router = useRouter();
   const queryClient = useQueryClient();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
@@ -147,7 +189,56 @@ export default function TerminalPage() {
     setSelectedBranch(sessionBranch || branches.find(b => b.isDefault) || branches[0]);
   }, [branches, activeSession]);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Restaurant mode
+  //
+  // Level two of the gate. The desktop installer grants every feature to every
+  // install, so the flag alone would grow a Floor button on a hardware shop;
+  // `restaurantMode` is the tenant saying it actually runs as a restaurant.
+  // BOTH must be true before a single line below changes what a till does, and
+  // every restaurant branch in this file is guarded by `restaurantEnabled` or by
+  // `dineInActive`, which implies it.
+  // ─────────────────────────────────────────────────────────────────────────
+  const restaurantEnabled = hasRestaurantFeature && (tenantInfo?.restaurantMode ?? false);
+
+  // The tab this terminal is working on, if any. Seeded from `?orderId` so a
+  // reload — or a hand-off from /floor — comes back to the same tab, which is
+  // the real improvement over an ephemeral cart: the order lives server-side.
+  // Held in state thereafter so FloorSheet can switch tables without a
+  // navigation, which would unmount the terminal and take any retail cart with
+  // it.
+  const initialOrderId = useSearchParams().get('orderId');
+  const [dineInOrderId, setDineInOrderId] = useState<string | null>(initialOrderId);
+  const [floorOpen, setFloorOpen] = useState(false);
+
+  const selectOrder = useCallback((orderId: string | null) => {
+    setDineInOrderId(orderId);
+    // `history.replaceState` rather than `router.replace`: the URL has to survive
+    // a reload, but re-rendering the route to achieve that would risk the
+    // `useState` cart sitting behind the tab.
+    window.history.replaceState(null, '', orderId ? `/terminal?orderId=${orderId}` : '/terminal');
+  }, []);
+
   // Cart — branch-aware so add/update reads the right stockLevels row.
+  const retailCart = useCart(taxContext, selectedBranch?.id, tenantInfo?.taxInclusive ?? true);
+
+  // The same interface, backed by `restaurant_orders` instead of `useState`.
+  // Every query inside is `enabled: restaurantEnabled && !!orderId`, so on a
+  // retail till this hook issues no requests at all.
+  const dineIn = useDineInCart({
+    orderId: restaurantEnabled ? dineInOrderId : null,
+    enabled: restaurantEnabled,
+    taxContext,
+    taxInclusive: tenantInfo?.taxInclusive ?? true,
+    branchId: selectedBranch?.id,
+  });
+
+  /** The one predicate every restaurant branch below keys off. */
+  const dineInActive = restaurantEnabled && !!dineInOrderId && !!dineIn.order;
+
+  // With `dineInActive` false this is `retailCart`, object for object, so the
+  // whole terminal below is on exactly the code path it has always been on.
+  const view: CartView = dineInActive ? dineIn : retailCart;
   const {
     items,
     addToCart,
@@ -163,7 +254,23 @@ export default function TerminalPage() {
     taxInclusive,
     total,
     itemCount,
-  } = useCart(taxContext, selectedBranch?.id, tenantInfo?.taxInclusive ?? true);
+  } = view;
+
+  // A tab settled or voided on another till is not a cart. Drop back to retail
+  // rather than letting anyone ring into a closed order.
+  useEffect(() => {
+    if (!dineIn.isClosed) return;
+    toast.info('That tab is no longer open.');
+    selectOrder(null);
+  }, [dineIn.isClosed, selectOrder]);
+
+  // Elapsed minutes have to keep moving between the order's own polls.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!dineInActive) return;
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [dineInActive]);
 
   // Per-product cart quantities — fed to ProductGrid so it can show "at limit"
   // when a tile's cart count equals the branch stock.
@@ -294,6 +401,39 @@ export default function TerminalPage() {
     }
   });
 
+  // Builds the thermal-printer payload for a completed sale. Pulls the real
+  // gross tendered / change off the sale (persisted on the server) so reprints —
+  // and receipts reprinted after a payment correction — show the correct
+  // Cash/Change lines instead of defaulting to an exact tender.
+  const buildReceiptData = (sale: SaleResponse): ReceiptData => ({
+    tenantName: tenantInfo?.name || 'StoreX',
+    logoUrl: tenantInfo?.logoUrl ?? undefined,
+    tenantAddressLine1: tenantInfo?.addressLine1 ?? undefined,
+    tenantAddressLine2: tenantInfo?.addressLine2 ?? undefined,
+    tenantPhone: tenantInfo?.phone ?? undefined,
+    branchName: selectedBranch?.name || 'Main Branch',
+    showBranch: branches.length > 1,
+    cashierName: `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim(),
+    transactionId: sale.invoiceNumber,
+    createdAt: sale.createdAt ? new Date(sale.createdAt) : new Date(),
+    items: (sale.items ?? []).map((it) => ({
+      name: it.productName,
+      quantity: Number(it.quantity),
+      price: Number(it.unitPrice),
+      total: Number(it.totalAmount),
+    })),
+    subtotal: Number(sale.totalAmount),
+    tax: Number(sale.taxAmount),
+    taxLabel,
+    discount: Number(sale.discountAmount),
+    taxInclusive: sale.taxInclusive ?? false,
+    total: Number(sale.netAmount),
+    paymentMethod: sale.paymentMethod as 'CASH' | 'CARD' | 'ONLINE',
+    tendered: Number(sale.amountTendered ?? sale.netAmount),
+    change: Number(sale.changeDue ?? 0),
+    receiptFooter: tenantInfo?.receiptFooter ?? undefined,
+  });
+
   // Checkout Mutation
   const checkoutMutation = useMutation({
     mutationFn: (data: SaleRequest) => salesService.createSale(data),
@@ -400,6 +540,20 @@ export default function TerminalPage() {
 
   const handleCheckout = () => {
     if (items.length === 0) return;
+
+    // Dine-in settles the server-side tab instead of posting a cart. Points are
+    // not offered on a tab (see `loyaltyEnabled` on the overlay), so none are
+    // sent: the sale's customer is the one stamped on the order at open time.
+    if (dineInActive && dineInOrderId) {
+      settleMutation.mutate({
+        paymentMethod,
+        cashTendered: (paymentMethod === 'CASH' || paymentMethod === 'SPLIT') && cashTendered > 0
+          ? cashTendered
+          : undefined,
+      });
+      return;
+    }
+
     checkoutMutation.mutate({
       customerId: selectedCustomer?.id,
       branchId: selectedBranch?.id,
@@ -472,6 +626,21 @@ export default function TerminalPage() {
   };
 
   const handleDiscard = async () => {
+    // On a tab, "discard" is a write-off of a persisted order, not a cleared
+    // cart — so it says exactly that and goes to the void endpoint.
+    if (dineInActive && dineIn.order) {
+      const order = dineIn.order;
+      const ok = await confirm({
+        title: `Void ${order.label}?`,
+        description:
+          'Everything on this tab is written off and the table is freed. Nobody is charged. Managers and admins only.',
+        confirmLabel: 'Void the tab',
+        variant: 'destructive',
+      });
+      if (ok) voidOrderMutation.mutate(order.id);
+      return;
+    }
+
     if (items.length === 0) return;
     const ok = await confirm({
       title: 'Discard current sale?',
@@ -498,39 +667,6 @@ export default function TerminalPage() {
     setCorrectPickerOpen(true);
   };
 
-  // Builds the thermal-printer payload for a completed sale. Pulls the real
-  // gross tendered / change off the sale (persisted on the server) so reprints —
-  // and receipts reprinted after a payment correction — show the correct
-  // Cash/Change lines instead of defaulting to an exact tender.
-  const buildReceiptData = (sale: SaleResponse): ReceiptData => ({
-    tenantName: tenantInfo?.name || 'StoreX',
-    logoUrl: tenantInfo?.logoUrl ?? undefined,
-    tenantAddressLine1: tenantInfo?.addressLine1 ?? undefined,
-    tenantAddressLine2: tenantInfo?.addressLine2 ?? undefined,
-    tenantPhone: tenantInfo?.phone ?? undefined,
-    branchName: selectedBranch?.name || 'Main Branch',
-    showBranch: branches.length > 1,
-    cashierName: `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim(),
-    transactionId: sale.invoiceNumber,
-    createdAt: sale.createdAt ? new Date(sale.createdAt) : new Date(),
-    items: (sale.items ?? []).map((it) => ({
-      name: it.productName,
-      quantity: Number(it.quantity),
-      price: Number(it.unitPrice),
-      total: Number(it.totalAmount),
-    })),
-    subtotal: Number(sale.totalAmount),
-    tax: Number(sale.taxAmount),
-    taxLabel,
-    discount: Number(sale.discountAmount),
-    taxInclusive: sale.taxInclusive ?? false,
-    total: Number(sale.netAmount),
-    paymentMethod: sale.paymentMethod as 'CASH' | 'CARD' | 'ONLINE',
-    tendered: Number(sale.amountTendered ?? sale.netAmount),
-    change: Number(sale.changeDue ?? 0),
-    receiptFooter: tenantInfo?.receiptFooter ?? undefined,
-  });
-
   // F12 — re-print the most recent completed sale.
   const handlePrintLastReceipt = () => {
     if (!lastSale) {
@@ -539,6 +675,68 @@ export default function TerminalPage() {
     }
     receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(lastSale));
   };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Settle — dine-in only
+  //
+  // The till sends nothing but how the tab is being paid.
+  // `RestaurantOrderService.settle` rebuilds the SaleRequest from the order and
+  // calls `SaleService.createSale` UNMODIFIED, which is exactly why the sale
+  // lands on the drawer of whoever is standing here — a tab opened by one server
+  // at 19:00 and paid to another at 21:00 reconciles on the payer's Z-report.
+  // ─────────────────────────────────────────────────────────────────────────
+  const settleMutation = useMutation({
+    mutationFn: (data: SettleRequest) => restaurantOrderService.settle(dineInOrderId!, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: QK.cashSessionActive });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
+      if (dineInOrderId) queryClient.removeQueries({ queryKey: QK.restaurantOrder(dineInOrderId) });
+
+      toast.success(`${result.label} paid — ${result.sale.invoiceNumber}`);
+
+      // The pre-settle banner was a preview computed off the catalogue; this is
+      // the server's own list of what it actually billed. Say so rather than
+      // letting the cashier find it on the customer's receipt.
+      if (result.repricedLines.length > 0) {
+        toast.warning('Menu prices had moved since these were ordered', {
+          description: result.repricedLines.map(describeRepricedLine).join(' · '),
+          duration: 12000,
+        });
+      }
+
+      setTenderOpen(false);
+      setLastSale(result.sale);
+      setCashTendered(0);
+      setPointsToRedeem(0);
+      selectOrder(null);
+      receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(result.sale));
+    },
+    onError: (error: unknown) => {
+      // Surfaced, never swallowed. This is where `createSale`'s branch guard
+      // arrives ("… does not match your open drawer"), and where an item that
+      // went out of stock during the meal arrives too. The overlay stays open so
+      // the cashier can act on it.
+      toast.error(getApiErrorMessage(error, 'Could not settle this tab'));
+    },
+  });
+
+  // F8 on a tab. ADMIN/MANAGER server-side; the message from a refused attempt
+  // is shown rather than the control being hidden from cashiers here.
+  const voidOrderMutation = useMutation({
+    mutationFn: (orderId: string) => restaurantOrderService.voidOrder(orderId),
+    onSuccess: (order) => {
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
+      queryClient.removeQueries({ queryKey: QK.restaurantOrder(order.id) });
+      toast.success(`${order.label} voided`);
+      selectOrder(null);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not void this tab'));
+    },
+  });
 
   usePosKeyboard({
     // Disabled while a blocking surface owns the keyboard: the tender overlay
@@ -585,8 +783,73 @@ export default function TerminalPage() {
       hold: () => {},
       discard: handleDiscard,
       showHelp: () => setHelpOpen(true),
+      // Undefined on a retail till, which is what leaves F11 to the browser.
+      toggleFloor: restaurantEnabled ? () => setFloorOpen((open) => !open) : undefined,
     },
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // What the cashier must see BEFORE committing a settle
+  //
+  // Both of these are dine-in only and are `undefined` on a retail sale, so the
+  // tender overlay renders nothing extra at a retail till.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // `createSale` re-reads `product.getBasePrice()` for every catalogue line, so
+  // a menu price changed mid-meal re-prices the open tab at settle. That is
+  // correct server-authoritative behaviour and is NOT worked around here — the
+  // difference is shown while the sale can still be stopped.
+  const repriced = dineInActive ? dineIn.repricedPreview : [];
+
+  // `createSale` also rejects a sale whose branch differs from the payer's open
+  // drawer. Stating it up front beats a refusal after the customer has handed
+  // over a card.
+  const dineInBranchMismatch =
+    dineInActive &&
+    !!dineIn.order?.branchId &&
+    !!activeSession?.branchId &&
+    dineIn.order.branchId !== activeSession.branchId;
+
+  const tenderWarning = dineInActive ? (
+    <>
+      {repriced.length > 0 && (
+        <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
+          <p className="font-semibold text-warning">
+            Menu prices have moved since this tab was opened
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            The bill is rung at today&apos;s prices. The server re-reads the catalogue at
+            settle and that cannot be overridden from here.
+          </p>
+          <ul className="mt-2 space-y-0.5">
+            {repriced.map((line) => (
+              <li
+                key={`${line.itemName}-${line.toppingName ?? ''}`}
+                className="flex justify-between gap-3 tabular-nums text-foreground/90"
+              >
+                <span className="truncate">
+                  {line.toppingName ? `${line.itemName} · ${line.toppingName}` : line.itemName}
+                </span>
+                <span className="shrink-0">
+                  {fc(line.orderedPrice)} &rarr; {fc(line.billedPrice)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {dineInBranchMismatch && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm">
+          <p className="font-semibold text-destructive">This tab belongs to another branch</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            A sale has to match the branch of the drawer it lands in, so settling it here
+            will be refused. Settle it at the branch the tab was opened on.
+          </p>
+        </div>
+      )}
+    </>
+  ) : undefined;
 
   // Render
   if (sessionLoading) {
@@ -638,6 +901,68 @@ export default function TerminalPage() {
           // (at-the-register) login has no dashboard access, so the button hides.
           onBackToDashboard={loginMethod === 'PASSWORD' ? () => router.push('/overview') : undefined}
         />
+        {/* Restaurant strip. Renders nothing whatsoever unless BOTH the
+            RESTAURANT feature and the tenant's restaurantMode are on. */}
+        {restaurantEnabled && (
+          <div className="flex items-center gap-2 sm:gap-3 border-b border-gray-800 bg-gray-900/40 px-4 py-2 text-sm shrink-0">
+            {dineInActive && dineIn.order ? (
+              <>
+                <span className="shrink-0 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                  Dine-in
+                </span>
+                <span className="truncate font-semibold text-white">{dineIn.order.label}</span>
+                {dineIn.order.covers > 0 && (
+                  <span className="hidden shrink-0 tabular-nums text-gray-400 sm:inline">
+                    {dineIn.order.covers} covers
+                  </span>
+                )}
+                <span className="shrink-0 tabular-nums text-gray-400">
+                  {formatElapsed(dineIn.order.openedAt, now)}
+                </span>
+                {dineIn.isBusy && (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gray-400" aria-hidden="true" />
+                )}
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setFloorOpen(true)}
+                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
+                    title="Open the floor (F11)"
+                  >
+                    <LayoutGrid size={14} /> Floor
+                    <kbd className="hidden rounded border border-gray-700 px-1 font-mono text-[10px] text-gray-500 sm:inline">F11</kbd>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => selectOrder(null)}
+                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800"
+                    title="Leave this tab open and go back to the till"
+                  >
+                    <LogOut size={14} /> Leave tab
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="truncate text-gray-400">
+                  Counter sale &mdash; no table. Open the floor to seat one.
+                </span>
+                <div className="ml-auto shrink-0">
+                  <Button
+                    variant="outline"
+                    onClick={() => setFloorOpen(true)}
+                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
+                    title="Open the floor (F11)"
+                  >
+                    <LayoutGrid size={14} /> Floor
+                    <kbd className="hidden rounded border border-gray-700 px-1 font-mono text-[10px] text-gray-500 sm:inline">F11</kbd>
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <ProductSearch search={search} onSearchChange={setSearch} />
         <div className="px-4 -mt-2 pb-2 bg-black shrink-0">
           <button
@@ -662,7 +987,7 @@ export default function TerminalPage() {
         </div>
 
         <div className="border-t border-border bg-card/70 px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-muted-foreground print:hidden shrink-0">
-          {HOTKEY_LEGEND.map((h) => (
+          {(restaurantEnabled ? RESTAURANT_HOTKEY_LEGEND : HOTKEY_LEGEND).map((h) => (
             <div key={h.key} className="flex items-center gap-2">
               <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border text-foreground font-mono text-xs">
                 {h.key}
@@ -679,7 +1004,9 @@ export default function TerminalPage() {
       >
         <div className="h-14 border-b border-border flex items-center px-4 sm:px-6 shrink-0">
           <ShoppingCart className="text-primary mr-2" size={20} aria-hidden="true" />
-          <h2 className="font-bold text-lg text-foreground">Current Sale</h2>
+          <h2 className="font-bold text-lg text-foreground">
+            {dineInActive ? 'Open Tab' : 'Current Sale'}
+          </h2>
           <div
             className="ml-auto bg-primary/20 text-primary px-2 py-1 rounded text-xs font-bold tabular-nums"
             aria-live="polite"
@@ -688,9 +1015,14 @@ export default function TerminalPage() {
           </div>
         </div>
 
-        <div className="px-4 py-3 border-b border-border/60 shrink-0">
-          <CustomerSelector selectedCustomer={selectedCustomer} onSelect={setSelectedCustomer} />
-        </div>
+        {/* A tab's customer is stamped on the order when the table is seated and
+            there is no Phase 2 endpoint to change it, so attaching one here would
+            do nothing at settle. Hidden rather than left as a control that lies. */}
+        {!dineInActive && (
+          <div className="px-4 py-3 border-b border-border/60 shrink-0">
+            <CustomerSelector selectedCustomer={selectedCustomer} onSelect={setSelectedCustomer} />
+          </div>
+        )}
 
         <div
           className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2.5 min-h-0"
@@ -701,7 +1033,7 @@ export default function TerminalPage() {
           {items.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground italic gap-2 py-12">
               <ShoppingCart size={40} className="opacity-30" aria-hidden="true" />
-              <p className="text-sm">Cart is empty</p>
+              <p className="text-sm">{dineInActive ? 'Nothing on this tab yet' : 'Cart is empty'}</p>
               <p className="text-xs text-muted-foreground/80 not-italic">
                 Scan a barcode or tap a product to start
               </p>
@@ -716,6 +1048,9 @@ export default function TerminalPage() {
                 onUpdateQuantity={updateQuantity}
                 onRemove={removeFromCart}
                 onSetDiscount={setItemDiscount}
+                // No endpoint stores a discount on an order line, so the control
+                // is absent on a tab rather than silently dropping the number.
+                showDiscount={!dineInActive}
               />
             ))
           )}
@@ -730,8 +1065,14 @@ export default function TerminalPage() {
           total={total}
           itemCount={itemCount}
           onCharge={openTender}
+          chargeLabel={dineInActive ? 'SETTLE' : 'CHARGE'}
+          // "Hold Sale" has been wired to a no-op since this terminal was
+          // written. Hidden now, in both modes — nothing here can hold a sale,
+          // and a tab is already parked server-side the moment it exists.
           onHold={() => {}}
+          showHold={false}
           onDiscard={handleDiscard}
+          discardLabel={dineInActive ? 'Void tab' : 'Discard'}
         />
       </aside>
 
@@ -754,19 +1095,36 @@ export default function TerminalPage() {
         taxLabel={taxLabel}
         taxInclusive={taxInclusive}
         total={total}
-        isProcessing={checkoutMutation.isPending}
+        isProcessing={dineInActive ? settleMutation.isPending : checkoutMutation.isPending}
         onComplete={handleCheckout}
-        loyaltyEnabled={!!tenantInfo?.loyaltyEnabled && !!selectedCustomer}
+        loyaltyEnabled={!dineInActive && !!tenantInfo?.loyaltyEnabled && !!selectedCustomer}
         customerPoints={selectedCustomer?.loyaltyPoints ?? 0}
         pointValue={tenantInfo?.loyaltyPointValue ?? 0}
         pointsToRedeem={pointsToRedeem}
         onPointsToRedeemChange={setPointsToRedeem}
-        creditEnabled={creditEligible}
+        creditEnabled={!dineInActive && creditEligible}
         availableCredit={availableCredit}
         creditBalance={creditBalance}
+        // Undefined on the retail path, so the overlay renders exactly what it
+        // always has.
+        warning={tenderWarning}
       />
 
-      <ShortcutsOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <ShortcutsOverlay
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        restaurantMode={restaurantEnabled}
+      />
+
+      {/* The mid-service floor. Mounted inside the terminal, never routed to, so
+          switching tables cannot unmount the cart. */}
+      {restaurantEnabled && (
+        <FloorSheet
+          open={floorOpen}
+          onOpenChange={setFloorOpen}
+          onSelectOrder={(orderId) => selectOrder(orderId)}
+        />
+      )}
 
       <EndShiftModal
         open={endShiftOpen}

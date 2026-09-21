@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CreditCard, Banknote, QrCode, SplitSquareHorizontal, Loader2, CheckCircle2, Star, Wallet } from 'lucide-react';
 import {
   Dialog,
@@ -46,6 +46,16 @@ interface TenderOverlayProps {
   creditEnabled?: boolean;
   availableCredit?: number;
   creditBalance?: number;
+  /**
+   * Rendered above the payment methods, where the cashier cannot miss it and
+   * the sale can still be stopped.
+   *
+   * Undefined on the retail path, which therefore renders nothing at all. Used
+   * by a dine-in settle for the two things that only become true between
+   * ordering and paying: lines the menu re-priced under the tab, and a tab whose
+   * branch does not match the open drawer.
+   */
+  warning?: ReactNode;
 }
 
 const BASE_PAYMENT_OPTIONS: { method: PaymentMethod; icon: typeof Banknote; label: string }[] = [
@@ -87,6 +97,7 @@ export function TenderOverlay({
   creditEnabled = false,
   availableCredit = 0,
   creditBalance = 0,
+  warning,
 }: TenderOverlayProps) {
   const [cashStr, setCashStr] = useState(cashTendered > 0 ? String(cashTendered) : '');
 
@@ -181,6 +192,8 @@ export function TenderOverlay({
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
+          {warning}
+
           <div
             className={cn('grid gap-2', paymentOptions.length >= 5 ? 'grid-cols-5' : 'grid-cols-4')}
             role="radiogroup"

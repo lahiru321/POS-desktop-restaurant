@@ -17,9 +17,18 @@ interface CartItemCardProps {
   isFocused?: boolean;
   /** Position in the cart, exposed via data-cart-index for keyboard actions. */
   index?: number;
+  /**
+   * Whether the line can be discounted. True on a retail sale.
+   *
+   * A dine-in tab passes false: `PATCH /restaurant/orders/{id}/items/{itemId}`
+   * carries quantity, notes and course and nothing else, so a discount typed on
+   * a tab could not be stored and would be gone by settle. F6 finds no
+   * `[data-discount-trigger]` and does nothing, which is the honest outcome.
+   */
+  showDiscount?: boolean;
 }
 
-export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, isFocused = false, index }: CartItemCardProps) {
+export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, isFocused = false, index, showDiscount = true }: CartItemCardProps) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -165,6 +174,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
             </div>
           </div>
 
+          {showDiscount && (
           <button
             type="button"
             data-discount-trigger
@@ -181,6 +191,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
               ? `- ${CURRENCY.symbol} ${item.discountAmount.toFixed(2)}`
               : 'Add discount'}
           </button>
+          )}
         </div>
 
         <Button
@@ -196,6 +207,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
         </Button>
       </div>
 
+      {showDiscount && (
       <DiscountDialog
         open={discountOpen}
         onOpenChange={setDiscountOpen}
@@ -204,6 +216,7 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
         currentDiscount={item.discountAmount}
         onApply={(amount) => onSetDiscount(item.lineId, amount)}
       />
+      )}
     </>
   );
 }

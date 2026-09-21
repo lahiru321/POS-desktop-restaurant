@@ -15,8 +15,25 @@ interface CartSummaryProps {
   itemCount: number;
   /** Open the tender overlay. */
   onCharge: () => void;
+  /**
+   * Verb on the big CTA. 'CHARGE' on a retail sale; a dine-in tab says 'SETTLE',
+   * because the money was never on the counter until now.
+   */
+  chargeLabel?: string;
   onHold: () => void;
+  /**
+   * Whether to render "Hold Sale" at all.
+   *
+   * It has been wired to `onHold={() => {}}` since the terminal was written — a
+   * live control that does nothing. Defaulting to false removes it rather than
+   * leaving it there: nothing in this build can hold a sale, and a button that
+   * lies is worse than a button that is absent. Restaurant mode does not need it
+   * either — a dine-in tab is already parked, server-side, the moment it exists.
+   */
+  showHold?: boolean;
   onDiscard: () => void;
+  /** Verb on the secondary destructive control. */
+  discardLabel?: string;
 }
 
 /**
@@ -33,8 +50,11 @@ export function CartSummary({
   total,
   itemCount,
   onCharge,
+  chargeLabel = 'CHARGE',
   onHold,
+  showHold = false,
   onDiscard,
+  discardLabel = 'Discard',
 }: CartSummaryProps) {
   const empty = itemCount === 0;
 
@@ -64,26 +84,28 @@ export function CartSummary({
       <Button
         onClick={onCharge}
         disabled={empty}
-        aria-label={`Charge ${CURRENCY.symbol} ${total.toFixed(2)}`}
+        aria-label={`${chargeLabel} ${CURRENCY.symbol} ${total.toFixed(2)}`}
         className="w-full h-16 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-lg rounded-2xl shadow-xl shadow-primary/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         <span className="flex items-center gap-2">
           <ShoppingCart size={20} aria-hidden="true" />
-          CHARGE {CURRENCY.symbol} {total.toFixed(2)}
+          {chargeLabel} {CURRENCY.symbol} {total.toFixed(2)}
         </span>
       </Button>
 
       <div className="flex gap-2">
-        <Button variant="outline" className="flex-1 min-h-touch rounded-xl" onClick={onHold} disabled={empty}>
-          Hold Sale
-        </Button>
+        {showHold && (
+          <Button variant="outline" className="flex-1 min-h-touch rounded-xl" onClick={onHold} disabled={empty}>
+            Hold Sale
+          </Button>
+        )}
         <Button
           variant="outline"
           className="flex-1 min-h-touch rounded-xl border-destructive/30 text-red-400 hover:bg-destructive/10 hover:text-red-300"
           onClick={onDiscard}
           disabled={empty}
         >
-          Discard
+          {discardLabel}
         </Button>
       </div>
     </div>

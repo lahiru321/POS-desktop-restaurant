@@ -106,12 +106,151 @@ function isUnlimited(product: Product | CartItem): boolean {
  * SUM over stock_levels, so an untracked product reports 0 and would otherwise be
  * unsellable. The ceiling must come from the flag, never from the number.
  */
-function stockForBranch(product: Product, branchId?: string): number {
+export function stockForBranch(product: Product, branchId?: string): number {
   if (isUnlimited(product)) return Number.MAX_SAFE_INTEGER;
   if (branchId && product.stockLevels) {
     return product.stockLevels.find(sl => sl.branchId === branchId)?.quantity ?? 0;
   }
   return product.stockQuantity;
+}
+
+/**
+ * Everything the cart footer, the tender overlay and the receipt need, derived
+ * from a list of lines.
+ *
+ * Split out of `useCart` so a dine-in tab — whose lines live on the server, not
+ * in `useState` — can be totalled by the SAME arithmetic. The tax chain is
+ * already implemented twice (here and in the backend's `TaxRateService` +
+ * `SaleService`); a third copy for restaurant mode would guarantee the cart and
+ * the drawer disagree. `useCart` calls this and spreads the result, so the
+ * retail path is unchanged: same memos, same inputs, same numbers.
+ */
+export interface CartTotals {
+  subtotal: number;
+  discountAmount: number;
+  taxAmount: number;
+  taxLabel: string;
+  taxInclusive: boolean;
+  total: number;
+  itemCount: number;
+}
+
+export function useCartTotals(
+  items: CartItem[],
+  taxContext: TaxContext | null = null,
+  taxInclusive: boolean = false,
+): CartTotals {
+  // Includes add-ons, because that is what the backend accumulates: a topping is
+  // its own sale_items row with its own subtotal.
+  const subtotal = useMemo(
+    () => items.reduce(
+      (sum, item) => sum + (item.basePrice + toppingsPerUnit(item)) * item.cartQuantity,
+      0,
+    ),
+    [items]
+  );
+
+  const discountAmount = useMemo(
+    () => items.reduce((sum, item) => sum + item.discountAmount, 0),
+    [items]
+  );
+
+  const taxInfo = useMemo(() => {
+    const itemTaxes = items.map(item => {
+      const rate = getProductTaxRate(item, taxContext);
+
+      let name = 'Tax';
+      if (taxContext) {
+        const { taxRates, categories } = taxContext;
+        // Resolve the rate name with the same precedence as getProductTaxRate:
+        // the product's category-specific rate wins, falling back to the default.
+        // (A plain find() with `|| t.isDefault` would wrongly return the default
+        // first whenever it appears earlier in the array.)
+        const category = categories.find(c => c.id === item.categoryId);
+        const categoryTax = category?.taxRateId
+          ? taxRates.find(t => t.id === category.taxRateId && t.isActive)
+          : undefined;
+        const resolvedTax = categoryTax ?? taxRates.find(t => t.isDefault && t.isActive);
+        name = resolvedTax?.name || 'Tax';
+      }
+
+      // Round per SUB-LINE, not per cart line. The backend stores a topping as
+      // its own sale_items row and rounds each row to 2dp, so folding the dish
+      // and its add-ons into one base before rounding drifts by up to a cent per
+      // topping — and the drift only shows up at the drawer.
+      const parentBase = Math.max(0, item.basePrice * item.cartQuantity - item.discountAmount);
+      const bases = [
+        parentBase,
+        ...(item.toppings ?? []).map(t => t.unitPrice * t.quantity * item.cartQuantity),
+      ];
+
+      // Inclusive: extract the VAT already inside the price (base − base/(1+rate)).
+      // Exclusive: add VAT on top (base × rate). HALF_UP at 2dp, mirroring
+      // SaleService.applyLineMath.
+      const roundTax = (base: number) => taxInclusive
+        ? base - Math.round((base / (1 + rate)) * 100) / 100
+        : Math.round(base * rate * 100) / 100;
+
+      const lineTax = bases.reduce((sum, base) => sum + roundTax(base), 0);
+      return { rate, name, amount: lineTax };
+    });
+
+    const totalAmount = itemTaxes.reduce((sum, t) => sum + t.amount, 0);
+
+    let label = 'Tax';
+    if (items.length > 0) {
+      const uniqueRates = new Set(itemTaxes.map(t => t.rate));
+      if (uniqueRates.size === 1) {
+        const rate = Array.from(uniqueRates)[0];
+        const names = Array.from(new Set(itemTaxes.map(t => t.name)));
+        const name = names.length === 1 ? names[0] : 'Tax';
+        label = `${name} (${(rate * 100).toFixed(0)}%)`;
+      } else {
+        label = 'Combined Tax';
+      }
+    } else {
+      const defaultTax = taxContext?.taxRates.find(t => t.isDefault && t.isActive);
+      if (defaultTax) {
+        label = `${defaultTax.name} (${(defaultTax.rate * 100).toFixed(0)}%)`;
+      }
+    }
+
+    return { totalAmount, label };
+  }, [items, taxContext, taxInclusive]);
+
+  const total = useMemo(
+    // Inclusive: tax is already inside the prices, so the payable is just
+    // subtotal − discount. Exclusive: add the computed tax on top.
+    () => (taxInclusive ? subtotal - discountAmount : subtotal - discountAmount + taxInfo.totalAmount),
+    [subtotal, discountAmount, taxInfo.totalAmount, taxInclusive]
+  );
+
+  return {
+    subtotal,
+    discountAmount,
+    taxAmount: taxInfo.totalAmount,
+    taxLabel: taxInfo.label,
+    taxInclusive,
+    total,
+    itemCount: items.reduce((sum, item) => sum + item.cartQuantity, 0),
+  };
+}
+
+/**
+ * The shape the terminal consumes, whichever cart is driving it.
+ *
+ * `useCart` (retail, local state) and `useDineInCart` (a view of a server-side
+ * tab) both satisfy it, so the terminal can swap one for the other without a
+ * single retail code path changing.
+ */
+export interface CartView extends CartTotals {
+  items: CartItem[];
+  addToCart: (product: Product, toppings?: CartItemTopping[], notes?: string) => void;
+  addCustomItem: (name: string, price: number, quantity?: number) => void;
+  removeFromCart: (lineId: string) => void;
+  updateQuantity: (lineId: string, quantity: number) => void;
+  setItemDiscount: (lineId: string, discount: number) => void;
+  clearCart: () => void;
 }
 
 export const useCart = (
@@ -246,90 +385,7 @@ export const useCart = (
     setItems([]);
   }, []);
 
-  // Includes add-ons, because that is what the backend accumulates: a topping is
-  // its own sale_items row with its own subtotal.
-  const subtotal = useMemo(
-    () => items.reduce(
-      (sum, item) => sum + (item.basePrice + toppingsPerUnit(item)) * item.cartQuantity,
-      0,
-    ),
-    [items]
-  );
-
-  const discountAmount = useMemo(
-    () => items.reduce((sum, item) => sum + item.discountAmount, 0),
-    [items]
-  );
-
-  const taxInfo = useMemo(() => {
-    const itemTaxes = items.map(item => {
-      const rate = getProductTaxRate(item, taxContext);
-
-      let name = 'Tax';
-      if (taxContext) {
-        const { taxRates, categories } = taxContext;
-        // Resolve the rate name with the same precedence as getProductTaxRate:
-        // the product's category-specific rate wins, falling back to the default.
-        // (A plain find() with `|| t.isDefault` would wrongly return the default
-        // first whenever it appears earlier in the array.)
-        const category = categories.find(c => c.id === item.categoryId);
-        const categoryTax = category?.taxRateId
-          ? taxRates.find(t => t.id === category.taxRateId && t.isActive)
-          : undefined;
-        const resolvedTax = categoryTax ?? taxRates.find(t => t.isDefault && t.isActive);
-        name = resolvedTax?.name || 'Tax';
-      }
-
-      // Round per SUB-LINE, not per cart line. The backend stores a topping as
-      // its own sale_items row and rounds each row to 2dp, so folding the dish
-      // and its add-ons into one base before rounding drifts by up to a cent per
-      // topping — and the drift only shows up at the drawer.
-      const parentBase = Math.max(0, item.basePrice * item.cartQuantity - item.discountAmount);
-      const bases = [
-        parentBase,
-        ...(item.toppings ?? []).map(t => t.unitPrice * t.quantity * item.cartQuantity),
-      ];
-
-      // Inclusive: extract the VAT already inside the price (base − base/(1+rate)).
-      // Exclusive: add VAT on top (base × rate). HALF_UP at 2dp, mirroring
-      // SaleService.applyLineMath.
-      const roundTax = (base: number) => taxInclusive
-        ? base - Math.round((base / (1 + rate)) * 100) / 100
-        : Math.round(base * rate * 100) / 100;
-
-      const lineTax = bases.reduce((sum, base) => sum + roundTax(base), 0);
-      return { rate, name, amount: lineTax };
-    });
-
-    const totalAmount = itemTaxes.reduce((sum, t) => sum + t.amount, 0);
-
-    let label = 'Tax';
-    if (items.length > 0) {
-      const uniqueRates = new Set(itemTaxes.map(t => t.rate));
-      if (uniqueRates.size === 1) {
-        const rate = Array.from(uniqueRates)[0];
-        const names = Array.from(new Set(itemTaxes.map(t => t.name)));
-        const name = names.length === 1 ? names[0] : 'Tax';
-        label = `${name} (${(rate * 100).toFixed(0)}%)`;
-      } else {
-        label = 'Combined Tax';
-      }
-    } else {
-      const defaultTax = taxContext?.taxRates.find(t => t.isDefault && t.isActive);
-      if (defaultTax) {
-        label = `${defaultTax.name} (${(defaultTax.rate * 100).toFixed(0)}%)`;
-      }
-    }
-
-    return { totalAmount, label };
-  }, [items, taxContext, taxInclusive]);
-
-  const total = useMemo(
-    // Inclusive: tax is already inside the prices, so the payable is just
-    // subtotal − discount. Exclusive: add the computed tax on top.
-    () => (taxInclusive ? subtotal - discountAmount : subtotal - discountAmount + taxInfo.totalAmount),
-    [subtotal, discountAmount, taxInfo.totalAmount, taxInclusive]
-  );
+  const totals = useCartTotals(items, taxContext, taxInclusive);
 
   return {
     items,
@@ -339,12 +395,6 @@ export const useCart = (
     updateQuantity,
     setItemDiscount,
     clearCart,
-    subtotal,
-    discountAmount,
-    taxAmount: taxInfo.totalAmount,
-    taxLabel: taxInfo.label,
-    taxInclusive,
-    total,
-    itemCount: items.reduce((sum, item) => sum + item.cartQuantity, 0),
+    ...totals,
   };
 };

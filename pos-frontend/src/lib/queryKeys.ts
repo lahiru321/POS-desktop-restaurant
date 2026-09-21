@@ -17,6 +17,9 @@ export const QK = {
   restaurantTables: (areaId?: string) => ['restaurant-tables', areaId ?? 'all'] as const,
   restaurantOpenOrders: ['restaurant-open-orders'] as const,
   restaurantOrder: (orderId: string) => ['restaurant-order', orderId] as const,
+  /** One catalogue read behind a dine-in tab: resolves each ordered line's tax
+   *  category and its current menu price. Restaurant mode only. */
+  restaurantMenuSnapshot: ['restaurant-menu-snapshot'] as const,
   brands: ['brands'] as const,
   expenses: ['expenses'] as const,
   expenseCategories: ['expense-categories'] as const,

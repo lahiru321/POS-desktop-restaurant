@@ -19,6 +19,15 @@ export interface PosKeyboardActions {
   hold: () => void;
   discard: () => void;
   showHelp: () => void;
+  /**
+   * F11 — open the floor sheet and switch tables without unmounting the
+   * terminal.
+   *
+   * Optional, and absent on the retail path: only when the terminal supplies it
+   * is F11 bound at all, so a retail till keeps the browser's own F11
+   * (fullscreen) exactly as it has always behaved.
+   */
+  toggleFloor?: () => void;
 }
 
 export interface UsePosKeyboardProps {
@@ -99,6 +108,12 @@ export function usePosKeyboard(props: UsePosKeyboardProps) {
         case 'F8': e.preventDefault(); p.actions.discard(); return;
         case 'F9': e.preventDefault(); p.actions.charge(); return;
         case 'F12': e.preventDefault(); p.actions.printLastReceipt(); return;
+        case 'F11': {
+          // Restaurant mode only. Unbound — and so left to the browser — when
+          // the terminal passes no handler.
+          if (!p.actions.toggleFloor) break;
+          e.preventDefault(); p.actions.toggleFloor(); return;
+        }
       }
 
       // While typing in the search box, let normal input behaviour through —
@@ -153,7 +168,9 @@ export function usePosKeyboard(props: UsePosKeyboardProps) {
   }, []);
 }
 
-export const HOTKEY_LEGEND: { key: string; label: string }[] = [
+export interface HotkeyLegendEntry { key: string; label: string }
+
+export const HOTKEY_LEGEND: HotkeyLegendEntry[] = [
   { key: '↑↓←→', label: 'Move' },
   { key: 'F2', label: 'Search' },
   { key: 'F3', label: 'Customer' },
@@ -161,4 +178,17 @@ export const HOTKEY_LEGEND: { key: string; label: string }[] = [
   { key: 'F9', label: 'Charge' },
   { key: 'F7', label: 'Correct payment' },
   { key: 'F1', label: 'Shortcuts' },
+];
+
+/**
+ * The legend a restaurant till shows: the retail one plus the floor.
+ *
+ * Kept as a separate export rather than a conditional entry inside
+ * `HOTKEY_LEGEND`, so there is no way for F11 to reach a retail cashier — with
+ * `RESTAURANT` off or `restaurantMode` false the terminal renders
+ * `HOTKEY_LEGEND` itself, byte for byte.
+ */
+export const RESTAURANT_HOTKEY_LEGEND: HotkeyLegendEntry[] = [
+  ...HOTKEY_LEGEND,
+  { key: 'F11', label: 'Floor' },
 ];

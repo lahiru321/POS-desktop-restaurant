@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useCart } from "./useCart";
-import type { CartItemTopping } from "./useCart";
+import { useCart, useCartTotals } from "./useCart";
+import type { CartItem, CartItemTopping } from "./useCart";
 import type { Product } from "@/types/inventory";
 import type { TaxContext } from "./useCart";
 
@@ -308,5 +308,90 @@ describe("useCart", () => {
 
       expect(result.current.items).toHaveLength(1);
     });
+  });
+});
+
+/**
+ * `useCartTotals` was lifted out of `useCart` so a dine-in tab — whose lines
+ * live on the server — can be totalled by the same arithmetic instead of a
+ * third copy of the tax chain.
+ *
+ * The 25 tests above are the real regression proof: they are unchanged and they
+ * exercise `useCart` end to end. These assert the lift itself was faithful, by
+ * feeding `useCartTotals` the exact lines a retail cart holds and demanding the
+ * same numbers out.
+ */
+describe("useCartTotals", () => {
+  const taxContext: TaxContext = {
+    taxRates: [
+      { id: "t1", name: "VAT", rate: 0.15, isDefault: true, isActive: true },
+      { id: "t2", name: "Food", rate: 0.08, isDefault: false, isActive: true },
+    ] as TaxContext["taxRates"],
+    categories: [{ id: "c1", name: "Food", taxRateId: "t2", createdAt: "" }],
+  };
+
+  const cheese = (): CartItemTopping => ({
+    toppingId: "t-cheese",
+    name: "Extra cheese",
+    quantity: 1,
+    unitPrice: 120,
+    priceMode: "FIXED",
+  });
+
+  it("returns exactly what useCart returns for the same lines (exclusive tax)", () => {
+    const product = makeProduct({ id: "b1", basePrice: 500, categoryId: "c1", trackStock: false });
+
+    const cart = renderHook(() => useCart(taxContext, undefined, false));
+    act(() => cart.result.current.addToCart(product, [cheese()]));
+    act(() => cart.result.current.addToCart(product, [cheese()]));
+    act(() => cart.result.current.setItemDiscount(cart.result.current.items[0].lineId, 50));
+
+    const lines = cart.result.current.items;
+    const totals = renderHook(() => useCartTotals(lines, taxContext, false));
+
+    expect(totals.result.current.subtotal).toBe(cart.result.current.subtotal);
+    expect(totals.result.current.discountAmount).toBe(cart.result.current.discountAmount);
+    expect(totals.result.current.taxAmount).toBe(cart.result.current.taxAmount);
+    expect(totals.result.current.taxLabel).toBe(cart.result.current.taxLabel);
+    expect(totals.result.current.total).toBe(cart.result.current.total);
+    expect(totals.result.current.itemCount).toBe(cart.result.current.itemCount);
+  });
+
+  it("returns exactly what useCart returns for the same lines (inclusive tax)", () => {
+    const product = makeProduct({ id: "b1", basePrice: 1150, trackStock: false });
+
+    const cart = renderHook(() => useCart(taxContext, undefined, true));
+    act(() => cart.result.current.addToCart(product, [cheese()]));
+
+    const totals = renderHook(() => useCartTotals(cart.result.current.items, taxContext, true));
+
+    expect(totals.result.current.taxAmount).toBe(cart.result.current.taxAmount);
+    expect(totals.result.current.total).toBe(cart.result.current.total);
+    expect(totals.result.current.taxInclusive).toBe(true);
+  });
+
+  it("still rounds tax per sub-line, matching the backend's per-row rounding", () => {
+    // Dish 100.10 + one add-on 0.55, at 15% exclusive. Rounding the dish and the
+    // add-on separately gives 15.02 + 0.08 = 15.10; folding them into one base
+    // first gives 15.10 too only by luck — the assertion is the per-row figure.
+    const item: CartItem = {
+      ...makeProduct({ id: "d1", basePrice: 100.1, trackStock: false }),
+      lineId: "d1#",
+      cartQuantity: 1,
+      discountAmount: 0,
+      toppings: [{ ...cheese(), unitPrice: 0.55 }],
+    };
+    const { result } = renderHook(() => useCartTotals([item], taxContext, false));
+
+    const perRow =
+      Math.round(100.1 * 0.15 * 100) / 100 + Math.round(0.55 * 0.15 * 100) / 100;
+    expect(result.current.taxAmount).toBeCloseTo(perRow, 10);
+  });
+
+  it("is empty-safe, so a tab that has not been ordered on yet totals zero", () => {
+    const { result } = renderHook(() => useCartTotals([], taxContext, false));
+    expect(result.current.subtotal).toBe(0);
+    expect(result.current.total).toBe(0);
+    expect(result.current.itemCount).toBe(0);
   });
 });

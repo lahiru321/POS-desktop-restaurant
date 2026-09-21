@@ -344,8 +344,11 @@ function TableTile({
  * "38 min" / "1h 22m" since the tab was opened. `openedAt` is ISO-8601 with a
  * UTC offset, so the elapsed span is zone-independent even though the store's
  * business date is not.
+ *
+ * Exported because the terminal's dine-in banner says the same thing about the
+ * same tab; two copies would eventually disagree.
  */
-function formatElapsed(openedAt: string, now: number): string {
+export function formatElapsed(openedAt: string, now: number): string {
   const opened = Date.parse(openedAt);
   if (Number.isNaN(opened)) return "";
   const minutes = Math.max(0, Math.floor((now - opened) / 60_000));
