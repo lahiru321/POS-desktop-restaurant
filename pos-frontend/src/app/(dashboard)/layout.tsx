@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   LogOut,
   Monitor,
@@ -23,6 +24,8 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 import { Logo } from '@/components/brand/Logo';
 import { CommandPaletteTrigger } from '@/components/ui/command-palette';
 import { DashboardHeaderSlotProvider } from '@/components/layout/DashboardHeaderSlot';
+import { QK } from '@/lib/queryKeys';
+import { tenantService } from '@/services/tenantService';
 
 const COLLAPSE_KEY = 'lumora.sidebar.collapsed';
 
@@ -35,6 +38,18 @@ export default function DashboardLayout({
   const { user, hasFeature } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Gate level two for the restaurant screens. The RESTAURANT feature flag only
+  // says the API exists — the desktop installer grants every feature to every
+  // install — so the sidebar also needs to know whether this business actually
+  // runs as a restaurant. Shares QK.tenantInfo with settings/terminal, so this
+  // is a cache hit rather than an extra request in the common case.
+  const { data: tenantInfo } = useQuery({
+    queryKey: QK.tenantInfo,
+    queryFn: () => tenantService.getInfo(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const restaurantMode = tenantInfo?.restaurantMode ?? false;
 
   useEffect(() => {
     const stored = typeof window !== 'undefined' ? window.localStorage.getItem(COLLAPSE_KEY) : null;
@@ -77,7 +92,7 @@ export default function DashboardLayout({
               aria-label="Sidebar"
             >
               <SidebarHeader collapsed={collapsed} planTier={user?.planTier} />
-              <SidebarNav collapsed={collapsed} />
+              <SidebarNav collapsed={collapsed} restaurantMode={restaurantMode} />
               <SidebarFooter
                 collapsed={collapsed}
                 user={user}
@@ -90,7 +105,7 @@ export default function DashboardLayout({
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetContent side="left" className="w-72 p-0 flex flex-col bg-card border-r border-border">
                 <SidebarHeader collapsed={false} planTier={user?.planTier} />
-                <SidebarNav onNavigate={() => setMobileOpen(false)} />
+                <SidebarNav onNavigate={() => setMobileOpen(false)} restaurantMode={restaurantMode} />
                 <SidebarFooter
                   collapsed={false}
                   user={user}

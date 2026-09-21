@@ -19,6 +19,8 @@ import {
   TrendingUp,
   Activity,
   UserCircle,
+  LayoutGrid,
+  Salad,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -29,6 +31,13 @@ type NavItem = {
   href: string;
   icon: LucideIcon;
   requiredFeature?: string;
+  /**
+   * The second half of the two-level gate. `requiredFeature` only says the API
+   * exists — the desktop installer grants every feature to every install, so a
+   * retail shop would still see restaurant screens. This hides the item unless
+   * the tenant actually runs as a restaurant (`tenants.settings.restaurantMode`).
+   */
+  requiresRestaurantMode?: boolean;
 };
 
 const ALL_ITEMS: NavItem[] = [
@@ -36,6 +45,8 @@ const ALL_ITEMS: NavItem[] = [
   { label: 'Products', href: '/inventory/products', icon: Package, requiredFeature: 'INVENTORY' },
   { label: 'Categories', href: '/inventory/categories', icon: Tags, requiredFeature: 'INVENTORY' },
   { label: 'Brands', href: '/inventory/brands', icon: Bookmark, requiredFeature: 'INVENTORY' },
+  { label: 'Tables', href: '/restaurant/tables', icon: LayoutGrid, requiredFeature: 'RESTAURANT', requiresRestaurantMode: true },
+  { label: 'Add-ons', href: '/restaurant/toppings', icon: Salad, requiredFeature: 'RESTAURANT', requiresRestaurantMode: true },
   { label: 'Customers', href: '/customers', icon: Users, requiredFeature: 'CUSTOMERS' },
   { label: 'Suppliers', href: '/inventory/suppliers', icon: Building2, requiredFeature: 'INVENTORY' },
   { label: 'Purchase Orders', href: '/inventory/purchase-orders', icon: Truck, requiredFeature: 'PURCHASE_ORDERS' },
@@ -52,22 +63,37 @@ const ALL_ITEMS: NavItem[] = [
 
 const FINANCE_LABELS = ['Expenses', 'Cash Flow', 'Profit & Loss'];
 
+/** Floor-plan authoring screens. Admin/manager only, matching the backend's
+ *  @PreAuthorize on the areas/tables and toppings CRUD. Listed explicitly
+ *  because the switch below falls through to `return true` — an item with no
+ *  case of its own would be visible to every cashier. */
+const RESTAURANT_ADMIN_LABELS = ['Tables', 'Add-ons'];
+
 type SidebarNavProps = {
   /** When true, render icon-only (collapsed) form. */
   collapsed?: boolean;
   /** Called when a link is clicked — useful for closing a mobile drawer. */
   onNavigate?: () => void;
+  /** Tenant setting: this business runs as a restaurant. Gate level two — see
+   *  `NavItem.requiresRestaurantMode`. Passed down rather than fetched here so
+   *  the sidebar stays free of data fetching and the dashboard layout owns the
+   *  single `/tenant/info` query. */
+  restaurantMode?: boolean;
   className?: string;
 };
 
-export function SidebarNav({ collapsed = false, onNavigate, className }: SidebarNavProps) {
+export function SidebarNav({ collapsed = false, onNavigate, restaurantMode = false, className }: SidebarNavProps) {
   const pathname = usePathname();
   const { user, hasFeature } = useAuthStore();
 
   const items = ALL_ITEMS.filter((item) => {
     if (item.requiredFeature && !hasFeature(item.requiredFeature)) return false;
+    if (item.requiresRestaurantMode && !restaurantMode) return false;
 
     if (['Overview', 'Employees', 'Settings', 'Reports', 'Branches', ...FINANCE_LABELS].includes(item.label)) {
+      return user?.roles?.includes('ADMIN') || user?.roles?.includes('MANAGER');
+    }
+    if (RESTAURANT_ADMIN_LABELS.includes(item.label)) {
       return user?.roles?.includes('ADMIN') || user?.roles?.includes('MANAGER');
     }
     if (['Suppliers', 'Purchase Orders', 'Stock Transfers'].includes(item.label)) {
