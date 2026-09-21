@@ -45,6 +45,7 @@ import {
   Receipt as ReceiptIcon,
   Cpu,
   Image as ImageIcon,
+  UtensilsCrossed,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -85,6 +86,12 @@ export default function SettingsPage() {
   // false = VAT added at the till. Defaults to inclusive (LK convention).
   const [taxInclusive, setTaxInclusive] = useState(true);
 
+  // Restaurant settings form state. `restaurantMode` is the tenant half of the
+  // two-level gate (the RESTAURANT feature flag is the other half) — off means
+  // the terminal behaves exactly like the retail build.
+  const [restMode, setRestMode] = useState(false);
+  const [restCovers, setRestCovers] = useState("2");
+
   const { data: tenantInfo, isLoading: tenantLoading } = useQuery({
     queryKey: QK.tenantInfo,
     queryFn: () => tenantService.getInfo(),
@@ -102,6 +109,8 @@ export default function SettingsPage() {
       setLoySpend(String(tenantInfo.loyaltySpendPerPoint ?? 10));
       setLoyValue(String(tenantInfo.loyaltyPointValue ?? 0.1));
       setTaxInclusive(tenantInfo.taxInclusive ?? true);
+      setRestMode(tenantInfo.restaurantMode ?? false);
+      setRestCovers(String(tenantInfo.defaultCovers ?? 2));
     }
   }, [tenantInfo]);
 
@@ -172,6 +181,32 @@ export default function SettingsPage() {
       loyaltyPointValue: value,
     });
   };
+
+  const handleSaveRestaurant = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tenantInfo) return;
+    const covers = Number(restCovers);
+    if (!Number.isInteger(covers) || covers < 1 || covers > 99) {
+      toast.error("Default covers must be a whole number between 1 and 99");
+      return;
+    }
+    // The tenant update is a full replace — carry the current business fields
+    // through so saving restaurant settings doesn't wipe the receipt header info.
+    updateTenantMutation.mutate({
+      name: tenantInfo.name,
+      addressLine1: tenantInfo.addressLine1 ?? null,
+      addressLine2: tenantInfo.addressLine2 ?? null,
+      phone: tenantInfo.phone ?? null,
+      logoUrl: tenantInfo.logoUrl ?? null,
+      receiptFooter: tenantInfo.receiptFooter ?? null,
+      restaurantMode: restMode,
+      defaultCovers: covers,
+    });
+  };
+
+  const restDirty =
+    !!tenantInfo &&
+    (restMode !== tenantInfo.restaurantMode || Number(restCovers) !== tenantInfo.defaultCovers);
 
   const loyDirty =
     !!tenantInfo &&
@@ -329,6 +364,9 @@ export default function SettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="loyalty" className="lg:w-full lg:justify-start gap-2">
             <Star size={14} /> Loyalty
+          </TabsTrigger>
+          <TabsTrigger value="restaurant" className="lg:w-full lg:justify-start gap-2">
+            <UtensilsCrossed size={14} /> Restaurant
           </TabsTrigger>
           <TabsTrigger value="receipt" className="lg:w-full lg:justify-start gap-2">
             <ReceiptIcon size={14} /> Receipt
@@ -914,6 +952,86 @@ export default function SettingsPage() {
                       <Button
                         type="submit"
                         disabled={!loyDirty || updateTenantMutation.isPending}
+                        className="bg-primary hover:bg-primary/90 min-w-[140px]"
+                      >
+                        {updateTenantMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Save Changes
+                      </Button>
+                    </div>
+                  )}
+                </form>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="restaurant" className="space-y-4 mt-0">
+          <div className="flex items-center gap-2">
+            <UtensilsCrossed className="text-primary" size={20} />
+            <h2 className="text-xl font-semibold text-foreground">Restaurant</h2>
+            {!isAdmin && (
+              <Badge variant="outline" className="bg-muted text-muted-foreground border-border ml-2">
+                Read-only
+              </Badge>
+            )}
+          </div>
+
+          <Card className="bg-background border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold text-foreground">Table service</CardTitle>
+              <CardDescription>
+                Turn this on if you serve guests at tables. The register gains table tabs and
+                kitchen tickets; with it off the app behaves exactly like a retail till.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {tenantLoading ? (
+                <div className="flex items-center gap-2 text-muted-foreground py-4">
+                  <Loader2 className="animate-spin" size={18} /> Loading restaurant settings...
+                </div>
+              ) : (
+                <form onSubmit={handleSaveRestaurant} className="space-y-5 max-w-2xl">
+                  <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                    <div className="space-y-0.5">
+                      <label className="text-sm font-medium text-foreground">Restaurant mode</label>
+                      <p className="text-xs text-muted-foreground">
+                        When off, no table, tab or kitchen features appear anywhere in the app.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="w-5 h-5 accent-primary rounded"
+                      checked={restMode}
+                      onChange={(e) => setRestMode(e.target.checked)}
+                      disabled={!isAdmin}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Default covers</label>
+                      <Input
+                        type="number"
+                        step="1"
+                        min="1"
+                        max="99"
+                        value={restCovers}
+                        onChange={(e) => setRestCovers(e.target.value)}
+                        className="bg-card border-border"
+                        disabled={!isAdmin || !restMode}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Guests pre-filled when a new dine-in tab is opened. The server can change it
+                        per table.
+                      </p>
+                    </div>
+                  </div>
+
+                  {isAdmin && (
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        type="submit"
+                        disabled={!restDirty || updateTenantMutation.isPending}
                         className="bg-primary hover:bg-primary/90 min-w-[140px]"
                       >
                         {updateTenantMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

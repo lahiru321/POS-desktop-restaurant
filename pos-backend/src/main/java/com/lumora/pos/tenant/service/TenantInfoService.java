@@ -24,6 +24,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TenantInfoService {
 
+    /** Covers pre-filled on a new dine-in tab when the tenant has never set one. */
+    private static final int DEFAULT_COVERS = 2;
+    private static final int MIN_COVERS = 1;
+    private static final int MAX_COVERS = 99;
+
     private final TenantRepository tenantRepository;
     private final ObjectMapper objectMapper;
 
@@ -49,8 +54,9 @@ public class TenantInfoService {
         // JSONB that gets read/merged on every update.
         tenant.setLogoDataUri(normalize(request.getLogoUrl()));
 
-        // Merge remaining branding + loyalty fields into the existing settings JSONB
-        // (preserves any other keys). Null loyalty fields are left untouched.
+        // Merge remaining branding + loyalty + restaurant fields into the existing
+        // settings JSONB (preserves any other keys). Null fields are left untouched,
+        // so saving one tab never clears another's settings.
         try {
             Map<String, Object> settings = new HashMap<>();
             if (tenant.getSettings() != null && !tenant.getSettings().isBlank()) {
@@ -68,6 +74,12 @@ public class TenantInfoService {
             }
             if (request.getTaxInclusive() != null) {
                 settings.put("taxInclusive", request.getTaxInclusive());
+            }
+            if (request.getRestaurantMode() != null) {
+                settings.put("restaurantMode", request.getRestaurantMode());
+            }
+            if (request.getDefaultCovers() != null) {
+                settings.put("defaultCovers", request.getDefaultCovers());
             }
             tenant.setSettings(objectMapper.writeValueAsString(settings));
         } catch (Exception e) {
@@ -143,6 +155,48 @@ public class TenantInfoService {
         return true;
     }
 
+    /**
+     * Whether this business runs as a restaurant. The second half of the two-level
+     * gate — the RESTAURANT feature flag says the API exists, this says the tenant
+     * wants it. Defaults to false so a retail install behaves exactly as before.
+     */
+    @Transactional(readOnly = true)
+    public boolean isRestaurantMode(UUID tenantId) {
+        return tenantRepository.findById(tenantId)
+                .map(this::restaurantModeFromSettings)
+                .orElse(false);
+    }
+
+    private boolean restaurantModeFromSettings(TenantEntity t) {
+        Object raw = settingValue(t, "restaurantMode");
+        return raw instanceof Boolean enabled && enabled;
+    }
+
+    private int defaultCoversFromSettings(TenantEntity t) {
+        Object raw = settingValue(t, "defaultCovers");
+        if (raw instanceof Number n) {
+            int covers = n.intValue();
+            if (covers >= MIN_COVERS && covers <= MAX_COVERS) {
+                return covers;
+            }
+        }
+        return DEFAULT_COVERS;
+    }
+
+    /** Reads one key out of the settings JSONB; null when absent or unparseable. */
+    private Object settingValue(TenantEntity t, String key) {
+        if (t.getSettings() == null || t.getSettings().isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, Object> settings = objectMapper.readValue(t.getSettings(), new TypeReference<>() {});
+            return settings.get(key);
+        } catch (Exception e) {
+            log.warn("Could not parse tenant setting '{}': {}", key, e.getMessage());
+            return null;
+        }
+    }
+
     private BigDecimal parseDecimal(Object raw) {
         if (raw == null) return null;
         try {
@@ -181,6 +235,8 @@ public class TenantInfoService {
                 .loyaltySpendPerPoint(loyalty.getSpendPerPoint())
                 .loyaltyPointValue(loyalty.getPointValue())
                 .taxInclusive(taxInclusiveFromSettings(t))
+                .restaurantMode(restaurantModeFromSettings(t))
+                .defaultCovers(defaultCoversFromSettings(t))
                 .build();
     }
 }
