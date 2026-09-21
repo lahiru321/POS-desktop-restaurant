@@ -10,23 +10,36 @@ import { runFirstRunWizard } from './first-run-window';
 import { needsFirstRun, writeTenantSeed } from './services/tenantSeed';
 import { computeFingerprint } from './services/fingerprint';
 
-// Lumora POS desktop entry point. The bundled PostgreSQL runs as a Windows
-// service ("LumoraPOSPostgres") that is registered + started by the NSIS
+// StoreX Restaurant desktop entry point. This is a product in its own right,
+// not a second copy of retail StoreX: its own appId, install directory, Windows
+// service, data directory and ports, so both can sit on one machine and even run
+// at the same time. The bundled PostgreSQL runs as a Windows service
+// ("StoreXRestaurantPostgres") that is registered + started by the NSIS
 // installer (build/install-postgres.ps1), so we don't manage its lifecycle
 // here. On launch we: (1) gate on product activation, (2) spawn the JVM
 // against the local DB, (3) spawn the Next.js standalone server, then open a
 // Chromium window pointing at the local frontend.
 
+// Fixes %APPDATA%\StoreX Restaurant as the user-data root rather than letting it
+// fall out of package.json's `name` ("frontend"), which retail StoreX also uses —
+// sharing that folder would mean sharing logs, uploads and the first-run tenant
+// seed between two different products.
+app.setName('StoreX Restaurant');
+
 const isDev = !app.isPackaged;
 // The frontend's API client bakes its backend URL at BUILD time
-// (NEXT_PUBLIC_API_URL ?? http://localhost:8081), so the backend MUST stay on
-// 8081 for the packaged client to reach it. The window/frontend port has no such
-// constraint, so the packaged app moves it off the conventional 3000 to a less
-// common port — that's what collided with the local Lumora License Server. Dev
-// keeps 3000 so `npm run electron:dev` lines up with `next dev`. assertPortAvailable
-// (below) still fails loudly if anything else is already holding either port.
-const BACKEND_PORT = 8081;
-const FRONTEND_PORT = isDev ? 3000 : 47816;
+// (NEXT_PUBLIC_API_URL ?? http://localhost:8082), so the backend MUST stay on
+// 8082 for the packaged client to reach it — change this and you must change
+// pos-frontend/.env and the fallbacks in services/api.ts + superAdminApi.ts in the
+// same commit, then rebuild. 8082, not retail StoreX's 8081, so the two products
+// don't fight over the port. The window/frontend port has no such constraint, so
+// the packaged app moves it off the conventional 3000 to a less common port —
+// that's what collided with the local Lumora License Server — and off retail's
+// 47816 for the same reason. Dev keeps 3000 so `npm run electron:dev` lines up
+// with `next dev`. assertPortAvailable (below) still fails loudly if anything
+// else is already holding either port.
+const BACKEND_PORT = 8082;
+const FRONTEND_PORT = isDev ? 3000 : 47817;
 const BACKEND_HEALTH_TIMEOUT_MS = 120_000;
 const FRONTEND_READY_TIMEOUT_MS = 60_000;
 
@@ -36,7 +49,7 @@ const ACTIVATION_URL =
   process.env.LUMORA_ACTIVATION_URL || 'https://lumora-k-ten.vercel.app';
 
 const PROGRAM_DATA = process.env.ProgramData || 'C:\\ProgramData';
-const DB_PROPERTIES = path.join(PROGRAM_DATA, 'Lumora POS', 'db.properties');
+const DB_PROPERTIES = path.join(PROGRAM_DATA, 'StoreX Restaurant', 'db.properties');
 
 let backendProc: ChildProcess | null = null;
 let frontendProc: ChildProcess | null = null;
@@ -80,7 +93,7 @@ function loadDbConfig(): DbConfig {
   if (!fs.existsSync(DB_PROPERTIES)) {
     throw new Error(
       `Database configuration not found at ${DB_PROPERTIES}.\n` +
-      `Reinstall StoreX to provision the database.`
+      `Reinstall StoreX Restaurant to provision the database.`
     );
   }
   const text = fs.readFileSync(DB_PROPERTIES, 'utf8');
@@ -115,7 +128,7 @@ function assertPortAvailable(port: number, label: string): Promise<void> {
         reject(new Error(
           `Port ${port} (needed for the ${label}) is already in use. Close whatever ` +
           `is using it — for example a local dev server or the Lumora License Server ` +
-          `— then start StoreX again.`));
+          `— then start StoreX Restaurant again.`));
       } else {
         reject(err);
       }
@@ -126,7 +139,7 @@ function assertPortAvailable(port: number, label: string): Promise<void> {
 }
 
 async function startBackend(db: DbConfig, license: ActivatedLicense): Promise<void> {
-  await assertPortAvailable(BACKEND_PORT, 'StoreX backend');
+  await assertPortAvailable(BACKEND_PORT, 'StoreX Restaurant backend');
   const resources = resourcesDir();
   const javaExe = path.join(resources, 'jre', 'bin', 'java.exe');
   const jarPath = path.join(resources, 'backend', 'pos-backend.jar');
@@ -184,7 +197,7 @@ async function startBackend(db: DbConfig, license: ActivatedLicense): Promise<vo
     if (!isQuitting && code !== 0) {
       dialog.showErrorBox(
         'Backend stopped',
-        'The StoreX backend stopped unexpectedly. Check logs in ' + path.dirname(logFile())
+        'The StoreX Restaurant backend stopped unexpectedly. Check logs in ' + path.dirname(logFile())
       );
     }
   });
@@ -193,7 +206,7 @@ async function startBackend(db: DbConfig, license: ActivatedLicense): Promise<vo
 }
 
 async function startFrontend(): Promise<void> {
-  await assertPortAvailable(FRONTEND_PORT, 'StoreX app window');
+  await assertPortAvailable(FRONTEND_PORT, 'StoreX Restaurant app window');
   const resources = resourcesDir();
   const serverJs = path.join(resources, 'web', 'server.js');
   if (!fs.existsSync(serverJs)) throw new Error(`Next.js server.js missing at ${serverJs}`);
@@ -358,7 +371,7 @@ if (!gotLock) {
         app.exit(0);
         return;
       }
-      dialog.showErrorBox('StoreX failed to start', msg + '\n\nLogs: ' + path.dirname(logFile()));
+      dialog.showErrorBox('StoreX Restaurant failed to start', msg + '\n\nLogs: ' + path.dirname(logFile()));
       cleanup();
       app.exit(1);
     }

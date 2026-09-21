@@ -1,12 +1,15 @@
-# Install + register the bundled PostgreSQL as a Windows service for Lumora POS.
+# Install + register the bundled PostgreSQL as a Windows service for StoreX Restaurant.
 # Invoked by the NSIS installer's customInstall hook with $InstallDir as arg 1.
 # Idempotent: safe to re-run on upgrade or repair.
 
 param([Parameter(Mandatory=$true)][string]$InstallDir)
 
 $ErrorActionPreference = 'Stop'
-$ServiceName = 'LumoraPOSPostgres'
-$Port        = 5433
+$ServiceName = 'StoreXRestaurantPostgres'
+# 5440, not the 543x run: this machine can carry stock PostgreSQL installs
+# (EDB 16/17/18 take 5432, 5434, 5435 as they are added) plus retail StoreX on
+# 5433, and a collision here aborts the install with "port already in use".
+$Port        = 5440
 $DbUser      = 'lumora'
 # Use the maintenance DB that initdb always creates. The bundle ships server-only
 # binaries (no psql/createdb), so we can't CREATE DATABASE a fresh one — and we
@@ -15,7 +18,7 @@ $DbUser      = 'lumora'
 # 'lumora' superuser is allowed to).
 $DbName      = 'postgres'
 
-$ProgData    = Join-Path $env:ProgramData 'Lumora POS'
+$ProgData    = Join-Path $env:ProgramData 'StoreX Restaurant'
 $DataDir     = Join-Path $ProgData 'pgdata'
 $ConfigFile  = Join-Path $ProgData 'db.properties'
 $LogDir      = Join-Path $ProgData 'logs'
@@ -61,7 +64,7 @@ function Get-ServiceExePath {
 #      ErrorRecords that trip $ErrorActionPreference='Stop' even on exit code 0.
 #   2. `Start-Process -ArgumentList @(...)` joins entries with spaces but does
 #      NOT quote any element that itself contains spaces (e.g. paths under
-#      "Program Files" or "Lumora POS"), splitting them across multiple args.
+#      "Program Files" or "StoreX Restaurant"), splitting them across multiple args.
 # We use System.Diagnostics.Process directly with a manually-quoted command
 # line, capture both streams via temp files, and return the real exit code.
 function Invoke-Native {
@@ -98,7 +101,7 @@ function Invoke-Native {
 }
 
 try {
-    Log '==== Lumora POS PostgreSQL setup ===='
+    Log '==== StoreX Restaurant PostgreSQL setup ===='
     Log "InstallDir: $InstallDir"
     Log "DataDir:    $DataDir"
     Log "ConfigFile: $ConfigFile"

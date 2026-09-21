@@ -31,7 +31,7 @@ export function middleware(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   // `??`: empty string = same-origin (prod proxy), so CSP connect-src/img-src
   // rely on 'self'; only unset falls back to the local-dev backend origin.
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8081';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8082';
   // Allow unsafe-eval in development only (needed by Next.js HMR / React refresh).
   const scriptSrc = process.env.NODE_ENV === 'development'
     ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval'`

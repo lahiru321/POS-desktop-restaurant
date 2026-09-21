@@ -3,7 +3,7 @@ import { useSuperAdminStore } from '@/stores/superAdminStore';
 
 // `??` not `||`: an empty string means "same-origin, relative /api/v1" (prod
 // proxy); only unset/undefined falls back to the local-dev backend.
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8081';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8082';
 
 /**
  * Pre-configured Axios instance for Super Admin API calls.

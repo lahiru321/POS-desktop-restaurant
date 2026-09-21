@@ -32,10 +32,14 @@ export type VerifyResult =
   | { ok: true; token: string; info: RuntimeLicenseInfo }
   | { ok: false; reason: VerifyFailureReason };
 
-/** %LOCALAPPDATA%\LumoraPOS\config\license.lic — matches the desktop build layout. */
+/**
+ * %LOCALAPPDATA%\StoreXRestaurant\config\license.lic — matches the desktop build
+ * layout. Deliberately NOT retail StoreX's LumoraPOS folder: this is a separate
+ * product with its own licence, so the two must never seal over each other.
+ */
 export function licenseFilePath(): string {
   const base = process.env.LOCALAPPDATA || join(os.homedir(), "AppData", "Local");
-  return join(base, "LumoraPOS", "config", "license.lic");
+  return join(base, "StoreXRestaurant", "config", "license.lic");
 }
 
 function toRuntimeInfo(claims: LicenseClaims): RuntimeLicenseInfo {
@@ -132,7 +136,7 @@ export async function activate(params: {
   machineName?: string;
 }): Promise<RuntimeLicenseInfo> {
   if (!isPublicKeyConfigured()) {
-    throw new Error("This build is missing its license verification key. Contact StoreX support.");
+    throw new Error("This build is missing its license verification key. Contact StoreX Restaurant support.");
   }
 
   const fingerprint = computeFingerprint();
@@ -165,7 +169,7 @@ export async function activate(params: {
   try {
     claims = verifyLicenseToken(token, EMBEDDED_PUBLIC_KEY);
   } catch {
-    throw new Error("The activation server returned a license this app can't verify. Contact StoreX support.");
+    throw new Error("The activation server returned a license this app can't verify. Contact StoreX Restaurant support.");
   }
   if (claims.fp !== fingerprint) {
     throw new Error("Activation returned a license bound to a different machine. Please try again.");

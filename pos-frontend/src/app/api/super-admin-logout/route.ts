@@ -5,7 +5,7 @@ import { NextResponse, NextRequest } from 'next/server';
 // same-origin proxy, where NEXT_PUBLIC_API_URL is empty); fall back to the
 // public var for local dev.
 const API_BASE_URL =
-  process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+  process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8082';
 
 /**
  * Calls the backend's super-admin logout (which audits the event and

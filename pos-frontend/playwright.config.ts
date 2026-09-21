@@ -5,7 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * Defaults assume `docker compose up` is running locally:
  *   frontend → http://localhost:3000
- *   backend  → http://localhost:8081
+ *   backend  → http://localhost:8082
  *
  * Override with PLAYWRIGHT_BASE_URL / PLAYWRIGHT_API_URL.
  */

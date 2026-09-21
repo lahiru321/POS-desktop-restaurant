@@ -1,7 +1,7 @@
 # Render (and most PaaS) assign the listening port via the PORT env var. Bind to
-# it so health checks reach the app; fall back to 8081 for local/other envs.
+# it so health checks reach the app; fall back to 8082 for local/other envs.
 server:
-  port: ${PORT:8081}
+  port: ${PORT:8082}
 
 spring:
   datasource:

@@ -1,4 +1,4 @@
-# Rebuild the StoreX (Lumora POS) Windows desktop installer for this copy.
+# Rebuild the StoreX Restaurant Windows desktop installer for this copy.
 # Reuses the already-staged resources/jre and resources/postgres-bin (unchanged);
 # rebuilds the backend fat jar and the Next.js standalone web bundle, then packages.
 #
@@ -21,6 +21,9 @@ finally { Pop-Location }
 $JarSrc = Join-Path $Backend 'target\pos-backend-0.0.1-SNAPSHOT.jar'
 $JarDst = Join-Path $Resources 'backend\pos-backend.jar'
 if (-not (Test-Path $JarSrc)) { throw "Backend jar not found at $JarSrc" }
+# resources/ is gitignored, so on a fresh checkout only jre/ and postgres-bin/ are
+# hand-copied in — backend/ may not exist yet.
+New-Item -ItemType Directory -Force -Path (Split-Path $JarDst) | Out-Null
 Copy-Item $JarSrc $JarDst -Force
 Write-Host "Staged backend jar -> $JarDst"
 

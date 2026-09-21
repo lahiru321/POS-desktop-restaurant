@@ -24,7 +24,7 @@ export async function performLogout(): Promise<void> {
       const { token } = useAuthStore.getState();
       if (token) {
         // `??`: empty string = same-origin relative /api/v1 (prod proxy).
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8081';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8082';
         fetch(`${apiUrl}/api/v1/auth/logout`, {
           method: 'POST',
           credentials: 'include',

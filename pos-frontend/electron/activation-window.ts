@@ -19,11 +19,11 @@ export interface ActivatedLicense {
 function reasonMessage(reason: VerifyFailureReason): string {
   switch (reason) {
     case "NOT_ACTIVATED":
-      return "Enter the license key that came with your purchase to activate StoreX on this computer.";
+      return "Enter the license key that came with your purchase to activate StoreX Restaurant on this computer.";
     case "MACHINE_MISMATCH":
-      return "This license belongs to a different computer. To move it here, contact StoreX support to release it, then re-activate.";
+      return "This license belongs to a different computer. To move it here, contact StoreX Restaurant support to release it, then re-activate.";
     case "EXPIRED":
-      return "Your license has expired. Contact StoreX support to renew, then enter your key again.";
+      return "Your license has expired. Contact StoreX Restaurant support to renew, then enter your key again.";
     case "SEAL_UNREADABLE":
       return "Your saved license couldn't be read. Please re-enter your license key.";
     case "SIGNATURE_INVALID":
@@ -53,7 +53,7 @@ function runActivationWindow(apiBaseUrl: string, message: string): Promise<Activ
       height: 600,
       resizable: false,
       fullscreenable: false,
-      title: "Activate StoreX",
+      title: "Activate StoreX Restaurant",
       webPreferences: {
         preload: join(__dirname, "activation-preload.js"),
         contextIsolation: true,

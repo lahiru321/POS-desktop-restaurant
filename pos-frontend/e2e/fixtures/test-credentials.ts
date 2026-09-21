@@ -22,4 +22,4 @@ export const TERMINAL_USER = {
 };
 
 export const API_URL =
-  process.env.PLAYWRIGHT_API_URL ?? "http://localhost:8081";
+  process.env.PLAYWRIGHT_API_URL ?? "http://localhost:8082";

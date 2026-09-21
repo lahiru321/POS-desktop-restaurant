@@ -8,7 +8,7 @@ import { resetCashierShift, parseMoney } from "./helpers/cash-session-setup";
  * dishonest. This test is the safety net.
  *
  * Setup expectations (see e2e/README.md):
- *   - Backend reachable at PLAYWRIGHT_API_URL (default http://localhost:8081)
+ *   - Backend reachable at PLAYWRIGHT_API_URL (default http://localhost:8082)
  *   - Frontend reachable at PLAYWRIGHT_BASE_URL (default http://localhost:3000)
  *   - The seeded cashier exists (migration V42 / fixtures/test-credentials.ts)
  *   - At least one active, in-stock product on the cashier's branch

@@ -5,11 +5,12 @@ Guidance for Codex working in **`D:\Lumora\POS-desktop-restaurant`**.
 ## What this project is
 
 The **restaurant fork** of Lumora POS (StoreX) — a single-machine **Electron** app bundling its own backend,
-database and web UI into one NSIS installer (`pos-frontend/dist/StoreX-Setup-0.1.0.exe`). Forked from
+database and web UI into one NSIS installer (`pos-frontend/dist/StoreX-Restaurant-Setup-0.1.0.exe`). Forked from
 `LumoraTechSolution/POS-desktop` (the retail product) and identical to it at the fork point. Table dining,
-kitchen tickets and per-item toppings are added **here only** and never flow back upstream. Retail behaviour
-must keep working: restaurant features sit behind a `RESTAURANT` feature flag *and* a `restaurantMode` tenant
-setting, and with both off the terminal must be byte-for-byte what it was.
+kitchen tickets and per-item toppings are added **here only** and never flow back upstream. It ships as its own
+product — appId `com.lumora.restaurant`, **StoreX Restaurant**, with its own install dir, service, data dir,
+licence store and ports — so it sits beside retail StoreX. Retail behaviour must keep working: restaurant
+features sit behind a `RESTAURANT` flag *and* a `restaurantMode` tenant setting; with both off, byte-for-byte.
 
 > **The root `D:\Lumora\AGENTS.md` does not describe this directory.** It documents `POS System/` (the old
 > cloud stack) and `NEW POS/` (the greenfield rebuild); where they disagree about *this* repo, this file wins.
@@ -70,22 +71,22 @@ verify/crypto, IPC) · `pos-backend/.../licensing/` (**verification** only — `
 `npm run electron:build` produces the installer. At runtime `electron/main.ts`, in order: **activation gate**
 (`ensureActivated` — no valid sealed license → activation window, key redeemed against the cloud License
 Server) → **first-run wizard** (once per machine; collects business + admin creds, bcrypt-hashes the password,
-writes `%APPDATA%/frontend/config/tenant-seed.json` for `DesktopBootstrapRunner`) → **spawns the Spring
-backend** (bundled JRE + `pos-backend.jar`, profile `prod,desktop`) → **spawns the Next.js standalone server**
-(`resources/web/server.js`) → opens the window. Logs: `%APPDATA%/frontend/logs/lumora-<date>.log`. Postgres
-runs separately as a **Windows service `LumoraPOSPostgres` on port 5433**, installed by the NSIS
-`build/install-postgres.ps1`, which writes creds + a generated `jwtSecret` to `%ProgramData%\Lumora
-POS\db.properties` for `main.ts` to read. The bundled postgres-bin is **server-only (no psql.exe)**; the app
-uses the always-present `postgres` database and Flyway builds the schema (V1 creates `uuid-ossp` itself).
+writes `%APPDATA%/StoreX Restaurant/config/tenant-seed.json` for `DesktopBootstrapRunner`) → **spawns the
+Spring backend** (bundled JRE + `pos-backend.jar`, profile `prod,desktop`) → **spawns the Next.js standalone
+server** (`resources/web/server.js`) → opens the window. `main.ts` calls `app.setName`, so user data lives in
+`%APPDATA%/StoreX Restaurant` (logs `logs/lumora-<date>.log`), not the `frontend` folder retail also uses.
+Postgres runs separately as a **Windows service `StoreXRestaurantPostgres` on port 5440**, installed by NSIS
+`build/install-postgres.ps1`, which writes creds + a generated `jwtSecret` to `%ProgramData%\StoreX
+Restaurant\db.properties`. postgres-bin is **server-only (no psql.exe)**; Flyway builds the schema in the always-present `postgres` DB (V1 creates `uuid-ossp` itself).
 
 ### Ports — DO NOT change without reading this
 
 | Component | Port (packaged) | Why |
 |---|---|---|
-| Spring backend (loopback `127.0.0.1`) | **8081** | The web client bakes its target at BUILD time from `pos-frontend/.env` (`NEXT_PUBLIC_API_URL=http://localhost:8081`; `services/api.ts` + `superAdminApi.ts` default to 8081). **Moving the backend off 8081 breaks every client→backend call with a "network error."** |
-| Next.js window/frontend | **47816** | Moved off 3000 because a separate local License Server (Next.js) on 3000 collided with — and was loaded instead of — the POS. Not baked anywhere, so free to move. |
-| Postgres | 5433 | Windows service |
-| Dev (`isDev`) | backend 8081, frontend 3000 | so `npm run electron:dev` matches `next dev` |
+| Spring backend (loopback `127.0.0.1`) | **8082** | Retail StoreX owns 8081; this fork moved off it so both can run at once. The web client bakes its target at BUILD time from `pos-frontend/.env` (`NEXT_PUBLIC_API_URL=http://localhost:8082`; `services/api.ts` + `superAdminApi.ts` default to 8082, as does `application.yml`). **Changing it means .env + those fallbacks + `main.ts` + `application*.yml` in one commit, then a rebuild — miss one and every client→backend call is a "network error."** |
+| Next.js window/frontend | **47817** | Off 3000 because a local License Server (Next.js) on 3000 collided with — and was loaded instead of — the POS; off retail's 47816 so the two products coexist. Not baked anywhere, so free to move. |
+| Postgres | 5440 | Windows service `StoreXRestaurantPostgres`; retail keeps 5433, and stock EDB installs take 5432/5434/5435 |
+| Dev (`isDev`) | backend 8082, frontend 3000 | so `npm run electron:dev` matches `next dev` |
 
 `main.ts` runs `assertPortAvailable()` before each spawn, so a busy port fails loudly with a dialog instead of
 silently attaching to a foreign server. CORS `ALLOWED_ORIGINS` and the middleware CSP `connect-src` derive
@@ -95,7 +96,7 @@ from these ports at runtime — keep them consistent.
 
 ```powershell
 cd pos-backend  ; ./mvnw -o compile  # quick check; -o clean package -DskipTests builds the jar
-cd pos-frontend ; npm run electron:dev    # backend 8081, frontend 3000
+cd pos-frontend ; npm run electron:dev    # backend 8082, frontend 3000
 npm run electron:build                    # next build + electron:tsc + electron-builder → installer
 ```
 
@@ -111,28 +112,27 @@ adding any migration, boot once against a real Postgres with validation on: Flyw
 Hibernate refuses to start on any mismatch. `/actuator/health` → `UP` means it passed.
 
 ```powershell
-$env:DATABASE_URL="jdbc:postgresql://127.0.0.1:5433/postgres"; $env:DB_USERNAME="postgres"; $env:DB_PASSWORD="<db.properties>"; $env:JWT_SECRET="<any 64+ chars>"
+$env:DATABASE_URL="jdbc:postgresql://127.0.0.1:5440/postgres"; $env:DB_USERNAME="postgres"; $env:DB_PASSWORD="<db.properties>"; $env:JWT_SECRET="<any 64+ chars>"
 ./mvnw -o spring-boot:run -Dspring-boot.run.profiles=prod -Dspring-boot.run.jvmArguments="-Dspring.jpa.hibernate.ddl-auto=validate -Dserver.port=8099"
 ```
 
-`DB_PASSWORD` is in `%ProgramData%\Lumora POS\db.properties`. Use
+`DB_PASSWORD` is in `%ProgramData%\StoreX Restaurant\db.properties`. Use
 **`prod` alone, never `prod,desktop`:** `LicenseGuard` is a `@PostConstruct` bean that aborts startup with
 *"no license token was provided"* unless the launcher injects `APP_LICENSE_TOKEN`, and the `desktop` profile
-adds only licensing, loopback binding and the tenant seed — nothing schema-affecting. Starting a stopped
-`LumoraPOSPostgres` needs **admin**; without it use a throwaway cluster from the bundled binaries, never the
-installed data dir: `postgres-bin/bin/initdb.exe -D <tmp> -U postgres --auth=trust`, then `pg_ctl.exe -D <tmp>
+adds only licensing, loopback binding and the seed — nothing schema-affecting. Starting a stopped
+`StoreXRestaurantPostgres` needs **admin**; without it use a throwaway cluster from the bundled binaries,
+never the installed data dir: `postgres-bin/bin/initdb.exe -D <tmp> -U postgres --auth=trust`, then `pg_ctl.exe -D <tmp>
 -o "-p 5599" start`, point `DATABASE_URL` at 5599, and delete `<tmp>` after.
 
 ### Staging the installer
 
 `powershell -ExecutionPolicy Bypass -File .\build-installer.ps1` stages jar → `resources/backend`,
-`next build` → `resources/web`, `electron:tsc`, then runs `electron-builder`; that script is the only source
-of truth for what gets staged where, and the `windows-desktop-build` skill covers packaging in depth.
-**`pos-frontend/resources/` is gitignored and not in this repo** — `jre` (Temurin 17, 53 MB) and
-`postgres-bin` (98 MB) were hand-copied from `D:\Lumora\POS System Desktop`, so a fresh clone lacks them and
-`electron-builder` fails; `backend/` and `web/` are regenerated by the script. Reinstalling does **not** touch
-`%APPDATA%/frontend` or `%LOCALAPPDATA%/LumoraPOS`, so installing over an existing install is the real upgrade
-path — and the only place migration backfills get exercised.
+`next build` → `resources/web`, `electron:tsc`, then runs `electron-builder`; it is the only source of truth
+for what gets staged where. **`pos-frontend/resources/` is gitignored and not in this repo** — `jre` (Temurin
+17, 53 MB) and `postgres-bin` (98 MB) were hand-copied from `D:\Lumora\POS System Desktop`, so a fresh clone
+lacks them and `electron-builder` fails; `backend/` and `web/` are regenerated by the script. Reinstalling
+does **not** touch `%APPDATA%/StoreX Restaurant` or `%LOCALAPPDATA%/StoreXRestaurant`, so installing over an
+existing install is the real upgrade path — and the only place migration backfills get exercised.
 
 ## Licensing & activation
 
@@ -145,7 +145,7 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
 - **Ed25519**: the PUBLIC key is baked into **both** `electron/keys/license-public-key.ts` and
   `application-desktop.yml` (`app.license.signing.public-key`) — do **not** remove either. Tokens are EdDSA
   compact JWS; the Electron verifier (`license-crypto.ts`) and Spring `LicenseGuard` verify the SAME one. The
-  sealed license is DPAPI-stored at `%LOCALAPPDATA%/LumoraPOS/config/license.lic`, machine-locked to
+  sealed license is DPAPI-stored at `%LOCALAPPDATA%/StoreXRestaurant/config/license.lic`, machine-locked to
   `sha256("guid:"+MachineGuid)` — delete it to force the activation screen again.
 - **`license-signing-key.PRIVATE.txt` must never be added to this repo** — the issuing secret belongs only on
   the license server. It is gitignored; keep it that way.

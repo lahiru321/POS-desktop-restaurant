@@ -7,8 +7,8 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
-$ServiceName = 'LumoraPOSPostgres'
-$ProgData    = Join-Path $env:ProgramData 'Lumora POS'
+$ServiceName = 'StoreXRestaurantPostgres'
+$ProgData    = Join-Path $env:ProgramData 'StoreX Restaurant'
 $DataDir     = Join-Path $ProgData 'pgdata'
 $LogFile     = Join-Path $ProgData 'logs\uninstall.log'
 

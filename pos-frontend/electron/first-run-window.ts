@@ -17,7 +17,7 @@ export function runFirstRunWizard(): Promise<FirstRunInput> {
       height: 660,
       resizable: false,
       fullscreenable: false,
-      title: "Set up StoreX",
+      title: "Set up StoreX Restaurant",
       webPreferences: {
         preload: join(__dirname, "first-run-preload.js"),
         contextIsolation: true,
