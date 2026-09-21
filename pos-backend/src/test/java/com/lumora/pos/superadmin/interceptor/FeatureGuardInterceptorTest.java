@@ -118,6 +118,45 @@ class FeatureGuardInterceptorTest {
     }
 
     @Test
+    @DisplayName("Should refuse /api/v1/restaurant when the tenant lacks RESTAURANT")
+    void shouldFailWhenTenantLacksRestaurant() throws Exception {
+        TenantContext.setTenantId(tenantId);
+        when(request.getRequestURI()).thenReturn("/api/v1/restaurant/orders");
+
+        TenantConfigurationEntity config = new TenantConfigurationEntity();
+        config.setFeaturesEnabled(List.of("SALES", "RETURNS")); // Lacks RESTAURANT
+
+        when(tenantConfigurationRepository.findByTenantId(tenantId)).thenReturn(Optional.of(config));
+
+        StringWriter stringWriter = new StringWriter();
+        PrintWriter printWriter = new PrintWriter(stringWriter);
+        when(response.getWriter()).thenReturn(printWriter);
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"message\":\"Forbidden\"}");
+
+        boolean result = interceptor.preHandle(request, response, new Object());
+
+        assertThat(result).isFalse();
+        verify(response).setStatus(HttpStatus.FORBIDDEN.value());
+    }
+
+    @Test
+    @DisplayName("Should allow /api/v1/restaurant when the tenant has RESTAURANT")
+    void shouldPassWhenTenantHasRestaurant() throws Exception {
+        TenantContext.setTenantId(tenantId);
+        // One prefix covers tables, areas, toppings, orders and kitchen tickets.
+        when(request.getRequestURI()).thenReturn("/api/v1/restaurant/tables");
+
+        TenantConfigurationEntity config = new TenantConfigurationEntity();
+        config.setFeaturesEnabled(List.of("SALES", "RESTAURANT"));
+
+        when(tenantConfigurationRepository.findByTenantId(tenantId)).thenReturn(Optional.of(config));
+
+        boolean result = interceptor.preHandle(request, response, new Object());
+
+        assertThat(result).isTrue();
+    }
+
+    @Test
     @DisplayName("Should fail when tenant config is completely missing")
     void shouldFailWhenTenantConfigMissing() throws Exception {
         TenantContext.setTenantId(tenantId);

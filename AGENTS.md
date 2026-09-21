@@ -116,13 +116,13 @@ $env:DATABASE_URL="jdbc:postgresql://127.0.0.1:5440/postgres"; $env:DB_USERNAME=
 ./mvnw -o spring-boot:run -Dspring-boot.run.profiles=prod -Dspring-boot.run.jvmArguments="-Dspring.jpa.hibernate.ddl-auto=validate -Dserver.port=8099"
 ```
 
-`DB_PASSWORD` is in `%ProgramData%\StoreX Restaurant\db.properties`. Use
-**`prod` alone, never `prod,desktop`:** `LicenseGuard` is a `@PostConstruct` bean that aborts startup with
-*"no license token was provided"* unless the launcher injects `APP_LICENSE_TOKEN`, and the `desktop` profile
-adds only licensing, loopback binding and the seed — nothing schema-affecting. Starting a stopped
-`StoreXRestaurantPostgres` needs **admin**; without it use a throwaway cluster from the bundled binaries,
-never the installed data dir: `postgres-bin/bin/initdb.exe -D <tmp> -U postgres --auth=trust`, then `pg_ctl.exe -D <tmp>
--o "-p 5599" start`, point `DATABASE_URL` at 5599, and delete `<tmp>` after.
+`DB_PASSWORD` is in `%ProgramData%\StoreX Restaurant\db.properties`. Use **`prod` alone, never `prod,desktop`:**
+`LicenseGuard` is a `@PostConstruct` bean that aborts startup with *"no license token was provided"* unless the launcher
+injects `APP_LICENSE_TOKEN`; `desktop` adds only licensing, loopback binding and the seed — nothing schema-affecting.
+Starting a stopped `StoreXRestaurantPostgres` needs **admin**; without it use a throwaway cluster from the bundled
+binaries, never the installed data dir: `postgres-bin/bin/initdb.exe -D <tmp> -U postgres --auth=trust -E UTF8 --locale=C`
+(**the encoding flags are not optional** — initdb otherwise takes WIN1252 from the Windows locale and Flyway dies at
+`V16__add_returns_refunds.sql` L10, box-drawing characters, SQLState 22P05), then `pg_ctl.exe -D <tmp> -o "-p 5599" start`, point `DATABASE_URL` at 5599, and delete `<tmp>` after.
 
 ### Staging the installer
 
@@ -155,23 +155,23 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
 ## Flyway version reservation
 
 Migrations live in `pos-backend/src/main/resources/db/migration/`. Reserve the next `V<n>__` number
-before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V61`**: V59
-`products.track_stock`, V60 the topping tables, V61 `sale_items.parent_item_id` + `topping_id` +
-`sort_order` + `notes`. Toppings landed before tables, so this is *not* the order the plan reserved —
-trust disk over the plan. Reserved next, in this order: **V62** `restaurant_areas` + `restaurant_tables` +
-the `RESTAURANT` feature backfill · **V63** `restaurant_orders` + `restaurant_order_items` +
-`restaurant_order_counters` · **V64** `kitchen_tickets` + `kitchen_ticket_items` + `kitchen_station` columns.
+before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V63`**: V59
+`products.track_stock`, V60 toppings, V61 `sale_items.parent_item_id` + `topping_id` + `sort_order` + `notes`, V62 `restaurant_areas`/`restaurant_tables` + the `RESTAURANT` backfill, V63 `restaurant_orders` +
+`restaurant_order_items` + `restaurant_order_item_toppings` + `restaurant_order_counters`. Toppings landed
+before tables — trust disk over the plan. Reserved next: **V64** `kitchen_tickets` + `kitchen_ticket_items`
++ `kitchen_station` columns.
 
-V61's self-FK **must** stay `DEFERRABLE INITIALLY DEFERRED`: parent and child are both elements of the same
-cascaded `SaleEntity.items` collection and Hibernate guarantees no insert order within one entity type.
-`V55__license_keys.sql` is kept though issuance was removed — deleting it breaks Flyway validation on
-provisioned DBs. Never edit an applied migration; fix forward.
+V63's `uk_rest_order_open_table` (partial unique on `table_id WHERE status = 'OPEN'`) is what makes "one
+table, one tab" true under a race, and `restaurant_order_counters` breaks house style on purpose — no `id`,
+no audit block — because its composite PK is what the atomic `ON CONFLICT` allocation needs. V61's self-FK
+**must** stay `DEFERRABLE INITIALLY DEFERRED`: parent and child are elements of one cascaded
+`SaleEntity.items` collection and Hibernate guarantees no insert order within an entity type. Keep
+`V55__license_keys.sql` though issuance was removed — deleting it breaks Flyway validation on provisioned DBs. Never edit an applied migration; fix forward.
 
 House style (copy `V56__loyalty_ledger.sql`): `id UUID PRIMARY KEY` with **no DB default** (Hibernate
 generates it), `tenant_id UUID NOT NULL` with no FK on newer tables, the audit block
 (`created_at/updated_at/created_by/updated_by/version`), money `NUMERIC(12,2)`, enums as `VARCHAR(20)` with a
-comment listing the values (never a Postgres ENUM), indexes `idx_<abbrev>_<cols>` leading with `tenant_id`,
-and a prose `--` header explaining *why*.
+comment listing the values (never a Postgres ENUM), indexes `idx_<abbrev>_<cols>` leading with `tenant_id`, a prose `--` header explaining *why*.
 
 ## Conventions that bite
 

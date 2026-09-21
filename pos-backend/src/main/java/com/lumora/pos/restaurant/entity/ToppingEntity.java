@@ -60,7 +60,7 @@ public class ToppingEntity extends BaseEntity {
     public enum PriceMode {
         /** Server bills {@code defaultPrice}; the request's price is discarded. */
         FIXED,
-        /** Cashier types the price at order time; clamped to {@code maxPrice}. */
+        /** Cashier types the price at order time; refused above {@code maxPrice}. */
         PROMPT
     }
 }

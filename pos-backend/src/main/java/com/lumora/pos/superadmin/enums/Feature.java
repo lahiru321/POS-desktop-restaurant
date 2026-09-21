@@ -29,6 +29,14 @@ public enum Feature {
     API_ACCESS,
     FINANCIAL_REPORTS,
 
+    // --- Store credit (route-gated on /api/v1/credit) ---
+    STORE_CREDIT,
+
+    // --- Restaurant (route-gated on /api/v1/restaurant) ---
+    // Grants the API. Whether this business is a restaurant is the separate
+    // restaurantMode setting in tenants.settings.
+    RESTAURANT,
+
     // --- Multi-branch (Medium / Enterprise) ---
     // Restricts each user to their assigned branch(es). Behavioural, not route-gated:
     // enforced by BranchAccessGuard, not the FeatureGuardInterceptor.
