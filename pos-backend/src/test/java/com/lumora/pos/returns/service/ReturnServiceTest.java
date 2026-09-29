@@ -14,6 +14,7 @@ import com.lumora.pos.returns.dto.ReturnItemResponse;
 import com.lumora.pos.returns.dto.ReturnRequest;
 import com.lumora.pos.returns.dto.ReturnResponse;
 import com.lumora.pos.returns.entity.ReturnEntity;
+import com.lumora.pos.returns.entity.ReturnItemEntity;
 import com.lumora.pos.returns.repository.ReturnRepository;
 import com.lumora.pos.sales.entity.SaleEntity;
 import com.lumora.pos.sales.entity.SaleItemEntity;
@@ -269,5 +270,94 @@ class ReturnServiceTest {
         assertThat(response.getItems()).singleElement()
                 .extracting(ReturnItemResponse::getProductName)
                 .isEqualTo("Extra Cheese");
+    }
+
+    // ── A dish goes back with its add-ons ────────────────────────────────
+
+    /** Two burgers (100.00) each with extra cheese (2 portions, 40.00 total). */
+    private SaleItemEntity cheeseOn(SaleItemEntity burger) {
+        SaleItemEntity cheese = new SaleItemEntity();
+        cheese.setId(UUID.randomUUID());
+        cheese.setProductId(null);
+        cheese.setItemName("Extra Cheese");
+        cheese.setParentItem(burger);
+        cheese.setQuantity(new BigDecimal("2.00"));
+        cheese.setTotalAmount(new BigDecimal("40.00"));
+        saleEntity.setItems(List.of(burger, cheese));
+        return cheese;
+    }
+
+    private ReturnRequest returning(UUID saleItemId, String qty) {
+        ReturnRequest request = new ReturnRequest();
+        request.setSaleId(saleId);
+        request.setReason("Refund");
+        request.setRefundMethod(ReturnEntity.RefundMethod.CASH);
+        ReturnItemRequest itemReq = new ReturnItemRequest();
+        itemReq.setSaleItemId(saleItemId);
+        itemReq.setQuantity(new BigDecimal(qty));
+        request.setItems(List.of(itemReq));
+        return request;
+    }
+
+    private void stubSaleWithPastReturns(List<ReturnEntity> past) {
+        when(saleRepository.findByIdAndTenantId(saleId, tenantId)).thenReturn(Optional.of(saleEntity));
+        when(returnRepository.findAllBySaleIdAndTenantIdOrderByCreatedAtDesc(saleId, tenantId)).thenReturn(past);
+        when(returnRepository.save(any(ReturnEntity.class))).thenAnswer(inv -> {
+            ReturnEntity entity = inv.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            return entity;
+        });
+    }
+
+    @Test
+    @DisplayName("Returning a dish refunds its add-ons with it, in proportion")
+    void shouldCascadeAddOnsWithTheirDish() {
+        SaleItemEntity cheese = cheeseOn(saleItemEntity);
+        stubSaleWithPastReturns(Collections.emptyList());
+
+        // 1 of 2 burgers → 1 of their 2 cheese portions: 50.00 + 20.00.
+        ReturnResponse response = returnService.createReturn(returning(saleItemId, "1"));
+
+        assertThat(response.getRefundAmount()).isEqualByComparingTo("70.00");
+        assertThat(response.getItems()).extracting(ReturnItemResponse::getSaleItemId)
+                .containsExactly(saleItemId, cheese.getId());
+        assertThat(response.getItems().get(1).getQuantityReturned()).isEqualByComparingTo("1");
+        // The dish's stock comes back; the cheese has none to restore.
+        verify(productService, times(1)).updateStock(productId, 1);
+    }
+
+    @Test
+    @DisplayName("An add-on can be refunded on its own, without its dish")
+    void shouldRefundAddOnAlone() {
+        SaleItemEntity cheese = cheeseOn(saleItemEntity);
+        stubSaleWithPastReturns(Collections.emptyList());
+
+        ReturnResponse response = returnService.createReturn(returning(cheese.getId(), "2"));
+
+        assertThat(response.getRefundAmount()).isEqualByComparingTo("40.00");
+        assertThat(response.getItems()).singleElement()
+                .extracting(ReturnItemResponse::getSaleItemId).isEqualTo(cheese.getId());
+        verify(productService, never()).updateStock(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("An add-on refunded earlier is not refunded again when its dish comes back")
+    void shouldCapCascadeAtWhatIsLeft() {
+        SaleItemEntity cheese = cheeseOn(saleItemEntity);
+
+        ReturnEntity earlier = new ReturnEntity();
+        earlier.setStatus(ReturnEntity.ReturnStatus.COMPLETED);
+        ReturnItemEntity earlierCheese = new ReturnItemEntity();
+        earlierCheese.setSaleItem(cheese);
+        earlierCheese.setQuantityReturned(new BigDecimal("2.00"));
+        earlier.getItems().add(earlierCheese);
+        stubSaleWithPastReturns(List.of(earlier));
+
+        ReturnResponse response = returnService.createReturn(returning(saleItemId, "2"));
+
+        // Both burgers back, but the cheese was already fully refunded: 100.00 only.
+        assertThat(response.getRefundAmount()).isEqualByComparingTo("100.00");
+        assertThat(response.getItems()).singleElement()
+                .extracting(ReturnItemResponse::getSaleItemId).isEqualTo(saleItemId);
     }
 }

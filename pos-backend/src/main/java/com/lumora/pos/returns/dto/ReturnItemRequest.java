@@ -18,7 +18,11 @@ public class ReturnItemRequest {
     @NotNull(message = "Sale item ID is required")
     private UUID saleItemId;
 
-    @NotNull(message = "Product ID is required")
+    /**
+     * Ignored — the product is read from the sale line itself. Optional because
+     * an add-on or a custom line has none, and requiring it made those lines
+     * impossible to refund.
+     */
     private UUID productId;
 
     @NotNull(message = "Quantity to return is required")

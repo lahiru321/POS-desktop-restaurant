@@ -39,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -104,43 +105,47 @@ public class ReturnService {
         UUID currentUserId = getCurrentUserId();
         returnEntity.setProcessedBy(currentUserId);
 
-        BigDecimal totalRefund = BigDecimal.ZERO;
-
+        // What was asked for, line by line. An add-on can be named on its own
+        // ("the cheese was missing"); a dish takes its add-ons with it below.
+        Map<UUID, BigDecimal> requested = new LinkedHashMap<>();
         for (ReturnItemRequest itemReq : request.getItems()) {
-            SaleItemEntity saleItem = saleItemMap.get(itemReq.getSaleItemId());
-            if (saleItem == null) {
+            if (!saleItemMap.containsKey(itemReq.getSaleItemId())) {
                 throw new BusinessException("Sale item not found in this sale");
             }
+            requested.merge(itemReq.getSaleItemId(), itemReq.getQuantity(), BigDecimal::add);
+        }
 
-            BigDecimal alreadyReturned = pastReturns.stream()
-                    .filter(ret -> !ret.getStatus().equals(ReturnEntity.ReturnStatus.REJECTED))
-                    .flatMap(ret -> ret.getItems().stream())
-                    .filter(ri -> ri.getSaleItem().getId().equals(saleItem.getId()))
-                    .map(ReturnItemEntity::getQuantityReturned)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal remainingQty = saleItem.getQuantity().subtract(alreadyReturned);
-            if (itemReq.getQuantity().compareTo(remainingQty) > 0) {
-                throw new BusinessException("Cannot return more than purchased/remaining for product");
+        // A dish goes back with its add-ons. The customer paid for the burger
+        // AND its cheese; refunding the burger alone would keep the cheese money.
+        // Each add-on not named in the request follows its dish in proportion —
+        // returning 1 of 2 burgers returns 1 of their 2 portions of cheese.
+        Map<UUID, BigDecimal> cascaded = new LinkedHashMap<>();
+        requested.forEach((saleItemId, qty) -> {
+            SaleItemEntity parent = saleItemMap.get(saleItemId);
+            for (SaleItemEntity child : sale.getItems()) {
+                if (child.getParentItem() == null || !child.getParentItem().getId().equals(parent.getId())
+                        || requested.containsKey(child.getId())) {
+                    continue;
+                }
+                BigDecimal share = child.getQuantity().multiply(qty)
+                        .divide(parent.getQuantity(), 3, RoundingMode.HALF_UP);
+                // Never more than is left of the add-on — it may have been refunded
+                // on its own earlier.
+                BigDecimal capped = share.min(remainingOf(child, pastReturns));
+                if (capped.signum() > 0) {
+                    cascaded.merge(child.getId(), capped, BigDecimal::add);
+                }
             }
+        });
 
-            BigDecimal effectiveUnitPrice = saleItem.getTotalAmount()
-                    .divide(saleItem.getQuantity(), 4, RoundingMode.HALF_UP);
-
-            BigDecimal itemRefundAmount = effectiveUnitPrice.multiply(itemReq.getQuantity())
-                    .setScale(2, RoundingMode.HALF_UP);
-
-            ReturnItemEntity returnItem = new ReturnItemEntity();
-            returnItem.setTenantId(tenantId);
-            returnItem.setReturnEntity(returnEntity);
-            returnItem.setSaleItem(saleItem);
-            returnItem.setProductId(saleItem.getProductId());
-            returnItem.setQuantityReturned(itemReq.getQuantity());
-            returnItem.setUnitPrice(effectiveUnitPrice);
-            returnItem.setRefundAmount(itemRefundAmount);
-
-            returnEntity.getItems().add(returnItem);
-            totalRefund = totalRefund.add(itemRefundAmount);
+        BigDecimal totalRefund = BigDecimal.ZERO;
+        for (Map.Entry<UUID, BigDecimal> line : requested.entrySet()) {
+            totalRefund = totalRefund.add(addReturnLine(returnEntity, saleItemMap.get(line.getKey()),
+                    line.getValue(), pastReturns, tenantId));
+        }
+        for (Map.Entry<UUID, BigDecimal> line : cascaded.entrySet()) {
+            totalRefund = totalRefund.add(addReturnLine(returnEntity, saleItemMap.get(line.getKey()),
+                    line.getValue(), pastReturns, tenantId));
         }
 
         returnEntity.setRefundAmount(totalRefund);
@@ -159,6 +164,47 @@ public class ReturnService {
         auditService.logCreate("RETURN", savedReturn.getId(), response);
 
         return response;
+    }
+
+    /** How much of a sale line has not yet been returned (rejected returns don't count). */
+    private static BigDecimal remainingOf(SaleItemEntity saleItem, List<ReturnEntity> pastReturns) {
+        BigDecimal alreadyReturned = pastReturns.stream()
+                .filter(ret -> !ret.getStatus().equals(ReturnEntity.ReturnStatus.REJECTED))
+                .flatMap(ret -> ret.getItems().stream())
+                .filter(ri -> ri.getSaleItem().getId().equals(saleItem.getId()))
+                .map(ReturnItemEntity::getQuantityReturned)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return saleItem.getQuantity().subtract(alreadyReturned);
+    }
+
+    /**
+     * One returned line, refunded at what was actually paid for it: the line's
+     * total over its quantity, so a discount or an inclusive tax is refunded in
+     * the same proportion it was charged.
+     */
+    private BigDecimal addReturnLine(ReturnEntity returnEntity, SaleItemEntity saleItem, BigDecimal quantity,
+                                     List<ReturnEntity> pastReturns, UUID tenantId) {
+        if (quantity.compareTo(remainingOf(saleItem, pastReturns)) > 0) {
+            throw new BusinessException("Cannot return more than purchased/remaining for "
+                    + (saleItem.getItemName() != null ? saleItem.getItemName() : "product"));
+        }
+
+        BigDecimal effectiveUnitPrice = saleItem.getTotalAmount()
+                .divide(saleItem.getQuantity(), 4, RoundingMode.HALF_UP);
+        BigDecimal itemRefundAmount = effectiveUnitPrice.multiply(quantity)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        ReturnItemEntity returnItem = new ReturnItemEntity();
+        returnItem.setTenantId(tenantId);
+        returnItem.setReturnEntity(returnEntity);
+        returnItem.setSaleItem(saleItem);
+        returnItem.setProductId(saleItem.getProductId());
+        returnItem.setQuantityReturned(quantity);
+        returnItem.setUnitPrice(effectiveUnitPrice);
+        returnItem.setRefundAmount(itemRefundAmount);
+
+        returnEntity.getItems().add(returnItem);
+        return itemRefundAmount;
     }
 
     @Transactional(readOnly = true)
@@ -288,6 +334,8 @@ public class ReturnService {
         }
 
         for (ReturnItemEntity item : returnEntity.getItems()) {
+            // An add-on or a custom line has no stock to write off.
+            if (item.getProductId() == null) continue;
             ProductEntity product = productRepository.findByIdAndTenantId(item.getProductId(), tenantId)
                     .orElse(null);
             if (product == null) continue;

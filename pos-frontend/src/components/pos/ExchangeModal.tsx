@@ -245,7 +245,7 @@ export function ExchangeModal({ saleId, returnItems, returnCredit, onClose }: Ex
                 <div className="bg-gray-950 rounded border border-gray-800 p-3 h-40 overflow-y-auto">
                   {returnItems.map(item => (
                     <div key={item.saleItemId} className="flex justify-between text-sm py-1 border-b border-gray-800/50 last:border-0">
-                      <span className="text-gray-300 truncate pr-2">Item #{item.productId.slice(0,6)} <span className="text-gray-500">x{item.quantity}</span></span>
+                      <span className="text-gray-300 truncate pr-2">Item #{item.productId?.slice(0,6) ?? '—'} <span className="text-gray-500">x{item.quantity}</span></span>
                     </div>
                   ))}
                 </div>

@@ -7,7 +7,9 @@ export type ReturnType = 'REFUND' | 'EXCHANGE' | 'DAMAGED_WRITEOFF';
 
 export interface ReturnItemRequest {
   saleItemId: string;
-  productId: string;
+  /** Ignored by the server, which reads it off the sale line. Null for an
+   *  add-on or a custom line, which have no product. */
+  productId?: string | null;
   quantity: number;
 }
 

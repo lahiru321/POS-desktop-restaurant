@@ -65,29 +65,47 @@ export function ReturnModal({ saleId, onClose, onExchange }: ReturnModalProps) {
     return originalQty - returnedQty;
   };
 
-  const totalReturnItems = Object.values(quantities).reduce((a, b) => a + b, 0);
+  // Dish first, its add-ons straight after — the same order as the receipt.
+  const lines = sale
+    ? sale.items
+        .filter((i) => !i.parentItemId)
+        .flatMap((parent) => [parent, ...sale.items.filter((c) => c.parentItemId === parent.id)])
+    : [];
 
-  const totalReturnAmt = Object.entries(quantities).reduce((sum, [itemId, qty]) => {
-    if (!sale) return sum;
-    const item = sale.items.find((si: { id: string; totalAmount: number; quantity: number }) => si.id === itemId);
-    if (!item) return sum;
-    const unitPrice = item.totalAmount / item.quantity;
-    return sum + (unitPrice * qty);
-  }, 0);
+  /**
+   * How much of an add-on goes back because its dish does. Mirrors the server,
+   * which refunds an add-on with its dish in proportion (1 of 2 burgers takes 1
+   * of their 2 cheese portions) and never more than is left of it.
+   */
+  const withDishQty = (child: (typeof lines)[number]): number => {
+    if (!sale || !child.parentItemId) return 0;
+    const parent = sale.items.find((p) => p.id === child.parentItemId);
+    const parentQty = parent ? quantities[parent.id] || 0 : 0;
+    if (!parent || parentQty === 0) return 0;
+    const share = Math.round((child.quantity * parentQty / parent.quantity) * 1000) / 1000;
+    return Math.min(share, getRemainingQty(child.id, child.quantity));
+  };
+
+  /** What each line will actually return: its own figure, or its dish's share. */
+  const effectiveQty = (line: (typeof lines)[number]): number =>
+    line.parentItemId && withDishQty(line) > 0 ? withDishQty(line) : quantities[line.id] || 0;
+
+  const totalReturnItems = lines.reduce((sum, line) => sum + effectiveQty(line), 0);
+
+  const totalReturnAmt = lines.reduce(
+    (sum, line) => sum + (line.totalAmount / line.quantity) * effectiveQty(line),
+    0,
+  );
 
   const handleReturn = () => {
     if (!sale) return;
 
-    const items: ReturnRequest['items'] = Object.entries(quantities)
-      .filter(([, qty]) => qty > 0)
-      .map(([itemId, qty]) => {
-        const saleItem = sale.items.find((si) => si.id === itemId);
-        // Custom/open lines have no productId and cannot be returned — skip them.
-        return saleItem && saleItem.productId
-          ? { saleItemId: itemId, productId: saleItem.productId, quantity: qty }
-          : null;
-      })
-      .filter((i): i is ReturnRequest['items'][number] => i !== null);
+    // Only what the cashier chose. An add-on following its dish is left out on
+    // purpose: the server returns it with the dish, so sending it too would ask
+    // for it twice.
+    const items: ReturnRequest['items'] = lines
+      .filter((line) => (quantities[line.id] || 0) > 0 && !(line.parentItemId && withDishQty(line) > 0))
+      .map((line) => ({ saleItemId: line.id, productId: line.productId, quantity: quantities[line.id] }));
 
     if (items.length === 0) {
       toast.error("Please select at least one item to return");
@@ -100,7 +118,11 @@ export function ReturnModal({ saleId, onClose, onExchange }: ReturnModalProps) {
     }
 
     if (reason === 'Exchange' && onExchange) {
-        onExchange(sale.id, items, totalReturnAmt);
+        // An exchange swaps products for products; an add-on alone has none.
+        const exchangeable = items.flatMap((i) =>
+          i.productId ? [{ saleItemId: i.saleItemId, productId: i.productId, quantity: i.quantity }] : [],
+        );
+        onExchange(sale.id, exchangeable, totalReturnAmt);
         onClose();
         return;
     }
@@ -153,12 +175,16 @@ export function ReturnModal({ saleId, onClose, onExchange }: ReturnModalProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {sale.items.map(item => {
+                    {lines.map(item => {
                       const remaining = getRemainingQty(item.id, item.quantity);
                       const currentVal = quantities[item.id] || 0;
+                      const isAddon = !!item.parentItemId;
+                      const followsDish = isAddon && withDishQty(item) > 0;
                       return (
                         <tr key={item.id} className="border-t border-gray-800/50">
-                          <td className="px-4 py-3 text-white">{item.productName}</td>
+                          <td className={`px-4 py-3 ${isAddon ? 'pl-8 text-gray-300' : 'text-white'}`}>
+                            {isAddon ? `+ ${item.productName}` : item.productName}
+                          </td>
                           <td className="px-4 py-3 text-right">{CURRENCY.symbol} {item.unitPrice.toFixed(2)}</td>
                           <td className="px-4 py-3 text-center">{item.quantity}</td>
                           <td className="px-4 py-3 text-center">
@@ -169,6 +195,11 @@ export function ReturnModal({ saleId, onClose, onExchange }: ReturnModalProps) {
                             )}
                           </td>
                           <td className="px-4 py-3 text-center">
+                            {followsDish ? (
+                              <span className="text-xs text-gray-400" title="Refunded with its dish">
+                                {withDishQty(item)} with dish
+                              </span>
+                            ) : (
                             <Input
                               type="number"
                               min="0"
@@ -184,7 +215,9 @@ export function ReturnModal({ saleId, onClose, onExchange }: ReturnModalProps) {
                               }}
                               className="w-20 mx-auto text-center h-8 bg-gray-950 border-gray-700"
                               placeholder="0"
+                              aria-label={`Return quantity for ${item.productName}`}
                             />
+                            )}
                           </td>
                         </tr>
                       );
