@@ -404,4 +404,55 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     await payExactCash(page);
     await expect(page.getByText(new RegExp(`Order \\d+ · ${TABLE} paid`))).toBeVisible();
   });
+
+  test("a dine-in bill carries the service charge, and it can be removed", async ({ page, request }) => {
+    await openShift(page);
+
+    const seatAndSettle = async (removeCharge: boolean): Promise<number> => {
+      await page.keyboard.press("F11");
+      await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+      await page.getByRole("button", { name: new RegExp(`^${TABLE}, 2 seats, available`) }).click();
+      await addDishWithAddon(page);
+      await page.getByRole("button", { name: /^settle/i }).click();
+      await expect(page.getByText(/^Service charge 10%/)).toBeVisible();
+      if (removeCharge) {
+        await page.getByRole("button", { name: /^remove$/i }).click();
+        await expect(page.getByText("Service charge removed")).toBeVisible();
+      }
+      await page.getByRole("radio", { name: /cash/i }).click();
+      await page.getByRole("button", { name: /^exact$/i }).click();
+      const complete = page.getByRole("button", { name: /complete sale/i });
+      // "Complete sale, total Rs. 1210.00": take the amount, not the "." in "Rs.".
+      const label = (await complete.getAttribute("aria-label")) ?? "";
+      const shown = Number(label.match(/(\d[\d,]*\.\d{2})\s*$/)![1].replace(/,/g, ""));
+      await complete.click();
+      await expect(page.getByText(new RegExp(`Order \\d+ · ${TABLE} paid`))).toBeVisible();
+      return shown;
+    };
+
+    const shownWith = await seatAndSettle(false);
+    const shownWithout = await seatAndSettle(true);
+
+    // What the till showed is exactly what the server billed, both times.
+    const cashier = await request.post(`${V1}/auth/login`, {
+      data: { email: TEST_USER.email, password: TEST_USER.password },
+    });
+    const headers = { Authorization: `Bearer ${(await cashier.json()).data.accessToken}` };
+    const sales = (await (await request.get(`${V1}/sales/session/current`, { headers })).json()).data as {
+      netAmount: number; serviceChargeAmount: number; serviceChargeWaived: boolean;
+      items: { productName: string; totalAmount: number }[];
+    }[];
+    const [without, withCharge] = sales; // newest first
+
+    expect(withCharge.serviceChargeAmount).toBeGreaterThan(0);
+    expect(withCharge.serviceChargeWaived).toBe(false);
+    expect(withCharge.items.some((i) => i.productName === "Service charge (10%)")).toBe(true);
+    expect(withCharge.netAmount).toBeCloseTo(shownWith, 2);
+
+    expect(without.serviceChargeAmount).toBe(0);
+    expect(without.serviceChargeWaived).toBe(true);
+    expect(without.items.some((i) => i.productName?.startsWith("Service charge"))).toBe(false);
+    expect(without.netAmount).toBeCloseTo(shownWithout, 2);
+    expect(withCharge.netAmount).toBeGreaterThan(without.netAmount);
+  });
 });

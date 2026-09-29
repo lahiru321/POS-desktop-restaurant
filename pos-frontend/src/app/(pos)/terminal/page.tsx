@@ -8,7 +8,7 @@ import { taxService } from '@/services/taxService';
 import { cashSessionService } from '@/services/cashSessionService';
 import { tenantService } from '@/services/tenantService';
 import { SaleResponse, salesService, SaleRequest, SaleItemRequest, SalesSummaryResponse } from '@/services/salesService';
-import { useCart, useCartTotals, TaxContext, type CartView } from '@/hooks/useCart';
+import { applyServiceCharge, useCart, useCartTotals, TaxContext, type CartView } from '@/hooks/useCart';
 import { useDineInCart } from '@/hooks/useDineInCart';
 import { useKitchenPrinting } from '@/hooks/useKitchenPrinting';
 import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send, ArrowRightLeft, Split } from 'lucide-react';
@@ -276,9 +276,24 @@ function Terminal() {
     taxContext,
     taxInclusive,
   );
-  const tender = splitSelection
+  const baseTender = splitSelection
     ? splitTotals
-    : { subtotal, discountAmount, taxAmount, taxLabel, taxInclusive, total };
+    : { subtotal, discountAmount, taxAmount, taxLabel, taxInclusive, total, itemCount };
+
+  // Dine-in bills carry the service charge — the tenant's rate, computed here
+  // exactly as the server will bill it so the tender total and the sale agree.
+  // The cashier can take it off this one bill; the choice resets per bill.
+  const [waiveServiceCharge, setWaiveServiceCharge] = useState(false);
+  const serviceChargeApplies = dineInActive && dineIn.order?.orderType === 'DINE_IN';
+  const serviceChargeRate = tenantInfo?.serviceChargeRate ?? 10;
+  const tender = applyServiceCharge(
+    baseTender,
+    serviceChargeApplies && !waiveServiceCharge ? serviceChargeRate : 0,
+    taxContext,
+  );
+  useEffect(() => {
+    setWaiveServiceCharge(false);
+  }, [dineInOrderId]);
 
   // A tab settled or voided on another till is not a cart. Drop back to retail
   // rather than letting anyone ring into a closed order.
@@ -598,6 +613,7 @@ function Terminal() {
           cashTendered: (paymentMethod === 'CASH' || paymentMethod === 'SPLIT') && cashTendered > 0
             ? cashTendered
             : undefined,
+          waiveServiceCharge,
         },
       });
       return;
@@ -605,6 +621,7 @@ function Terminal() {
 
     if (dineInActive && dineInOrderId) {
       settleMutation.mutate({
+        waiveServiceCharge,
         paymentMethod,
         cashTendered: (paymentMethod === 'CASH' || paymentMethod === 'SPLIT') && cashTendered > 0
           ? cashTendered
@@ -1061,6 +1078,31 @@ function Terminal() {
 
   const tenderWarning = dineInActive ? (
     <>
+      {serviceChargeApplies && serviceChargeRate > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/60 p-3 text-sm">
+          <div className="min-w-0">
+            <p className="font-semibold">
+              {waiveServiceCharge
+                ? 'Service charge removed'
+                : `Service charge ${serviceChargeRate}%${tender.serviceCharge ? ` — ${fc(tender.serviceCharge.lineAmount)}` : ''}`}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {waiveServiceCharge
+                ? 'Not on this bill. The removal is recorded on the sale.'
+                : 'Included in the total above, with its VAT.'}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setWaiveServiceCharge((w) => !w)}
+          >
+            {waiveServiceCharge ? 'Add back' : 'Remove'}
+          </Button>
+        </div>
+      )}
       {splitSelection && (
         <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 text-sm">
           <p className="font-semibold text-primary">Paying for part of the tab</p>

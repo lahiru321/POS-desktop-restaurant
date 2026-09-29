@@ -85,6 +85,10 @@ export interface SaleResponse {
   pointsRedeemed?: number;
   /** Bill reduction the redeemed points bought (post-tax). */
   loyaltyDiscountAmount?: number;
+  /** Dine-in service charge before its VAT; 0 when none. It is also one of the items. */
+  serviceChargeAmount?: number;
+  /** The cashier took the service charge off this bill. */
+  serviceChargeWaived?: boolean;
   /** True if prices were VAT-inclusive (taxAmount extracted from netAmount)
    *  rather than added on top. Drives the receipt's VAT breakdown. */
   taxInclusive?: boolean;

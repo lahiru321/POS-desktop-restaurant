@@ -427,6 +427,43 @@ public class SaleService {
                         }
                 }
 
+                // Service charge — dine-in only, and only ever set by the server
+                // (RestaurantOrderService; the request fields are @JsonIgnore). It is
+                // a percentage of the bill's taxable value — every line after discount,
+                // before VAT — billed as a line of its own and taxed at the default
+                // rate like any custom line. As a real line it reaches the tax total,
+                // the receipt and the drawer with no special case. Inclusive pricing
+                // grosses it up so that extracting the VAT leaves the charge itself.
+                sale.setServiceChargeWaived(Boolean.TRUE.equals(request.getServiceChargeWaived()));
+                BigDecimal serviceRate = request.getServiceChargeRate();
+                if (serviceRate != null && serviceRate.signum() > 0) {
+                        BigDecimal taxableValue = taxInclusive
+                                        ? totalAmount.subtract(totalDiscount).subtract(totalTax)
+                                        : totalAmount.subtract(totalDiscount);
+                        BigDecimal charge = taxableValue.multiply(serviceRate)
+                                        .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                        if (charge.signum() > 0) {
+                                BigDecimal chargeTaxRate = taxRateService.getDefaultRate(tenantId);
+                                BigDecimal chargePrice = taxInclusive
+                                                ? charge.multiply(BigDecimal.ONE.add(chargeTaxRate))
+                                                                .setScale(2, RoundingMode.HALF_UP)
+                                                : charge;
+                                SaleItemEntity chargeLine = new SaleItemEntity();
+                                chargeLine.setSale(sale);
+                                chargeLine.setTenantId(tenantId);
+                                chargeLine.setProductId(null);
+                                chargeLine.setItemName("Service charge ("
+                                                + serviceRate.stripTrailingZeros().toPlainString() + "%)");
+                                chargeLine.setSortOrder(sortOrder++);
+                                BigDecimal chargeTax = applyLineMath(chargeLine, chargePrice, BigDecimal.ONE,
+                                                BigDecimal.ZERO, chargeTaxRate, taxInclusive);
+                                sale.getItems().add(chargeLine);
+                                totalAmount = totalAmount.add(chargePrice);
+                                totalTax = totalTax.add(chargeTax);
+                                sale.setServiceChargeAmount(charge);
+                        }
+                }
+
                 sale.setTotalAmount(totalAmount);
                 sale.setTaxAmount(totalTax);
                 sale.setDiscountAmount(totalDiscount);
@@ -864,6 +901,8 @@ public class SaleService {
                                 .loyaltyBalance(loyaltyBalance)
                                 .pointsRedeemed(sale.getLoyaltyPointsRedeemed())
                                 .loyaltyDiscountAmount(sale.getLoyaltyDiscountAmount())
+                                .serviceChargeAmount(sale.getServiceChargeAmount())
+                                .serviceChargeWaived(sale.isServiceChargeWaived())
                                 .taxInclusive(sale.isTaxInclusive())
                                 .items(sale.getItems().stream()
                                                 .map(item -> mapItemToResponse(item, productNameMap))

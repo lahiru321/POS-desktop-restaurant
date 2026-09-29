@@ -33,6 +33,9 @@ public class SaleResponse {
     private Integer pointsRedeemed;
     /** Bill reduction the redeemed points bought (post-tax). */
     private BigDecimal loyaltyDiscountAmount;
+    /** Dine-in service charge before its VAT; 0 when none. It is also one of the items. */
+    private BigDecimal serviceChargeAmount;
+    private boolean serviceChargeWaived;
     /** True if prices were VAT-inclusive (taxAmount was extracted from netAmount)
      *  rather than added on top. Drives the receipt's VAT breakdown. */
     private boolean taxInclusive;

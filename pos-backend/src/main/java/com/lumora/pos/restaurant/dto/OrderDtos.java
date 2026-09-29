@@ -173,6 +173,9 @@ public final class OrderDtos {
 
         @Min(value = 0, message = "pointsToRedeem must be non-negative")
         private Integer pointsToRedeem;
+
+        /** The cashier took the service charge off this part of the bill. */
+        private Boolean waiveServiceCharge;
     }
 
     @Data
@@ -221,6 +224,9 @@ public final class OrderDtos {
 
         @Min(value = 0, message = "pointsToRedeem must be non-negative")
         private Integer pointsToRedeem;
+
+        /** The cashier took the service charge off this bill. Dine-in only; recorded on the sale. */
+        private Boolean waiveServiceCharge;
     }
 
     /**

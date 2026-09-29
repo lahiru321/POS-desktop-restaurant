@@ -17,6 +17,7 @@ import com.lumora.pos.sales.dto.SaleRequest;
 import com.lumora.pos.sales.dto.SaleResponse;
 import com.lumora.pos.sales.service.SaleService;
 import com.lumora.pos.tenant.TenantContext;
+import com.lumora.pos.tenant.service.TenantInfoService;
 import com.lumora.pos.auth.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +59,7 @@ class RestaurantOrderServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private SaleService saleService;
     @Mock private KitchenTicketService kitchenTicketService;
+    @Mock private TenantInfoService tenantInfoService;
     @Mock private AuditService auditService;
 
     @InjectMocks private RestaurantOrderService orderService;
@@ -505,6 +507,61 @@ class RestaurantOrderServiceTest {
             assertThat(order.getSettledAt()).isNotNull();
             assertThat(table.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
             assertThat(response.getLabel()).isEqualTo("Order 14 · T1");
+        }
+
+        @Test
+        @DisplayName("A dine-in bill carries the tenant's service charge rate")
+        void shouldChargeServiceOnDineIn() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "1", "950.00");
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tenantInfoService.serviceChargeRate(tenantId)).thenReturn(10);
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("1045.00")));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            orderService.settle(order.getId(), OrderDtos.SettleRequest.builder().paymentMethod("CASH").build());
+
+            ArgumentCaptor<SaleRequest> sent = ArgumentCaptor.forClass(SaleRequest.class);
+            verify(saleService).createSale(sent.capture());
+            assertThat(sent.getValue().getServiceChargeRate()).isEqualByComparingTo("10");
+            assertThat(sent.getValue().getServiceChargeWaived()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Removing the service charge sends no rate and records the waiver")
+        void shouldWaiveServiceCharge() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "1", "950.00");
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("950.00")));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            orderService.settle(order.getId(), OrderDtos.SettleRequest.builder()
+                    .paymentMethod("CASH").waiveServiceCharge(true).build());
+
+            ArgumentCaptor<SaleRequest> sent = ArgumentCaptor.forClass(SaleRequest.class);
+            verify(saleService).createSale(sent.capture());
+            assertThat(sent.getValue().getServiceChargeRate()).isNull();
+            assertThat(sent.getValue().getServiceChargeWaived()).isTrue();
+        }
+
+        @Test
+        @DisplayName("A takeaway never carries a service charge")
+        void shouldNotChargeServiceOnTakeaway() {
+            RestaurantOrderEntity order = order();
+            order.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
+            order.setTable(null);
+            item(order, "Kottu", "1", "950.00").setFiredQuantity(BigDecimal.ONE);
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("950.00")));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            orderService.settle(order.getId(), OrderDtos.SettleRequest.builder().paymentMethod("CASH").build());
+
+            ArgumentCaptor<SaleRequest> sent = ArgumentCaptor.forClass(SaleRequest.class);
+            verify(saleService).createSale(sent.capture());
+            assertThat(sent.getValue().getServiceChargeRate()).isNull();
+            verify(tenantInfoService, never()).serviceChargeRate(any());
         }
 
         @Test

@@ -78,6 +78,9 @@ public class TenantInfoService {
             if (request.getDefaultCovers() != null) {
                 settings.put("defaultCovers", request.getDefaultCovers());
             }
+            if (request.getServiceChargeRate() != null) {
+                settings.put("serviceChargeRate", request.getServiceChargeRate());
+            }
             tenant.setSettings(objectMapper.writeValueAsString(settings));
         } catch (Exception e) {
             log.warn("Failed to update tenant settings JSON: {}", e.getMessage());
@@ -152,6 +155,25 @@ public class TenantInfoService {
         return true;
     }
 
+    /** Default when a restaurant has never set one: the usual Sri Lankan 10%. */
+    static final int DEFAULT_SERVICE_CHARGE_RATE = 10;
+
+    /** Dine-in service charge, in percent. 0 means the business does not charge one. */
+    @Transactional(readOnly = true)
+    public int serviceChargeRate(UUID tenantId) {
+        return tenantRepository.findById(tenantId)
+                .map(this::serviceChargeRateFromSettings)
+                .orElse(DEFAULT_SERVICE_CHARGE_RATE);
+    }
+
+    private int serviceChargeRateFromSettings(TenantEntity t) {
+        Object raw = settingValue(t, "serviceChargeRate");
+        if (raw instanceof Number n && n.intValue() >= 0 && n.intValue() <= 50) {
+            return n.intValue();
+        }
+        return DEFAULT_SERVICE_CHARGE_RATE;
+    }
+
     private int defaultCoversFromSettings(TenantEntity t) {
         Object raw = settingValue(t, "defaultCovers");
         if (raw instanceof Number n) {
@@ -216,6 +238,7 @@ public class TenantInfoService {
                 .loyaltyPointValue(loyalty.getPointValue())
                 .taxInclusive(taxInclusiveFromSettings(t))
                 .defaultCovers(defaultCoversFromSettings(t))
+                .serviceChargeRate(serviceChargeRateFromSettings(t))
                 .build();
     }
 }

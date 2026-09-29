@@ -88,6 +88,7 @@ export default function SettingsPage() {
 
   // Restaurant settings form state.
   const [restCovers, setRestCovers] = useState("2");
+  const [restServiceRate, setRestServiceRate] = useState("10");
 
   const { data: tenantInfo, isLoading: tenantLoading } = useQuery({
     queryKey: QK.tenantInfo,
@@ -107,6 +108,7 @@ export default function SettingsPage() {
       setLoyValue(String(tenantInfo.loyaltyPointValue ?? 0.1));
       setTaxInclusive(tenantInfo.taxInclusive ?? true);
       setRestCovers(String(tenantInfo.defaultCovers ?? 2));
+      setRestServiceRate(String(tenantInfo.serviceChargeRate ?? 10));
     }
   }, [tenantInfo]);
 
@@ -186,6 +188,11 @@ export default function SettingsPage() {
       toast.error("Default covers must be a whole number between 1 and 99");
       return;
     }
+    const serviceRate = Number(restServiceRate);
+    if (!Number.isInteger(serviceRate) || serviceRate < 0 || serviceRate > 50) {
+      toast.error("Service charge must be a whole percentage from 0 to 50");
+      return;
+    }
     // The tenant update is a full replace — carry the current business fields
     // through so saving restaurant settings doesn't wipe the receipt header info.
     updateTenantMutation.mutate({
@@ -196,12 +203,14 @@ export default function SettingsPage() {
       logoUrl: tenantInfo.logoUrl ?? null,
       receiptFooter: tenantInfo.receiptFooter ?? null,
       defaultCovers: covers,
+      serviceChargeRate: serviceRate,
     });
   };
 
   const restDirty =
     !!tenantInfo &&
-    Number(restCovers) !== tenantInfo.defaultCovers;
+    (Number(restCovers) !== tenantInfo.defaultCovers ||
+      Number(restServiceRate) !== tenantInfo.serviceChargeRate);
 
   const loyDirty =
     !!tenantInfo &&
@@ -1001,6 +1010,23 @@ export default function SettingsPage() {
                       <p className="text-[11px] text-muted-foreground">
                         Guests pre-filled when a new dine-in tab is opened. The server can change it
                         per table.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Service charge (%)</label>
+                      <Input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="50"
+                        value={restServiceRate}
+                        onChange={(e) => setRestServiceRate(e.target.value)}
+                        className="bg-card border-border"
+                        disabled={!isAdmin}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Added to dine-in bills (not takeaway or counter sales), with VAT on it. The
+                        cashier can remove it from a single bill. 0 turns it off.
                       </p>
                     </div>
                   </div>

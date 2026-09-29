@@ -19,6 +19,12 @@ import java.util.UUID;
 
 @Data
 @Builder
+// The service-charge fields are server-only. Ignored by name at class level, not
+// with @JsonIgnore on the fields: this class is built through its all-args
+// constructor, and a field-level ignore makes Jackson fail on a request that
+// carries the name instead of dropping it.
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(
+        value = {"serviceChargeRate", "serviceChargeWaived"}, allowGetters = true)
 public class SaleRequest {
     private UUID customerId;
     private UUID branchId;
@@ -37,6 +43,17 @@ public class SaleRequest {
      *  recomputes the discount authoritatively. Optional / 0 = none. */
     @jakarta.validation.constraints.Min(value = 0, message = "pointsToRedeem must be non-negative")
     private Integer pointsToRedeem;
+
+    /**
+     * Service charge percentage (10 = 10%), billed as its own taxed line on the
+     * bill's taxable value. Server-only: set by RestaurantOrderService for a
+     * dine-in settle and never read from a client, so a till cannot add or
+     * size one itself.
+     */
+    private BigDecimal serviceChargeRate;
+
+    /** Server-only: the cashier removed the service charge from this bill. */
+    private Boolean serviceChargeWaived;
 
     @NotEmpty(message = "Sale must contain at least one item")
     @Valid

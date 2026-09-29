@@ -18,6 +18,7 @@ import com.lumora.pos.sales.dto.SaleRequest;
 import com.lumora.pos.sales.dto.SaleResponse;
 import com.lumora.pos.sales.service.SaleService;
 import com.lumora.pos.tenant.TenantContext;
+import com.lumora.pos.tenant.service.TenantInfoService;
 import com.lumora.pos.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -73,6 +74,7 @@ public class RestaurantOrderService {
     private final UserRepository userRepository;
     private final SaleService saleService;
     private final KitchenTicketService kitchenTicketService;
+    private final TenantInfoService tenantInfoService;
     private final AuditService auditService;
 
     // ------------------------------------------------------------------
@@ -414,12 +416,20 @@ public class RestaurantOrderService {
             throw new BusinessException("Nothing left to bill — void the order instead");
         }
 
+        // Dine-in bills carry the service charge; takeaway never does. The rate is
+        // the tenant's, never the till's; the till can only take it off one bill.
+        boolean dineIn = order.getOrderType() == RestaurantOrderEntity.OrderType.DINE_IN;
+        boolean waived = dineIn && Boolean.TRUE.equals(request.getWaiveServiceCharge());
+        int serviceRate = dineIn && !waived ? tenantInfoService.serviceChargeRate(tenantId) : 0;
+
         SaleResponse sale = saleService.createSale(SaleRequest.builder()
                 .customerId(order.getCustomerId())
                 .branchId(order.getBranch().getId())
                 .paymentMethod(request.getPaymentMethod())
                 .cashTendered(request.getCashTendered())
                 .pointsToRedeem(request.getPointsToRedeem())
+                .serviceChargeRate(serviceRate > 0 ? BigDecimal.valueOf(serviceRate) : null)
+                .serviceChargeWaived(waived)
                 .items(billable.stream().map(this::toSaleLine).toList())
                 .build());
 
@@ -560,6 +570,7 @@ public class RestaurantOrderService {
                 .paymentMethod(request.getPaymentMethod())
                 .cashTendered(request.getCashTendered())
                 .pointsToRedeem(request.getPointsToRedeem())
+                .waiveServiceCharge(request.getWaiveServiceCharge())
                 .build());
     }
 

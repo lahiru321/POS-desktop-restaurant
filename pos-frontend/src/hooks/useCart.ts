@@ -236,6 +236,58 @@ export function useCartTotals(
   };
 }
 
+/** The dine-in service charge on a bill, as the server will bill it. */
+export interface ServiceCharge {
+  /** Percent, e.g. 10. */
+  rate: number;
+  /** Before its own VAT — `sales.service_charge_amount`. */
+  amount: number;
+  /** The charge line as billed: grossed up under inclusive pricing. */
+  lineAmount: number;
+  /** VAT on the charge. */
+  tax: number;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Adds the dine-in service charge to a bill's totals, exactly as
+ * `SaleService.createSale` does — the charge and the cart are computed twice,
+ * and a disagreement would only surface at the drawer.
+ *
+ * The charge is `rate`% of the bill's taxable value (lines after discount,
+ * before VAT), taxed at the default rate like any custom line. Under inclusive
+ * pricing the line is grossed up so that extracting its VAT leaves the charge.
+ * HALF_UP at 2dp at every step, mirroring the backend.
+ */
+export function applyServiceCharge(
+  totals: CartTotals,
+  ratePercent: number,
+  taxContext: TaxContext | null,
+): CartTotals & { serviceCharge?: ServiceCharge } {
+  if (ratePercent <= 0 || totals.itemCount === 0) return totals;
+
+  const taxableValue = totals.taxInclusive
+    ? totals.subtotal - totals.discountAmount - totals.taxAmount
+    : totals.subtotal - totals.discountAmount;
+  const amount = round2((taxableValue * ratePercent) / 100);
+  if (amount <= 0) return totals;
+
+  const vat = taxContext?.taxRates.find((t) => t.isDefault && t.isActive)?.rate ?? 0;
+  const lineAmount = totals.taxInclusive ? round2(amount * (1 + vat)) : amount;
+  const tax = totals.taxInclusive
+    ? lineAmount - round2(lineAmount / (1 + vat))
+    : round2(lineAmount * vat);
+
+  return {
+    ...totals,
+    subtotal: totals.subtotal + lineAmount,
+    taxAmount: totals.taxAmount + tax,
+    total: totals.taxInclusive ? totals.total + lineAmount : totals.total + lineAmount + tax,
+    serviceCharge: { rate: ratePercent, amount, lineAmount, tax },
+  };
+}
+
 /**
  * The shape the terminal consumes, whichever cart is driving it.
  *

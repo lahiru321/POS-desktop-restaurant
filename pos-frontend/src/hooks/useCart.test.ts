@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useCart, useCartTotals } from "./useCart";
+import { applyServiceCharge, useCart, useCartTotals } from "./useCart";
 import type { CartItem, CartItemTopping } from "./useCart";
 import type { Product } from "@/types/inventory";
 import type { TaxContext } from "./useCart";
@@ -393,5 +393,50 @@ describe("useCartTotals", () => {
     expect(result.current.subtotal).toBe(0);
     expect(result.current.total).toBe(0);
     expect(result.current.itemCount).toBe(0);
+  });
+});
+
+describe("applyServiceCharge", () => {
+  // The same bill and the same numbers as SaleServiceServiceChargeTest on the
+  // backend: two dishes at 1000.00, 10% VAT, 10% service charge.
+  const taxContext: TaxContext = {
+    taxRates: [
+      { id: "t1", name: "VAT", rate: 0.1, isDefault: true, isActive: true } as TaxContext["taxRates"][number],
+    ],
+    categories: [],
+  };
+  const twoDishes: CartItem = {
+    ...makeProduct({ id: "d1", basePrice: 1000, trackStock: false }),
+    lineId: "d1#",
+    cartQuantity: 2,
+    discountAmount: 0,
+  };
+
+  it("exclusive pricing: a 200 charge plus 20 VAT, 2420 to pay", () => {
+    const { result } = renderHook(() => useCartTotals([twoDishes], taxContext, false));
+    const bill = applyServiceCharge(result.current, 10, taxContext);
+
+    expect(bill.serviceCharge).toEqual({ rate: 10, amount: 200, lineAmount: 200, tax: 20 });
+    expect(bill.taxAmount).toBeCloseTo(220, 10);
+    expect(bill.total).toBeCloseTo(2420, 10);
+  });
+
+  it("inclusive pricing: charged on the VAT-free 1818.18, grossed up to 200.00", () => {
+    const { result } = renderHook(() => useCartTotals([twoDishes], taxContext, true));
+    const bill = applyServiceCharge(result.current, 10, taxContext);
+
+    expect(bill.serviceCharge?.amount).toBeCloseTo(181.82, 10);
+    expect(bill.serviceCharge?.lineAmount).toBeCloseTo(200, 10);
+    expect(bill.serviceCharge?.tax).toBeCloseTo(18.18, 10);
+    expect(bill.taxAmount).toBeCloseTo(200, 10);
+    expect(bill.total).toBeCloseTo(2200, 10);
+  });
+
+  it("leaves the bill alone at 0% (removed) or when there is nothing on it", () => {
+    const { result } = renderHook(() => useCartTotals([twoDishes], taxContext, false));
+    expect(applyServiceCharge(result.current, 0, taxContext)).toBe(result.current);
+
+    const empty = renderHook(() => useCartTotals([], taxContext, false));
+    expect(applyServiceCharge(empty.result.current, 10, taxContext).serviceCharge).toBeUndefined();
   });
 });

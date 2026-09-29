@@ -90,6 +90,14 @@ public class SaleEntity extends BaseEntity {
     @Column(name = "loyalty_discount_amount", nullable = false)
     private BigDecimal loyaltyDiscountAmount = BigDecimal.ZERO;
 
+    /** Dine-in service charge billed, before its own VAT (it is also a sale line). 0 when none. */
+    @Column(name = "service_charge_amount", nullable = false)
+    private BigDecimal serviceChargeAmount = BigDecimal.ZERO;
+
+    /** The cashier removed the service charge from this bill. */
+    @Column(name = "service_charge_waived", nullable = false)
+    private boolean serviceChargeWaived = false;
+
     // Ordered so a topping always follows the dish it belongs to. Without an
     // explicit @OrderBy, Postgres gives no ordering guarantee and a receipt's
     // add-on lines can drift away from their parent.

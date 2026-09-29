@@ -34,6 +34,8 @@ public class TenantInfoDtos {
         private boolean taxInclusive;
         /** Covers (seated guests) pre-filled when a new dine-in tab is opened. */
         private Integer defaultCovers;
+        /** Service charge on dine-in bills, in percent (10 = 10%). 0 = none. */
+        private Integer serviceChargeRate;
     }
 
     @Data
@@ -81,5 +83,9 @@ public class TenantInfoDtos {
         @Min(value = 1, message = "Default covers must be at least 1")
         @Max(value = 99, message = "Default covers must be 99 or fewer")
         private Integer defaultCovers;
+
+        @Min(value = 0, message = "Service charge cannot be negative")
+        @Max(value = 50, message = "Service charge must be 50% or less")
+        private Integer serviceChargeRate;
     }
 }

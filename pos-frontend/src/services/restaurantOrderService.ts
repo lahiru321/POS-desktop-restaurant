@@ -112,12 +112,15 @@ export interface SplitSettleRequest {
   paymentMethod: string;
   cashTendered?: number;
   pointsToRedeem?: number;
+  waiveServiceCharge?: boolean;
 }
 
 export interface SettleRequest {
   paymentMethod: string;
   cashTendered?: number;
   pointsToRedeem?: number;
+  /** Take the service charge off this bill. Dine-in only; recorded on the sale. */
+  waiveServiceCharge?: boolean;
 }
 
 // ──────────────────────────────────────────────

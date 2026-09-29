@@ -19,6 +19,8 @@ export interface TenantInfo {
   taxInclusive: boolean;
   /** Covers (seated guests) pre-filled when a new dine-in tab is opened. */
   defaultCovers: number;
+  /** Service charge on dine-in bills, in percent (10 = 10%). 0 = none. */
+  serviceChargeRate: number;
 }
 
 export interface TenantInfoUpdateRequest {
@@ -36,6 +38,7 @@ export interface TenantInfoUpdateRequest {
   taxInclusive?: boolean;
   /** Omit to leave the restaurant settings unchanged. */
   defaultCovers?: number;
+  serviceChargeRate?: number;
 }
 
 export const tenantService = {
