@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { loginAsCashier } from "./helpers/login";
+import { login, loginAsCashier } from "./helpers/login";
 import { resetCashierShift } from "./helpers/cash-session-setup";
-import { API_URL, TERMINAL_USER } from "./fixtures/test-credentials";
+import { API_URL, TERMINAL_USER, TEST_USER } from "./fixtures/test-credentials";
 
 /**
  * The restaurant flow end to end, in a real browser against a running stack:
@@ -30,6 +30,7 @@ const ADDON = `Extra cheese ${RUN}`;
 let adminToken = "";
 let dishId = "";
 let table2Id = "";
+let addonId = "";
 
 async function adminLogin(request: APIRequestContext): Promise<string> {
   const res = await request.post(`${V1}/auth/login`, {
@@ -128,13 +129,14 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
       minSelect: 0,
       isActive: true,
     });
-    await api(request, "post", "/restaurant/toppings", {
+    const addon = await api<{ id: string }>(request, "post", "/restaurant/toppings", {
       groupId: group.id,
       name: ADDON,
       priceMode: "FIXED",
       defaultPrice: 150,
       isActive: true,
     });
+    addonId = addon.id;
     await api(request, "put", `/restaurant/products/${dishId}/topping-groups`, [group.id]);
   });
 
@@ -294,5 +296,49 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     const number = Number(label.match(/\d+/)![0]);
     const unresolved = await api<Ticket[]>(request, "get", "/restaurant/kitchen-tickets");
     expect(unresolved.some((t) => t.label.startsWith(`#${String(number).padStart(4, "0")}`))).toBe(false);
+  });
+
+  test("returning a dish refunds its add-on with it", async ({ page, request }) => {
+    // A paid sale of 2 dishes with the add-on, rung by the cashier on a fresh shift.
+    const cashier = await request.post(`${V1}/auth/login`, {
+      data: { email: TEST_USER.email, password: TEST_USER.password },
+    });
+    const cashierToken = (await cashier.json()).data.accessToken as string;
+    const headers = { Authorization: `Bearer ${cashierToken}` };
+    await request.post(`${V1}/cash-session/start`, { headers, data: { openingBalance: 100 } });
+    const saleRes = await request.post(`${V1}/sales`, {
+      headers,
+      data: {
+        paymentMethod: "CASH",
+        items: [{ productId: dishId, quantity: 2, unitPrice: 950, discountAmount: 0,
+                  toppings: [{ toppingId: addonId, quantity: 1 }] }],
+      },
+    });
+    const sale = (await saleRes.json()).data as { id: string; invoiceNumber: string };
+    expect(sale?.id, "the sale was created").toBeTruthy();
+
+    // Return one dish from Reports; its add-on follows it.
+    await login(page, TERMINAL_USER);
+    await page.goto("/reports");
+    const row = page.getByRole("row", { name: new RegExp(sale.invoiceNumber) });
+    await row.getByRole("button", { name: /return/i }).click();
+
+    const modal = page.getByRole("dialog", { name: /process return/i });
+    await expect(modal).toBeVisible();
+    await modal.getByLabel(`Return quantity for ${DISH}`).fill("1");
+    await expect(modal.getByText("1 with dish")).toBeVisible();
+    await modal.locator("select").nth(1).selectOption("Customer Changed Mind");
+    await modal.getByRole("button", { name: /process return/i }).click();
+    await expect(page.getByText(/return (processed|submitted)/i)).toBeVisible();
+
+    const returns = await api<{ refundAmount: number; items: { productName: string; quantityReturned: number }[] }[]>(
+      request, "get", `/returns/sale/${sale.id}`);
+    expect(returns).toHaveLength(1);
+    // 1 dish (950) + its 1 cheese portion (150).
+    expect(returns[0].refundAmount).toBeCloseTo(1100, 2);
+    expect(returns[0].items.map((i) => [i.productName, i.quantityReturned])).toEqual([
+      [DISH, 1],
+      [ADDON, 1],
+    ]);
   });
 });

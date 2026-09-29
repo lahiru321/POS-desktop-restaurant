@@ -23,7 +23,8 @@ public class ReturnItemEntity extends BaseEntity {
     @JoinColumn(name = "sale_item_id", nullable = false)
     private SaleItemEntity saleItem;
 
-    @Column(name = "product_id", nullable = false)
+    /** Null for an add-on or a custom line — see V66. */
+    @Column(name = "product_id")
     private UUID productId;
 
     @Column(name = "quantity_returned", nullable = false, precision = 10, scale = 2)
