@@ -49,11 +49,9 @@ public class FeatureGuardInterceptor implements HandlerInterceptor {
         FEATURE_ROUTES.put("/api/v1/expense", "EXPENSES");
         FEATURE_ROUTES.put("/api/v1/finance", "FINANCIAL_REPORTS");
         FEATURE_ROUTES.put("/api/v1/credit", "STORE_CREDIT");
-        // One prefix covers every restaurant endpoint: tables, areas, toppings,
-        // orders and kitchen tickets. Note this only decides whether the API is
-        // reachable — whether the business IS a restaurant is the separate
-        // restaurantMode flag in tenants.settings, read by the client.
-        FEATURE_ROUTES.put("/api/v1/restaurant", "RESTAURANT");
+        // /api/v1/restaurant is deliberately NOT listed: this is a restaurant-only
+        // product, so table dining, toppings, orders and kitchen tickets are core
+        // behaviour and are never feature-gated.
         // Core features (SALES, INVENTORY, REPORTS, CUSTOMERS, EMPLOYEES)
         // are granted to all plans by default, but we could add them here if needed.
     }

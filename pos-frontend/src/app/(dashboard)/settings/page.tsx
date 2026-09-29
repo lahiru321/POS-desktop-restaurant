@@ -86,10 +86,7 @@ export default function SettingsPage() {
   // false = VAT added at the till. Defaults to inclusive (LK convention).
   const [taxInclusive, setTaxInclusive] = useState(true);
 
-  // Restaurant settings form state. `restaurantMode` is the tenant half of the
-  // two-level gate (the RESTAURANT feature flag is the other half) — off means
-  // the terminal behaves exactly like the retail build.
-  const [restMode, setRestMode] = useState(false);
+  // Restaurant settings form state.
   const [restCovers, setRestCovers] = useState("2");
 
   const { data: tenantInfo, isLoading: tenantLoading } = useQuery({
@@ -109,7 +106,6 @@ export default function SettingsPage() {
       setLoySpend(String(tenantInfo.loyaltySpendPerPoint ?? 10));
       setLoyValue(String(tenantInfo.loyaltyPointValue ?? 0.1));
       setTaxInclusive(tenantInfo.taxInclusive ?? true);
-      setRestMode(tenantInfo.restaurantMode ?? false);
       setRestCovers(String(tenantInfo.defaultCovers ?? 2));
     }
   }, [tenantInfo]);
@@ -199,14 +195,13 @@ export default function SettingsPage() {
       phone: tenantInfo.phone ?? null,
       logoUrl: tenantInfo.logoUrl ?? null,
       receiptFooter: tenantInfo.receiptFooter ?? null,
-      restaurantMode: restMode,
       defaultCovers: covers,
     });
   };
 
   const restDirty =
     !!tenantInfo &&
-    (restMode !== tenantInfo.restaurantMode || Number(restCovers) !== tenantInfo.defaultCovers);
+    Number(restCovers) !== tenantInfo.defaultCovers;
 
   const loyDirty =
     !!tenantInfo &&
@@ -980,8 +975,7 @@ export default function SettingsPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-semibold text-foreground">Table service</CardTitle>
               <CardDescription>
-                Turn this on if you serve guests at tables. The register gains table tabs and
-                kitchen tickets; with it off the app behaves exactly like a retail till.
+                How the register opens table tabs.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -991,22 +985,6 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <form onSubmit={handleSaveRestaurant} className="space-y-5 max-w-2xl">
-                  <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                    <div className="space-y-0.5">
-                      <label className="text-sm font-medium text-foreground">Restaurant mode</label>
-                      <p className="text-xs text-muted-foreground">
-                        When off, no table, tab or kitchen features appear anywhere in the app.
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      className="w-5 h-5 accent-primary rounded"
-                      checked={restMode}
-                      onChange={(e) => setRestMode(e.target.checked)}
-                      disabled={!isAdmin}
-                    />
-                  </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-foreground">Default covers</label>
@@ -1018,7 +996,7 @@ export default function SettingsPage() {
                         value={restCovers}
                         onChange={(e) => setRestCovers(e.target.value)}
                         className="bg-card border-border"
-                        disabled={!isAdmin || !restMode}
+                        disabled={!isAdmin}
                       />
                       <p className="text-[11px] text-muted-foreground">
                         Guests pre-filled when a new dine-in tab is opened. The server can change it

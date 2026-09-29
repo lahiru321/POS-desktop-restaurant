@@ -54,7 +54,7 @@ public class TenantInfoService {
         // JSONB that gets read/merged on every update.
         tenant.setLogoDataUri(normalize(request.getLogoUrl()));
 
-        // Merge remaining branding + loyalty + restaurant fields into the existing
+        // Merge remaining branding + loyalty + dining fields into the existing
         // settings JSONB (preserves any other keys). Null fields are left untouched,
         // so saving one tab never clears another's settings.
         try {
@@ -74,9 +74,6 @@ public class TenantInfoService {
             }
             if (request.getTaxInclusive() != null) {
                 settings.put("taxInclusive", request.getTaxInclusive());
-            }
-            if (request.getRestaurantMode() != null) {
-                settings.put("restaurantMode", request.getRestaurantMode());
             }
             if (request.getDefaultCovers() != null) {
                 settings.put("defaultCovers", request.getDefaultCovers());
@@ -155,23 +152,6 @@ public class TenantInfoService {
         return true;
     }
 
-    /**
-     * Whether this business runs as a restaurant. The second half of the two-level
-     * gate — the RESTAURANT feature flag says the API exists, this says the tenant
-     * wants it. Defaults to false so a retail install behaves exactly as before.
-     */
-    @Transactional(readOnly = true)
-    public boolean isRestaurantMode(UUID tenantId) {
-        return tenantRepository.findById(tenantId)
-                .map(this::restaurantModeFromSettings)
-                .orElse(false);
-    }
-
-    private boolean restaurantModeFromSettings(TenantEntity t) {
-        Object raw = settingValue(t, "restaurantMode");
-        return raw instanceof Boolean enabled && enabled;
-    }
-
     private int defaultCoversFromSettings(TenantEntity t) {
         Object raw = settingValue(t, "defaultCovers");
         if (raw instanceof Number n) {
@@ -235,7 +215,6 @@ public class TenantInfoService {
                 .loyaltySpendPerPoint(loyalty.getSpendPerPoint())
                 .loyaltyPointValue(loyalty.getPointValue())
                 .taxInclusive(taxInclusiveFromSettings(t))
-                .restaurantMode(restaurantModeFromSettings(t))
                 .defaultCovers(defaultCoversFromSettings(t))
                 .build();
     }

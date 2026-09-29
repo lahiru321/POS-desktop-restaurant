@@ -17,10 +17,6 @@ export interface TenantInfo {
   /** True if shelf prices are VAT-inclusive (tax extracted for the invoice) vs
    *  exclusive (tax added at the till). Defaults to inclusive (LK convention). */
   taxInclusive: boolean;
-  /** True if this business runs as a restaurant (tables, tabs, kitchen tickets).
-   *  The second half of the two-level gate — the RESTAURANT feature flag says the
-   *  API exists, this says the business wants it. Defaults to false. */
-  restaurantMode: boolean;
   /** Covers (seated guests) pre-filled when a new dine-in tab is opened. */
   defaultCovers: number;
 }
@@ -39,7 +35,6 @@ export interface TenantInfoUpdateRequest {
   /** Omit to leave the pricing mode unchanged. */
   taxInclusive?: boolean;
   /** Omit to leave the restaurant settings unchanged. */
-  restaurantMode?: boolean;
   defaultCovers?: number;
 }
 

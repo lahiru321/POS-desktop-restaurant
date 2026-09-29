@@ -33,8 +33,7 @@ export type Feature =
   | 'EXPENSES'
   | 'FINANCIAL_REPORTS'
   | 'BRANCH_RESTRICTIONS'
-  | 'STORE_CREDIT'
-  | 'RESTAURANT';
+  | 'STORE_CREDIT';
 
 // ──────────────────────────────────────────────
 // Tenant Summary (used in list view)

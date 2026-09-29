@@ -51,19 +51,14 @@ const GROUPS: ShortcutGroup[] = [
       ['Esc', 'Close / cancel'],
     ],
   },
+  {
+    title: 'Restaurant',
+    rows: [
+      ['F11', 'Floor / switch table'],
+      ['F9', 'Settle the tab'],
+    ],
+  },
 ];
-
-/**
- * Restaurant-only additions. A retail till is never passed `restaurantMode`, so
- * it sees exactly the four groups above and nothing else.
- */
-const RESTAURANT_GROUP: ShortcutGroup = {
-  title: 'Restaurant',
-  rows: [
-    ['F11', 'Floor / switch table'],
-    ['F9', 'Settle the tab'],
-  ],
-};
 
 /**
  * Keyboard-shortcuts reference, opened with F1 or "?". Portals to <body>, so it
@@ -76,14 +71,10 @@ const RESTAURANT_GROUP: ShortcutGroup = {
 export function ShortcutsOverlay({
   open,
   onClose,
-  restaurantMode = false,
 }: {
   open: boolean;
   onClose: () => void;
-  restaurantMode?: boolean;
 }) {
-  const groups = restaurantMode ? [...GROUPS, RESTAURANT_GROUP] : GROUPS;
-
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="dark sm:max-w-3xl bg-card border-border text-foreground sm:rounded-2xl">
@@ -94,7 +85,7 @@ export function ShortcutsOverlay({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 pt-1">
-          {groups.map((g) => (
+          {GROUPS.map((g) => (
             <div key={g.title}>
               <h3 className="text-[11px] font-bold uppercase tracking-wider text-primary mb-2">{g.title}</h3>
               <dl className="space-y-1.5">

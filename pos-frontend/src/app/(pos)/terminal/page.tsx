@@ -18,7 +18,6 @@ import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import {
   usePosKeyboard,
   HOTKEY_LEGEND,
-  RESTAURANT_HOTKEY_LEGEND,
   POS_CUSTOM_ITEM_BUTTON_ID,
   type PosRegion,
 } from '@/hooks/usePosKeyboard';
@@ -113,8 +112,6 @@ function Terminal() {
   // Auth & Navigation
   const { user, loginMethod } = useAuthStore();
   const storeCreditEnabled = useAuthStore((state) => state.hasFeature('STORE_CREDIT'));
-  // Level one of the restaurant gate: does the API even exist for this install?
-  const hasRestaurantFeature = useAuthStore((state) => state.hasFeature('RESTAURANT'));
   const router = useRouter();
   const queryClient = useQueryClient();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
@@ -190,16 +187,12 @@ function Terminal() {
   }, [branches, activeSession]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Restaurant mode
+  // Dine-in
   //
-  // Level two of the gate. The desktop installer grants every feature to every
-  // install, so the flag alone would grow a Floor button on a hardware shop;
-  // `restaurantMode` is the tenant saying it actually runs as a restaurant.
-  // BOTH must be true before a single line below changes what a till does, and
-  // every restaurant branch in this file is guarded by `restaurantEnabled` or by
-  // `dineInActive`, which implies it.
+  // This product is restaurant-only, so the floor and tabs are always available.
+  // A till with no tab open is a counter sale on the plain retail cart; every
+  // dine-in branch in this file is guarded by `dineInActive`.
   // ─────────────────────────────────────────────────────────────────────────
-  const restaurantEnabled = hasRestaurantFeature && (tenantInfo?.restaurantMode ?? false);
 
   // The tab this terminal is working on, if any. Seeded from `?orderId` so a
   // reload — or a hand-off from /floor — comes back to the same tab, which is
@@ -223,18 +216,17 @@ function Terminal() {
   const retailCart = useCart(taxContext, selectedBranch?.id, tenantInfo?.taxInclusive ?? true);
 
   // The same interface, backed by `restaurant_orders` instead of `useState`.
-  // Every query inside is `enabled: restaurantEnabled && !!orderId`, so on a
-  // retail till this hook issues no requests at all.
+  // Every query inside is `enabled: !!orderId`, so a counter sale with no tab
+  // open issues no requests at all.
   const dineIn = useDineInCart({
-    orderId: restaurantEnabled ? dineInOrderId : null,
-    enabled: restaurantEnabled,
+    orderId: dineInOrderId,
     taxContext,
     taxInclusive: tenantInfo?.taxInclusive ?? true,
     branchId: selectedBranch?.id,
   });
 
   /** The one predicate every restaurant branch below keys off. */
-  const dineInActive = restaurantEnabled && !!dineInOrderId && !!dineIn.order;
+  const dineInActive = !!dineInOrderId && !!dineIn.order;
 
   // With `dineInActive` false this is `retailCart`, object for object, so the
   // whole terminal below is on exactly the code path it has always been on.
@@ -783,8 +775,7 @@ function Terminal() {
       hold: () => {},
       discard: handleDiscard,
       showHelp: () => setHelpOpen(true),
-      // Undefined on a retail till, which is what leaves F11 to the browser.
-      toggleFloor: restaurantEnabled ? () => setFloorOpen((open) => !open) : undefined,
+      toggleFloor: () => setFloorOpen((open) => !open),
     },
   });
 
@@ -901,67 +892,64 @@ function Terminal() {
           // (at-the-register) login has no dashboard access, so the button hides.
           onBackToDashboard={loginMethod === 'PASSWORD' ? () => router.push('/overview') : undefined}
         />
-        {/* Restaurant strip. Renders nothing whatsoever unless BOTH the
-            RESTAURANT feature and the tenant's restaurantMode are on. */}
-        {restaurantEnabled && (
-          <div className="flex items-center gap-2 sm:gap-3 border-b border-gray-800 bg-gray-900/40 px-4 py-2 text-sm shrink-0">
-            {dineInActive && dineIn.order ? (
-              <>
-                <span className="shrink-0 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                  Dine-in
+        {/* Restaurant strip: the open tab, or the prompt to seat a table. */}
+        <div className="flex items-center gap-2 sm:gap-3 border-b border-gray-800 bg-gray-900/40 px-4 py-2 text-sm shrink-0">
+          {dineInActive && dineIn.order ? (
+            <>
+              <span className="shrink-0 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                Dine-in
+              </span>
+              <span className="truncate font-semibold text-white">{dineIn.order.label}</span>
+              {dineIn.order.covers > 0 && (
+                <span className="hidden shrink-0 tabular-nums text-gray-400 sm:inline">
+                  {dineIn.order.covers} covers
                 </span>
-                <span className="truncate font-semibold text-white">{dineIn.order.label}</span>
-                {dineIn.order.covers > 0 && (
-                  <span className="hidden shrink-0 tabular-nums text-gray-400 sm:inline">
-                    {dineIn.order.covers} covers
-                  </span>
-                )}
-                <span className="shrink-0 tabular-nums text-gray-400">
-                  {formatElapsed(dineIn.order.openedAt, now)}
-                </span>
-                {dineIn.isBusy && (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gray-400" aria-hidden="true" />
-                )}
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setFloorOpen(true)}
-                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
-                    title="Open the floor (F11)"
-                  >
-                    <LayoutGrid size={14} /> Floor
-                    <kbd className="hidden rounded border border-gray-700 px-1 font-mono text-[10px] text-gray-500 sm:inline">F11</kbd>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => selectOrder(null)}
-                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800"
-                    title="Leave this tab open and go back to the till"
-                  >
-                    <LogOut size={14} /> Leave tab
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <span className="truncate text-gray-400">
-                  Counter sale &mdash; no table. Open the floor to seat one.
-                </span>
-                <div className="ml-auto shrink-0">
-                  <Button
-                    variant="outline"
-                    onClick={() => setFloorOpen(true)}
-                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
-                    title="Open the floor (F11)"
-                  >
-                    <LayoutGrid size={14} /> Floor
-                    <kbd className="hidden rounded border border-gray-700 px-1 font-mono text-[10px] text-gray-500 sm:inline">F11</kbd>
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+              )}
+              <span className="shrink-0 tabular-nums text-gray-400">
+                {formatElapsed(dineIn.order.openedAt, now)}
+              </span>
+              {dineIn.isBusy && (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gray-400" aria-hidden="true" />
+              )}
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setFloorOpen(true)}
+                  className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
+                  title="Open the floor (F11)"
+                >
+                  <LayoutGrid size={14} /> Floor
+                  <kbd className="hidden rounded border border-gray-700 px-1 font-mono text-[10px] text-gray-500 sm:inline">F11</kbd>
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => selectOrder(null)}
+                  className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800"
+                  title="Leave this tab open and go back to the till"
+                >
+                  <LogOut size={14} /> Leave tab
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="truncate text-gray-400">
+                Counter sale &mdash; no table. Open the floor to seat one.
+              </span>
+              <div className="ml-auto shrink-0">
+                <Button
+                  variant="outline"
+                  onClick={() => setFloorOpen(true)}
+                  className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
+                  title="Open the floor (F11)"
+                >
+                  <LayoutGrid size={14} /> Floor
+                  <kbd className="hidden rounded border border-gray-700 px-1 font-mono text-[10px] text-gray-500 sm:inline">F11</kbd>
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
 
         <ProductSearch search={search} onSearchChange={setSearch} />
         <div className="px-4 -mt-2 pb-2 bg-black shrink-0">
@@ -987,7 +975,7 @@ function Terminal() {
         </div>
 
         <div className="border-t border-border bg-card/70 px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-muted-foreground print:hidden shrink-0">
-          {(restaurantEnabled ? RESTAURANT_HOTKEY_LEGEND : HOTKEY_LEGEND).map((h) => (
+          {HOTKEY_LEGEND.map((h) => (
             <div key={h.key} className="flex items-center gap-2">
               <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border text-foreground font-mono text-xs">
                 {h.key}
@@ -1113,18 +1101,15 @@ function Terminal() {
       <ShortcutsOverlay
         open={helpOpen}
         onClose={() => setHelpOpen(false)}
-        restaurantMode={restaurantEnabled}
       />
 
       {/* The mid-service floor. Mounted inside the terminal, never routed to, so
           switching tables cannot unmount the cart. */}
-      {restaurantEnabled && (
-        <FloorSheet
-          open={floorOpen}
-          onOpenChange={setFloorOpen}
-          onSelectOrder={(orderId) => selectOrder(orderId)}
-        />
-      )}
+      <FloorSheet
+        open={floorOpen}
+        onOpenChange={setFloorOpen}
+        onSelectOrder={(orderId) => selectOrder(orderId)}
+      />
 
       <EndShiftModal
         open={endShiftOpen}

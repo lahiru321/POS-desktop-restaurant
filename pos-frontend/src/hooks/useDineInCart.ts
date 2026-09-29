@@ -65,10 +65,8 @@ const ORDER_POLL_MS = 15_000;
 const MENU_PAGE_SIZE = 500;
 
 export interface UseDineInCartOptions {
-  /** The tab being worked on, or null when the terminal is in retail mode. */
+  /** The tab being worked on, or null for a counter sale. Null keeps every query idle. */
   orderId: string | null;
-  /** `hasFeature('RESTAURANT') && restaurantMode`. False keeps every query idle. */
-  enabled: boolean;
   taxContext: TaxContext | null;
   taxInclusive: boolean;
   /** The drawer's branch, for the stock ceiling. */
@@ -158,13 +156,12 @@ function toCartItem(item: OrderItemResponse, menu: Map<string, Product>): CartIt
 
 export function useDineInCart({
   orderId,
-  enabled,
   taxContext,
   taxInclusive,
   branchId,
 }: UseDineInCartOptions): DineInCart {
   const queryClient = useQueryClient();
-  const active = enabled && !!orderId;
+  const active = !!orderId;
 
   const { data: loadedOrder, isLoading } = useQuery({
     queryKey: QK.restaurantOrder(orderId ?? ''),

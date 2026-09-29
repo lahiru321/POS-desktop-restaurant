@@ -83,26 +83,23 @@ class TenantInfoServiceTest {
     class Defaults {
 
         @Test
-        @DisplayName("restaurant mode is off and covers default when settings are empty")
+        @DisplayName("covers default when settings are empty")
         void defaultsWhenAbsent() {
             when(tenantRepository.findById(TENANT_ID)).thenReturn(Optional.of(tenant));
 
             TenantInfoResponse response = service.getCurrentTenantInfo();
 
-            assertThat(response.isRestaurantMode()).isFalse();
             assertThat(response.getDefaultCovers()).isEqualTo(2);
-            assertThat(service.isRestaurantMode(TENANT_ID)).isFalse();
         }
 
         @Test
-        @DisplayName("restaurant mode is off when the blob holds only loyalty keys")
+        @DisplayName("covers default when the blob holds only loyalty keys")
         void defaultsWhenOtherKeysPresent() {
             tenant.setSettings("{\"loyaltyEnabled\":true,\"loyaltySpendPerPoint\":\"25\"}");
             when(tenantRepository.findById(TENANT_ID)).thenReturn(Optional.of(tenant));
 
             TenantInfoResponse response = service.getCurrentTenantInfo();
 
-            assertThat(response.isRestaurantMode()).isFalse();
             assertThat(response.getDefaultCovers()).isEqualTo(2);
         }
 
@@ -125,38 +122,23 @@ class TenantInfoServiceTest {
         void roundTrip() {
             stubRepository();
             TenantInfoUpdateRequest request = baseRequest();
-            request.setRestaurantMode(true);
             request.setDefaultCovers(4);
 
             TenantInfoResponse saved = service.updateCurrentTenantInfo(request);
 
-            assertThat(saved.isRestaurantMode()).isTrue();
             assertThat(saved.getDefaultCovers()).isEqualTo(4);
-            assertThat(service.getCurrentTenantInfo().isRestaurantMode()).isTrue();
-            assertThat(service.isRestaurantMode(TENANT_ID)).isTrue();
+            assertThat(service.getCurrentTenantInfo().getDefaultCovers()).isEqualTo(4);
         }
 
         @Test
         @DisplayName("omitting the restaurant fields leaves them unchanged")
         void omittingLeavesUnchanged() {
-            tenant.setSettings("{\"restaurantMode\":true,\"defaultCovers\":6}");
+            tenant.setSettings("{\"defaultCovers\":6}");
             stubRepository();
 
             TenantInfoResponse saved = service.updateCurrentTenantInfo(baseRequest());
 
-            assertThat(saved.isRestaurantMode()).isTrue();
             assertThat(saved.getDefaultCovers()).isEqualTo(6);
-        }
-
-        @Test
-        @DisplayName("restaurant mode can be turned back off")
-        void canBeDisabled() {
-            tenant.setSettings("{\"restaurantMode\":true}");
-            stubRepository();
-            TenantInfoUpdateRequest request = baseRequest();
-            request.setRestaurantMode(false);
-
-            assertThat(service.updateCurrentTenantInfo(request).isRestaurantMode()).isFalse();
         }
     }
 
@@ -173,7 +155,6 @@ class TenantInfoServiceTest {
             stubRepository();
             TenantInfoUpdateRequest request = baseRequest();
             request.setReceiptFooter("Thank you");
-            request.setRestaurantMode(true);
             request.setDefaultCovers(4);
 
             TenantInfoResponse saved = service.updateCurrentTenantInfo(request);
@@ -182,15 +163,15 @@ class TenantInfoServiceTest {
             assertThat(saved.getLoyaltySpendPerPoint()).isEqualByComparingTo(new BigDecimal("25"));
             assertThat(saved.getLoyaltyPointValue()).isEqualByComparingTo(new BigDecimal("0.50"));
             assertThat(saved.isTaxInclusive()).isFalse();
-            assertThat(saved.isRestaurantMode()).isTrue();
+            assertThat(saved.getDefaultCovers()).isEqualTo(4);
             assertThat(settingsMap()).containsKeys(
-                    "loyaltyEnabled", "loyaltySpendPerPoint", "loyaltyPointValue", "restaurantMode", "defaultCovers");
+                    "loyaltyEnabled", "loyaltySpendPerPoint", "loyaltyPointValue", "defaultCovers");
         }
 
         @Test
         @DisplayName("saving loyalty settings does not wipe restaurant settings")
         void keepsRestaurantSettings() {
-            tenant.setSettings("{\"restaurantMode\":true,\"defaultCovers\":4}");
+            tenant.setSettings("{\"defaultCovers\":4}");
             stubRepository();
             TenantInfoUpdateRequest request = baseRequest();
             request.setLoyaltyEnabled(true);
@@ -199,7 +180,6 @@ class TenantInfoServiceTest {
 
             TenantInfoResponse saved = service.updateCurrentTenantInfo(request);
 
-            assertThat(saved.isRestaurantMode()).isTrue();
             assertThat(saved.getDefaultCovers()).isEqualTo(4);
             assertThat(saved.isLoyaltyEnabled()).isTrue();
             assertThat(saved.getLoyaltySpendPerPoint()).isEqualByComparingTo(new BigDecimal("25"));

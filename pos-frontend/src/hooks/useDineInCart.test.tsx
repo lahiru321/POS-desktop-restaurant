@@ -117,7 +117,6 @@ function mount(options: Partial<Parameters<typeof useDineInCart>[0]> = {}) {
     () =>
       useDineInCart({
         orderId: "o1",
-        enabled: true,
         taxContext,
         taxInclusive: false,
         branchId: "b1",
@@ -135,9 +134,9 @@ beforeEach(() => {
 });
 
 describe("useDineInCart", () => {
-  it("issues no requests at all when restaurant mode is off", async () => {
+  it("issues no requests at all when no tab is open", async () => {
     getOrder.mockResolvedValue(makeOrder());
-    const { result } = mount({ enabled: false });
+    const { result } = mount({ orderId: null });
 
     await act(async () => {
       await Promise.resolve();

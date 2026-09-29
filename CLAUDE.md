@@ -9,8 +9,8 @@ database and web UI into one NSIS installer (`pos-frontend/dist/StoreX-Restauran
 `LumoraTechSolution/POS-desktop` (the retail product) and identical to it at the fork point. Table dining,
 kitchen tickets and per-item toppings are added **here only** and never flow back upstream. It ships as its own
 product — appId `com.lumora.restaurant`, **StoreX Restaurant**, with its own install dir, service, data dir,
-licence store and ports — so it sits beside retail StoreX. Retail behaviour must keep working: restaurant
-features sit behind a `RESTAURANT` flag *and* a `restaurantMode` tenant setting; with both off, byte-for-byte.
+licence store and ports — so it sits beside retail StoreX. It is **restaurant-only**: tables, tabs, toppings
+and the floor are core behaviour with no on/off switch. A till with no tab open is a plain counter sale.
 
 > **The root `D:\Lumora\CLAUDE.md` does not describe this directory.** It documents `POS System/` (the old
 > cloud stack) and `NEW POS/` (the greenfield rebuild); where they disagree about *this* repo, this file wins.
@@ -32,15 +32,15 @@ everything and should not be relitigated without reading it:
 2. **Toppings are child `sale_items` rows** via the nullable `parent_item_id` self-FK. Every product report
    already filters `si.productId IS NOT NULL` (`SaleRepository` L64-178), so topping rows (null `product_id`)
    are excluded automatically — **no report query changes**.
-3. **Two-level gating.** `RESTAURANT` (flag) = the API exists; `restaurantMode` (tenant setting in
-   `tenants.settings` JSONB) = this business is a restaurant. Both, because the installer grants every
-   feature to every install.
+3. **No restaurant gating.** The `RESTAURANT` flag + `restaurantMode` setting were built, then **removed**:
+   restaurant-only product, so `/api/v1/restaurant` is absent from `FEATURE_ROUTES` and the client never
+   checks. Only role checks remain. V62's `RESTAURANT` backfill stays on disk, inert (never edit applied).
 
 ### Landmines
 
 - **`Feature.java` is decorative — nothing reads it.** Real enforcement is `FeatureGuardInterceptor.FEATURE_ROUTES`
   plus `SuperAdminTenantService.provisionFromSeed` (`STORE_CREDIT` is enforced without being in the enum).
-  Adding `RESTAURANT` to the enum alone does nothing.
+  Adding a value to the enum alone does nothing.
 - **CSP `connect-src` omits QZ Tray's WebSocket.** `src/middleware.ts` L46 is `connect-src 'self' ${apiUrl}`
   and `connect-src` governs WebSocket; QZ uses `ws://localhost:8181` / `wss://localhost:8182`. Kitchen printing
   cannot work until this is widened — receipt QZ printing may already be silently broken for the same reason.

@@ -32,11 +32,6 @@ public class TenantInfoDtos {
         /** True if shelf prices are VAT-inclusive (tax extracted) vs exclusive
          *  (tax added at the till). Defaults to inclusive (LK retail convention). */
         private boolean taxInclusive;
-        /** True if this business runs as a restaurant (tables, tabs, kitchen tickets).
-         *  The second half of the two-level gate: the RESTAURANT feature flag says the
-         *  API exists, this says the business wants it. Defaults to false so a retail
-         *  install is unchanged. */
-        private boolean restaurantMode;
         /** Covers (seated guests) pre-filled when a new dine-in tab is opened. */
         private Integer defaultCovers;
     }
@@ -83,8 +78,6 @@ public class TenantInfoDtos {
         private Boolean taxInclusive;
 
         /** Restaurant settings. Null fields are left unchanged (keeps the existing value). */
-        private Boolean restaurantMode;
-
         @Min(value = 1, message = "Default covers must be at least 1")
         @Max(value = 99, message = "Default covers must be 99 or fewer")
         private Integer defaultCovers;
