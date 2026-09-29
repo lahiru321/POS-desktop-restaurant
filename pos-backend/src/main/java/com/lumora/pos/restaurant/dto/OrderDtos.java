@@ -152,6 +152,42 @@ public final class OrderDtos {
         private String reason;
     }
 
+    /**
+     * Pay for part of a tab now. The chosen quantities leave the tab as an order
+     * of their own and are settled on the spot; the rest stays open.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SplitSettleRequest {
+        @NotEmpty(message = "Pick what is being paid for")
+        @Valid
+        private List<SplitLine> lines;
+
+        @NotBlank(message = "Payment method is required")
+        private String paymentMethod;
+
+        @DecimalMin(value = "0", message = "cashTendered must be non-negative")
+        private BigDecimal cashTendered;
+
+        @Min(value = 0, message = "pointsToRedeem must be non-negative")
+        private Integer pointsToRedeem;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SplitLine {
+        @NotNull(message = "itemId is required")
+        private UUID itemId;
+
+        @NotNull(message = "quantity is required")
+        @DecimalMin(value = "0", inclusive = false, message = "quantity must be positive")
+        private BigDecimal quantity;
+    }
+
     /** Carry a tab to another, free table. */
     @Data
     @Builder
@@ -240,6 +276,8 @@ public final class OrderDtos {
         private int roundCount;
         private LocalDateTime openedAt;
         private LocalDateTime settledAt;
+        /** Set when this order was paid out of another tab. */
+        private UUID splitFromId;
         /** Ordered less voided, priced at the snapshots. Indicative, not the bill. */
         private BigDecimal runningTotal;
         private List<OrderItemResponse> items;

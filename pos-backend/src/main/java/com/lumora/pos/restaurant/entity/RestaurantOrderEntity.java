@@ -87,6 +87,10 @@ public class RestaurantOrderEntity extends BaseEntity {
     @Column(name = "settled_at")
     private LocalDateTime settledAt;
 
+    /** Set on an order paid out of another tab (a split bill): the tab it came from. */
+    @Column(name = "split_from_id")
+    private UUID splitFromId;
+
     @Builder.Default
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("courseNo ASC, sortOrder ASC")

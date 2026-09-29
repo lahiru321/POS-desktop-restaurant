@@ -102,6 +102,18 @@ export interface TakeawayRequest {
   pointsToRedeem?: number;
 }
 
+/**
+ * Pay for part of a tab now. The chosen quantities leave the tab as an order of
+ * their own ("Order 15 · Split bill") and are settled on the spot; the rest of
+ * the tab stays open on its table.
+ */
+export interface SplitSettleRequest {
+  lines: { itemId: string; quantity: number }[];
+  paymentMethod: string;
+  cashTendered?: number;
+  pointsToRedeem?: number;
+}
+
 export interface SettleRequest {
   paymentMethod: string;
   cashTendered?: number;
@@ -164,6 +176,8 @@ export interface RestaurantOrder {
   /** ISO-8601 with a UTC offset, per the backend's Jackson customizer. */
   openedAt: string;
   settledAt?: string | null;
+  /** Set when this order was paid out of another tab. */
+  splitFromId?: string | null;
   /**
    * Ordered less voided, priced at the snapshots, no tax and no loyalty.
    * Indicative for the floor tiles — it is not the bill. The bill is whatever
@@ -285,6 +299,12 @@ export const restaurantOrderService = {
   merge: (id: string, sourceOrderId: string) =>
     api
       .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/merge`, { sourceOrderId })
+      .then((res) => res.data.data),
+
+  /** Pays for part of a tab; the rest stays open. One transaction. */
+  splitSettle: (id: string, data: SplitSettleRequest) =>
+    api
+      .post<ApiResponse<SettleResponse>>(`/restaurant/orders/${id}/split-settle`, data)
       .then((res) => res.data.data),
 
   /** Pays for a counter takeaway and fires the kitchen, atomically. */

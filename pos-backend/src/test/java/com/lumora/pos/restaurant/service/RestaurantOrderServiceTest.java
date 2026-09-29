@@ -782,6 +782,126 @@ class RestaurantOrderServiceTest {
 
     // ==================================================================
     @Nested
+    @DisplayName("Split bills")
+    class Splitting {
+
+        /** The tab under lock, and the split order it spawns, both findable by id. */
+        private RestaurantOrderEntity[] stubSplit(RestaurantOrderEntity tab) {
+            RestaurantOrderEntity[] split = new RestaurantOrderEntity[1];
+            when(orderRepository.findByIdAndTenantIdForUpdate(any(), eq(tenantId))).thenAnswer(inv -> {
+                UUID id = inv.getArgument(0);
+                if (id.equals(tab.getId())) return Optional.of(tab);
+                return split[0] != null && id.equals(split[0].getId()) ? Optional.of(split[0]) : Optional.empty();
+            });
+            when(counterDao.nextOrderNumber(any(), any(), any())).thenReturn(15);
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(orderRepository.saveAndFlush(any())).thenAnswer(inv -> {
+                RestaurantOrderEntity o = inv.getArgument(0);
+                o.setId(UUID.randomUUID());
+                split[0] = o;
+                return o;
+            });
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("950.00")));
+            return split;
+        }
+
+        private OrderDtos.SplitSettleRequest paying(RestaurantOrderItemEntity item, String qty) {
+            return OrderDtos.SplitSettleRequest.builder()
+                    .paymentMethod("CASH")
+                    .lines(List.of(OrderDtos.SplitLine.builder()
+                            .itemId(item.getId()).quantity(new BigDecimal(qty)).build()))
+                    .build();
+        }
+
+        @Test
+        @DisplayName("Paying for 1 of 3 moves that unit, with its fired share, onto a settled split")
+        void shouldSplitOffUnits() {
+            RestaurantOrderEntity tab = order();
+            RestaurantOrderItemEntity kottu = item(tab, "Kottu", "3", "950.00");
+            kottu.setFiredQuantity(new BigDecimal("3"));
+            RestaurantOrderEntity[] split = stubSplit(tab);
+
+            OrderDtos.SettleResponse response = orderService.splitSettle(tab.getId(), paying(kottu, "1"));
+
+            assertThat(kottu.getQuantity()).isEqualByComparingTo("2");
+            assertThat(kottu.getFiredQuantity()).isEqualByComparingTo("2");
+            assertThat(tab.getStatus()).isEqualTo(RestaurantOrderEntity.OrderStatus.OPEN);
+
+            RestaurantOrderEntity paid = split[0];
+            assertThat(paid.getSplitFromId()).isEqualTo(tab.getId());
+            assertThat(paid.getTable()).isNull();
+            assertThat(paid.getStatus()).isEqualTo(RestaurantOrderEntity.OrderStatus.SETTLED);
+            assertThat(paid.getItems()).singleElement().satisfies(line -> {
+                assertThat(line.getQuantity()).isEqualByComparingTo("1");
+                assertThat(line.getFiredQuantity()).isEqualByComparingTo("1");
+            });
+            assertThat(response.getLabel()).isEqualTo("Order 15 · Split bill");
+
+            ArgumentCaptor<SaleRequest> sale = ArgumentCaptor.forClass(SaleRequest.class);
+            verify(saleService).createSale(sale.capture());
+            assertThat(sale.getValue().getItems()).singleElement()
+                    .satisfies(l -> assertThat(l.getQuantity()).isEqualByComparingTo("1"));
+            // The table's tab is still open: its table stays occupied.
+            verify(kitchenTicketService, never()).fireRound(any());
+        }
+
+        @Test
+        @DisplayName("A line paid for in full leaves the tab; the rest of the tab stays")
+        void shouldRemoveFullyPaidLine() {
+            RestaurantOrderEntity tab = order();
+            RestaurantOrderItemEntity juice = item(tab, "Lime juice", "1", "300.00");
+            item(tab, "Kottu", "1", "950.00");
+            stubSplit(tab);
+
+            orderService.splitSettle(tab.getId(), paying(juice, "1"));
+
+            assertThat(tab.getItems()).extracting(RestaurantOrderItemEntity::getItemName).containsExactly("Kottu");
+        }
+
+        @Test
+        @DisplayName("A line discount is shared in proportion, so tab + split bill what the tab would")
+        void shouldShareDiscount() {
+            RestaurantOrderEntity tab = order();
+            RestaurantOrderItemEntity kottu = item(tab, "Kottu", "3", "950.00");
+            kottu.setDiscountAmount(new BigDecimal("90.00"));
+            RestaurantOrderEntity[] split = stubSplit(tab);
+
+            orderService.splitSettle(tab.getId(), paying(kottu, "1"));
+
+            assertThat(split[0].getItems().get(0).getDiscountAmount()).isEqualByComparingTo("30.00");
+            assertThat(kottu.getDiscountAmount()).isEqualByComparingTo("60.00");
+        }
+
+        @Test
+        @DisplayName("Picking the whole tab is refused — that is a settle, not a split")
+        void shouldRefuseWholeTab() {
+            RestaurantOrderEntity tab = order();
+            RestaurantOrderItemEntity kottu = item(tab, "Kottu", "2", "950.00");
+            when(orderRepository.findByIdAndTenantIdForUpdate(tab.getId(), tenantId)).thenReturn(Optional.of(tab));
+
+            assertThatThrownBy(() -> orderService.splitSettle(tab.getId(), paying(kottu, "2")))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("whole tab");
+            verify(saleService, never()).createSale(any());
+        }
+
+        @Test
+        @DisplayName("Paying for more than is left on a line is refused")
+        void shouldRefuseOverQuantity() {
+            RestaurantOrderEntity tab = order();
+            RestaurantOrderItemEntity kottu = item(tab, "Kottu", "2", "950.00");
+            kottu.setVoidedQuantity(BigDecimal.ONE);
+            item(tab, "Lime juice", "1", "300.00");
+            when(orderRepository.findByIdAndTenantIdForUpdate(tab.getId(), tenantId)).thenReturn(Optional.of(tab));
+
+            assertThatThrownBy(() -> orderService.splitSettle(tab.getId(), paying(kottu, "2")))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Only 1 of Kottu left");
+        }
+    }
+
+    // ==================================================================
+    @Nested
     @DisplayName("Moving and merging tabs")
     class MoveAndMerge {
 

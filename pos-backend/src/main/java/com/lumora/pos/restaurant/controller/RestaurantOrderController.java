@@ -108,6 +108,18 @@ public class RestaurantOrderController {
                         .build());
     }
 
+    /** Pays for part of a tab now; the rest stays open. */
+    @PostMapping("/{id}/split-settle")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.SettleResponse>> splitSettle(
+            @PathVariable UUID id, @Valid @RequestBody OrderDtos.SplitSettleRequest request) {
+        return ResponseEntity.ok(ApiResponse.<OrderDtos.SettleResponse>builder()
+                .success(true)
+                .message("Part of the tab paid")
+                .data(orderService.splitSettle(id, request))
+                .build());
+    }
+
     /** Carries a dine-in tab to a free table. */
     @PostMapping("/{id}/move")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")

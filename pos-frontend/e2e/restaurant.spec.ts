@@ -341,4 +341,36 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
       [ADDON, 1],
     ]);
   });
+
+  test("a split bill pays for part of the tab and leaves the rest open", async ({ page, request }) => {
+    await openShift(page);
+
+    await page.keyboard.press("F11");
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE}, 2 seats, available`) }).click();
+    await addDishWithAddon(page);
+    await addDishWithAddon(page);
+    await expect(page.getByRole("button", { name: /^split$/i })).toBeVisible();
+
+    // One guest pays for one of the two dishes.
+    await page.getByRole("button", { name: /^split$/i }).click();
+    const dialog = page.getByRole("dialog", { name: /split the bill/i });
+    await dialog.getByRole("button", { name: `One more ${DISH}` }).click();
+    await dialog.getByRole("button", { name: /pay for these/i }).click();
+    await expect(page.getByText(/paying for part of the tab/i)).toBeVisible();
+    await payExactCash(page);
+    await expect(page.getByText(/Order \d+ · Split bill paid/)).toBeVisible();
+
+    // The other dish is still on the table's tab.
+    const open = await api<{ tableName: string; items: { itemName: string; billableQuantity: number }[] }[]>(
+      request, "get", "/restaurant/orders");
+    const tab = open.find((o) => o.tableName === TABLE)!;
+    expect(tab, "the tab is still open").toBeTruthy();
+    expect(tab.items.map((i) => [i.itemName, i.billableQuantity])).toEqual([[DISH, 1]]);
+
+    // Tidy: settle what is left.
+    await page.getByRole("button", { name: /^settle/i }).click();
+    await payExactCash(page);
+    await expect(page.getByText(new RegExp(`Order \\d+ · ${TABLE} paid`))).toBeVisible();
+  });
 });

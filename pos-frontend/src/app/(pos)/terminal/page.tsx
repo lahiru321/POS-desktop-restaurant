@@ -8,10 +8,10 @@ import { taxService } from '@/services/taxService';
 import { cashSessionService } from '@/services/cashSessionService';
 import { tenantService } from '@/services/tenantService';
 import { SaleResponse, salesService, SaleRequest, SaleItemRequest, SalesSummaryResponse } from '@/services/salesService';
-import { useCart, TaxContext, type CartView } from '@/hooks/useCart';
+import { useCart, useCartTotals, TaxContext, type CartView } from '@/hooks/useCart';
 import { useDineInCart } from '@/hooks/useDineInCart';
 import { useKitchenPrinting } from '@/hooks/useKitchenPrinting';
-import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send, ArrowRightLeft } from 'lucide-react';
+import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send, ArrowRightLeft, Split } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -33,6 +33,7 @@ import {
   type RepricedLine,
   type RestaurantOrder,
   type SettleRequest,
+  type SplitSettleRequest,
   type TakeawayRequest,
 } from '@/services/restaurantOrderService';
 
@@ -50,6 +51,7 @@ import { CorrectSalePickerModal } from '@/components/pos/CorrectSalePickerModal'
 import { ReturnModal } from '@/components/pos/ReturnModal';
 import { ShortcutsOverlay } from '@/components/pos/ShortcutsOverlay';
 import { FloorSheet } from '@/components/pos/FloorSheet';
+import { SplitBillDialog, selectedLines, type SplitSelection } from '@/components/pos/SplitBillDialog';
 import type { RestaurantTable } from '@/services/tableService';
 import { KitchenPrintFailedDialog } from '@/components/pos/KitchenPrintFailedDialog';
 import { KitchenTicketsBadge } from '@/components/pos/KitchenTicketsBadge';
@@ -264,6 +266,19 @@ function Terminal() {
     total,
     itemCount,
   } = view;
+
+  // Split bill: what the payer at the till is paying for, or null for the whole
+  // tab. While set, the tender overlay charges just these lines.
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitSelection, setSplitSelection] = useState<SplitSelection | null>(null);
+  const splitTotals = useCartTotals(
+    splitSelection ? selectedLines(items, splitSelection) : [],
+    taxContext,
+    taxInclusive,
+  );
+  const tender = splitSelection
+    ? splitTotals
+    : { subtotal, discountAmount, taxAmount, taxLabel, taxInclusive, total };
 
   // A tab settled or voided on another till is not a cart. Drop back to retail
   // rather than letting anyone ring into a closed order.
@@ -572,6 +587,22 @@ function Terminal() {
     // Dine-in settles the server-side tab instead of posting a cart. Points are
     // not offered on a tab (see `loyaltyEnabled` on the overlay), so none are
     // sent: the sale's customer is the one stamped on the order at open time.
+    if (dineInActive && dineInOrderId && splitSelection) {
+      splitMutation.mutate({
+        orderId: dineInOrderId,
+        data: {
+          lines: Object.entries(splitSelection)
+            .filter(([, quantity]) => quantity > 0)
+            .map(([itemId, quantity]) => ({ itemId, quantity })),
+          paymentMethod,
+          cashTendered: (paymentMethod === 'CASH' || paymentMethod === 'SPLIT') && cashTendered > 0
+            ? cashTendered
+            : undefined,
+        },
+      });
+      return;
+    }
+
     if (dineInActive && dineInOrderId) {
       settleMutation.mutate({
         paymentMethod,
@@ -856,6 +887,31 @@ function Terminal() {
     if (ok) mergeMutation.mutate({ targetId: occupiedBy.id, sourceId: current.id });
   };
 
+  // Part of a tab, paid now as its own bill; the tab stays open on its table.
+  const splitMutation = useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: SplitSettleRequest }) =>
+      restaurantOrderService.splitSettle(orderId, data),
+    onSuccess: (result, { orderId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: QK.cashSessionActive });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOrder(orderId) });
+      toast.success(`${result.label} paid — ${result.sale.invoiceNumber}`, {
+        description: 'The rest of the tab is still open.',
+      });
+      setTenderOpen(false);
+      setSplitSelection(null);
+      setLastSale(result.sale);
+      setCashTendered(0);
+      setPointsToRedeem(0);
+      receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(result.sale));
+    },
+    onError: (error: unknown) => {
+      // Nothing moved: the split and the payment are one transaction.
+      toast.error(getApiErrorMessage(error, 'Could not take this part of the bill'));
+    },
+  });
+
   // F8 on a tab. ADMIN/MANAGER server-side; the message from a refused attempt
   // is shown rather than the control being hidden from cashiers here.
   const voidOrderMutation = useMutation({
@@ -1005,6 +1061,14 @@ function Terminal() {
 
   const tenderWarning = dineInActive ? (
     <>
+      {splitSelection && (
+        <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 text-sm">
+          <p className="font-semibold text-primary">Paying for part of the tab</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            These lines become their own bill; everything else stays open on the table.
+          </p>
+        </div>
+      )}
       {unsentCount > 0 && dineIn.order?.orderType === 'DINE_IN' && (
         <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
           <p className="font-semibold text-warning">
@@ -1146,6 +1210,17 @@ function Terminal() {
                   <kbd className="hidden rounded border border-primary-foreground/30 px-1 font-mono text-[10px] sm:inline">F5</kbd>
                 </Button>
                 <OrderKitchenTickets orderId={dineIn.order.id} onReprint={kitchen.reprint} />
+                {items.reduce((sum, i) => sum + Math.floor(i.cartQuantity), 0) > 1 && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setSplitOpen(true)}
+                    disabled={splitMutation.isPending || dineIn.isBusy}
+                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
+                    title="Pay for part of this tab now"
+                  >
+                    <Split size={14} /> Split
+                  </Button>
+                )}
                 {dineIn.order.orderType === 'DINE_IN' && (
                   <Button
                     variant="outline"
@@ -1340,20 +1415,20 @@ function Terminal() {
 
       <TenderOverlay
         open={tenderOpen}
-        onClose={() => setTenderOpen(false)}
+        onClose={() => { setTenderOpen(false); setSplitSelection(null); }}
         paymentMethod={paymentMethod}
         onPaymentMethodChange={(m) => { setPaymentMethod(m); setCashTendered(0); }}
         cashTendered={cashTendered}
         onCashTenderedChange={setCashTendered}
-        subtotal={subtotal}
-        discountAmount={discountAmount}
-        taxAmount={taxAmount}
-        taxLabel={taxLabel}
-        taxInclusive={taxInclusive}
-        total={total}
+        subtotal={tender.subtotal}
+        discountAmount={tender.discountAmount}
+        taxAmount={tender.taxAmount}
+        taxLabel={tender.taxLabel}
+        taxInclusive={tender.taxInclusive}
+        total={tender.total}
         isProcessing={
           dineInActive
-            ? settleMutation.isPending
+            ? settleMutation.isPending || splitMutation.isPending
             : counterMode === 'TAKEAWAY'
               ? takeawayMutation.isPending
               : checkoutMutation.isPending
@@ -1379,6 +1454,18 @@ function Terminal() {
 
       {/* The mid-service floor. Mounted inside the terminal, never routed to, so
           switching tables cannot unmount the cart. */}
+      <SplitBillDialog
+        open={splitOpen}
+        items={items}
+        taxContext={taxContext}
+        taxInclusive={taxInclusive}
+        onCancel={() => setSplitOpen(false)}
+        onConfirm={(selection) => {
+          setSplitOpen(false);
+          setSplitSelection(selection);
+          setTenderOpen(true);
+        }}
+      />
       {dineInActive && dineIn.order && (
         <FloorSheet
           open={moveOpen}

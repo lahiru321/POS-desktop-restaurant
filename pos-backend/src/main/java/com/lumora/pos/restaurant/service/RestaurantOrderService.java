@@ -450,6 +450,120 @@ public class RestaurantOrderService {
     }
 
     /**
+     * Pays for part of a tab: "I'll get my kottu and the juice."
+     *
+     * <p>The chosen quantities leave the tab as an order of their own — no table,
+     * its own number, {@code splitFromId} pointing back — which is then settled
+     * through the same {@link #settle} path as any tab, so the payer gets a real
+     * sale on the drawer of whoever took the money. The rest stays open.
+     *
+     * <p>Each moved unit takes its share of the line with it: fired units first
+     * (what is being paid for has usually been eaten), and the line discount in
+     * proportion, so the tab and the split together bill exactly what the tab
+     * would have alone. All of it, split and payment, is one transaction — a
+     * refused payment puts every unit back.
+     */
+    @Transactional
+    public OrderDtos.SettleResponse splitSettle(UUID orderId, OrderDtos.SplitSettleRequest request) {
+        UUID tenantId = TenantContext.getTenantId();
+        RestaurantOrderEntity tab = requireOpenForUpdate(orderId);
+
+        Map<RestaurantOrderItemEntity, BigDecimal> taking = new LinkedHashMap<>();
+        for (OrderDtos.SplitLine line : request.getLines()) {
+            taking.merge(requireItem(tab, line.getItemId()), line.getQuantity(), BigDecimal::add);
+        }
+        BigDecimal taken = BigDecimal.ZERO;
+        for (Map.Entry<RestaurantOrderItemEntity, BigDecimal> e : taking.entrySet()) {
+            BigDecimal left = e.getKey().billableQuantity();
+            if (e.getValue().compareTo(left) > 0) {
+                throw new BusinessException("Only " + left.stripTrailingZeros().toPlainString() + " of "
+                        + e.getKey().getItemName() + " left to pay for");
+            }
+            taken = taken.add(e.getValue());
+        }
+        BigDecimal wholeTab = tab.getItems().stream()
+                .map(RestaurantOrderItemEntity::billableQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (taken.compareTo(wholeTab) >= 0) {
+            throw new BusinessException("That is the whole tab — settle it instead of splitting");
+        }
+
+        LocalDate businessDate = LocalDate.now(STORE_ZONE);
+        RestaurantOrderEntity split = RestaurantOrderEntity.builder()
+                .branch(tab.getBranch())
+                .orderNumber(counterDao.nextOrderNumber(tenantId, tab.getBranch().getId(), businessDate))
+                .businessDate(businessDate)
+                .orderType(tab.getOrderType())
+                .customerId(tab.getCustomerId())
+                .status(RestaurantOrderEntity.OrderStatus.OPEN)
+                .openedBy(currentUserId())
+                .servedBy(tab.getServedBy())
+                .openedAt(LocalDateTime.now())
+                .splitFromId(tab.getId())
+                .build();
+        split.setTenantId(tenantId);
+
+        int sortOrder = 0;
+        for (Map.Entry<RestaurantOrderItemEntity, BigDecimal> e : taking.entrySet()) {
+            RestaurantOrderItemEntity item = e.getKey();
+            BigDecimal qty = e.getValue();
+            BigDecimal ordered = item.getQuantity();
+            BigDecimal firedMoved = qty.min(item.getFiredQuantity());
+            BigDecimal discountMoved = item.getDiscountAmount().signum() == 0 ? BigDecimal.ZERO
+                    : item.getDiscountAmount().multiply(qty).divide(ordered, 2, RoundingMode.HALF_UP);
+
+            RestaurantOrderItemEntity copy = RestaurantOrderItemEntity.builder()
+                    .productId(item.getProductId())
+                    .itemName(item.getItemName())
+                    .quantity(qty)
+                    .firedQuantity(firedMoved)
+                    .voidedQuantity(BigDecimal.ZERO)
+                    .unitPriceSnapshot(item.getUnitPriceSnapshot())
+                    .discountAmount(discountMoved)
+                    .notes(item.getNotes())
+                    .courseNo(item.getCourseNo())
+                    .sortOrder(sortOrder++)
+                    .build();
+            copy.setTenantId(tenantId);
+            int toppingOrder = 0;
+            for (RestaurantOrderItemToppingEntity t : item.getToppings()) {
+                RestaurantOrderItemToppingEntity row = RestaurantOrderItemToppingEntity.builder()
+                        .toppingId(t.getToppingId())
+                        .toppingName(t.getToppingName())
+                        .quantity(t.getQuantity())
+                        .unitPrice(t.getUnitPrice())
+                        .priceMode(t.getPriceMode())
+                        .sortOrder(toppingOrder++)
+                        .build();
+                row.setTenantId(tenantId);
+                copy.addTopping(row);
+            }
+            split.addItem(copy);
+
+            BigDecimal remaining = ordered.subtract(qty);
+            if (remaining.signum() == 0) {
+                // The whole line went, with nothing voided left behind to record.
+                tab.getItems().remove(item);
+            } else {
+                item.setQuantity(remaining);
+                item.setFiredQuantity(item.getFiredQuantity().subtract(firedMoved));
+                item.setDiscountAmount(item.getDiscountAmount().subtract(discountMoved));
+            }
+        }
+
+        orderRepository.save(tab);
+        RestaurantOrderEntity savedSplit = orderRepository.saveAndFlush(split);
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", tab.getId(), null, Map.of(
+                "splitInto", savedSplit.getId(), "units", taken.toPlainString()));
+
+        return settle(savedSplit.getId(), OrderDtos.SettleRequest.builder()
+                .paymentMethod(request.getPaymentMethod())
+                .cashTendered(request.getCashTendered())
+                .pointsToRedeem(request.getPointsToRedeem())
+                .build());
+    }
+
+    /**
      * A takeaway paid at the counter, as one transaction: open the order, settle
      * it through the unmodified {@code createSale}, fire the kitchen. Any refusal
      * rolls all three back, order number included.
@@ -831,7 +945,9 @@ public class RestaurantOrderService {
     }
 
     private String label(RestaurantOrderEntity order) {
-        String where = order.getTable() != null ? order.getTable().getName() : "Takeaway";
+        String where = order.getTable() != null ? order.getTable().getName()
+                : order.getSplitFromId() != null ? "Split bill"
+                : "Takeaway";
         return "Order " + order.getOrderNumber() + " · " + where;
     }
 
@@ -862,6 +978,7 @@ public class RestaurantOrderService {
                 .roundCount(order.getRoundCount())
                 .openedAt(order.getOpenedAt())
                 .settledAt(order.getSettledAt())
+                .splitFromId(order.getSplitFromId())
                 .runningTotal(runningTotal(order))
                 .items(items)
                 .build();
