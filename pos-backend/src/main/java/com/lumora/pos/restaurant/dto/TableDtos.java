@@ -1,6 +1,7 @@
 package com.lumora.pos.restaurant.dto;
 
 import com.lumora.pos.restaurant.entity.RestaurantTableEntity;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -37,6 +38,7 @@ public final class TableDtos {
         private Integer sortOrder;
 
         @Builder.Default
+        @JsonProperty("isActive")
         private boolean isActive = true;
     }
 
@@ -59,6 +61,7 @@ public final class TableDtos {
         private Integer sortOrder;
 
         @Builder.Default
+        @JsonProperty("isActive")
         private boolean isActive = true;
     }
 
@@ -75,6 +78,7 @@ public final class TableDtos {
         /** Server-owned; see the class javadoc. */
         private RestaurantTableEntity.TableStatus status;
         private int sortOrder;
+        @JsonProperty("isActive")
         private boolean isActive;
     }
 
@@ -86,6 +90,7 @@ public final class TableDtos {
         private UUID id;
         private String name;
         private int sortOrder;
+        @JsonProperty("isActive")
         private boolean isActive;
         /** The area's tables, in floor order. Empty for a freshly created area. */
         private List<TableResponse> tables;

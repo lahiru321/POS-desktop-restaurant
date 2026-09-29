@@ -2,6 +2,7 @@ package com.lumora.pos.restaurant.dto;
 
 import com.lumora.pos.restaurant.entity.ToppingEntity;
 import com.lumora.pos.restaurant.entity.ToppingGroupEntity;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -44,6 +45,7 @@ public final class ToppingDtos {
         private Integer sortOrder;
 
         @Builder.Default
+        @JsonProperty("isActive")
         private boolean isActive = true;
 
         /**
@@ -85,6 +87,7 @@ public final class ToppingDtos {
         private Integer sortOrder;
 
         @Builder.Default
+        @JsonProperty("isActive")
         private boolean isActive = true;
 
         /**
@@ -112,6 +115,7 @@ public final class ToppingDtos {
         private BigDecimal defaultPrice;
         private BigDecimal maxPrice;
         private Integer sortOrder;
+        @JsonProperty("isActive")
         private boolean isActive;
     }
 
@@ -126,6 +130,7 @@ public final class ToppingDtos {
         private Integer minSelect;
         private Integer maxSelect;
         private Integer sortOrder;
+        @JsonProperty("isActive")
         private boolean isActive;
         /** Populated on reads; the till needs the answers with the question. */
         private List<ToppingResponse> toppings;
