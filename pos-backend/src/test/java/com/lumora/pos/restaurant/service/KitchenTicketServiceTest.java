@@ -223,6 +223,36 @@ class KitchenTicketServiceTest {
 
     // ==================================================================
     @Nested
+    @DisplayName("Move notices")
+    class MoveNotices {
+
+        @Test
+        @DisplayName("Nothing cooking means no notice and no round consumed")
+        void shouldSkipWhenNothingFired() {
+            item("Chicken kottu", "1");
+
+            assertThat(ticketService.moveNotice(order, "MOVED FROM T4")).isEmpty();
+            assertThat(order.getRoundCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("With food in the kitchen, a MOVE ticket carries the notice and no lines")
+        void shouldPrintMoveNotice() {
+            item("Chicken kottu", "1").setFiredQuantity(BigDecimal.ONE);
+            order.setRoundCount(1);
+
+            KitchenTicketEntity ticket = ticketService.moveNotice(order, "MOVED FROM T4").get(0);
+
+            assertThat(ticket.getTicketType()).isEqualTo(KitchenTicketEntity.TicketType.MOVE);
+            assertThat(ticket.getLabel()).isEqualTo("#0042-R2-MOVE");
+            assertThat(ticket.getNotice()).isEqualTo("MOVED FROM T4");
+            assertThat(ticket.getTableName()).isEqualTo("T4");
+            assertThat(ticket.getItems()).isEmpty();
+        }
+    }
+
+    // ==================================================================
+    @Nested
     @DisplayName("After the print")
     class AfterPrint {
 

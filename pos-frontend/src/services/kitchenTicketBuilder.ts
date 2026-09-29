@@ -28,6 +28,8 @@ import type { KitchenTicket } from './kitchenTicketService';
 /** GS B n — white on black, so a VOID cannot be mistaken for an order. */
 const REVERSE_ON = '\x1D\x42\x01';
 const REVERSE_OFF = '\x1D\x42\x00';
+/** GS ! 0x01 — double height, normal width: tall text that keeps every column. */
+const DOUBLE_HEIGHT = '\x1D\x21\x01';
 
 export interface KitchenTicketOptions {
   paperWidth: '58mm' | '80mm';
@@ -61,10 +63,12 @@ function sheet(ticket: KitchenTicket, opts: KitchenTicketOptions): PrintData[] {
   const nameMax = kitchenItemNameMax(opts.paperWidth);
   const sep = '-'.repeat(width) + '\n';
   const isVoid = ticket.ticketType === 'VOID';
+  const isMove = ticket.ticketType === 'MOVE';
 
   const cmds: PrintData[] = [INIT];
 
   if (isVoid) cmds.push(...banner('** VOID **'));
+  if (isMove) cmds.push(...banner('** MOVED **'));
   if (opts.reprint) cmds.push(ALIGN_CENTER, BOLD_ON, DOUBLE, '** REPRINT **\n', NORMAL, BOLD_OFF);
 
   // ── Header ────────────────────────────────────────────────────────────
@@ -84,6 +88,15 @@ function sheet(ticket: KitchenTicket, opts: KitchenTicketOptions): PrintData[] {
     ),
   );
   cmds.push(sep);
+
+  // ── A move has no items: one big line telling the runner where to go ──
+  if (isMove) {
+    // Tall but not wide: double height keeps every column, so "ORDER 9 FROM T7
+    // JOINS" survives 58mm paper instead of being cut to 16 characters.
+    cmds.push(ALIGN_CENTER, BOLD_ON, DOUBLE_HEIGHT, `${truncate(ticket.notice ?? 'TABLE CHANGED', width)}\n`, NORMAL, BOLD_OFF);
+    cmds.push(ALIGN_LEFT, sep, FEED_AND_CUT);
+    return cmds;
+  }
 
   // ── Items, grouped by course ─────────────────────────────────────────
   const courses = Array.from(new Set(ticket.items.map((i) => i.courseNo))).sort((a, b) => a - b);

@@ -8,6 +8,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { FloorPlan } from "@/components/pos/FloorPlan";
+import type { RestaurantTable } from "@/services/tableService";
+import type { RestaurantOrder } from "@/services/restaurantOrderService";
 
 /**
  * The floor, as a sheet — the mid-service mount.
@@ -32,9 +34,18 @@ export interface FloorSheetProps {
    * resumed. The sheet closes itself immediately after calling this.
    */
   onSelectOrder: (orderId: string) => void;
+  /**
+   * Move mode: the sheet picks a destination for this tab instead of seating or
+   * resuming. A free table means move; an occupied one means merge — the caller
+   * decides, and confirms a merge, from what it is handed.
+   */
+  moving?: {
+    order: RestaurantOrder;
+    onPickTable: (table: RestaurantTable, occupiedBy: RestaurantOrder | undefined) => void;
+  };
 }
 
-export function FloorSheet({ open, onOpenChange, onSelectOrder }: FloorSheetProps) {
+export function FloorSheet({ open, onOpenChange, onSelectOrder, moving }: FloorSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -45,16 +56,26 @@ export function FloorSheet({ open, onOpenChange, onSelectOrder }: FloorSheetProp
       >
         <SheetHeader className="mb-4 text-left">
           <SheetTitle className="text-2xl font-bold tracking-tight text-white">
-            Floor
+            {moving ? `Move ${moving.order.label}` : "Floor"}
           </SheetTitle>
           <SheetDescription className="text-gray-400">
-            Tap a free table to seat it, or an occupied one to pick its tab back
-            up. The till stays exactly as you left it.
+            {moving
+              ? "Tap a free table to move this tab there, or an occupied one to merge the two tabs into one bill."
+              : "Tap a free table to seat it, or an occupied one to pick its tab back up. The till stays exactly as you left it."}
           </SheetDescription>
         </SheetHeader>
 
         <FloorPlan
           className="flex-1"
+          pick={
+            moving && {
+              excludeOrderId: moving.order.id,
+              onPick: (table, occupiedBy) => {
+                onOpenChange(false);
+                moving.onPickTable(table, occupiedBy);
+              },
+            }
+          }
           onOrderReady={(orderId) => {
             // Hand off first, then close — no routing, so the terminal (and the
             // cart it is holding) is never unmounted.

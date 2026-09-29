@@ -113,6 +113,16 @@ describe('kitchenTicketBuilder', () => {
     expect(out).toContain('#0042-R3-VOID');
   });
 
+  it('prints a MOVED notice with the new table and no item lines', () => {
+    const out = text(
+      makeTicket({ ticketType: 'MOVE', label: '#0042-R3-MOVE', tableName: 'T7', notice: 'MOVED FROM T4', items: [] }),
+    );
+    expect(out).toContain('** MOVED **');
+    expect(out).toContain('DINE-IN  T7');
+    expect(out).toContain('MOVED FROM T4');
+    expect(out).not.toMatch(/\d+ x /);
+  });
+
   it('marks a reprint', () => {
     expect(text(makeTicket(), { reprint: true })).toContain('** REPRINT **');
     expect(text(makeTicket())).not.toContain('REPRINT');

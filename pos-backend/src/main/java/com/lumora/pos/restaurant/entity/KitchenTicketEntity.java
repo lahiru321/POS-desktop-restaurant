@@ -85,6 +85,10 @@ public class KitchenTicketEntity extends BaseEntity {
     @Column(name = "printed_at")
     private LocalDateTime printedAt;
 
+    /** MOVE tickets only: the one line the runner needs ("MOVED FROM T4"). */
+    @Column(length = 255)
+    private String notice;
+
     @Builder.Default
     @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("courseNo ASC, sortOrder ASC")
@@ -100,7 +104,9 @@ public class KitchenTicketEntity extends BaseEntity {
         /** New work for the kitchen: everything not yet fired. */
         ROUND,
         /** Stop cooking these — the already-fired portion of a void. */
-        VOID
+        VOID,
+        /** No lines: the food already sent now goes to a different table. */
+        MOVE
     }
 
     public enum TicketStatus {

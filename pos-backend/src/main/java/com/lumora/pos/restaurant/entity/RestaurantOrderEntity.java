@@ -109,6 +109,9 @@ public class RestaurantOrderEntity extends BaseEntity {
         /** Paid. {@code saleId} points at the sale it became. */
         SETTLED,
         /** Abandoned without payment. */
-        VOIDED
+        VOIDED,
+        /** Joined another tab: its lines now live on that order. Its own kitchen
+         *  tickets stay here as the record of what was sent under this number. */
+        MERGED
     }
 }

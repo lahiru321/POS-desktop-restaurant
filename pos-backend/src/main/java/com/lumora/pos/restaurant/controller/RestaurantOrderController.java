@@ -108,6 +108,30 @@ public class RestaurantOrderController {
                         .build());
     }
 
+    /** Carries a dine-in tab to a free table. */
+    @PostMapping("/{id}/move")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.OrderKitchenResponse>> move(
+            @PathVariable UUID id, @Valid @RequestBody OrderDtos.MoveOrderRequest request) {
+        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderKitchenResponse>builder()
+                .success(true)
+                .message("Tab moved")
+                .data(orderService.move(id, request))
+                .build());
+    }
+
+    /** Folds {@code sourceOrderId} into this tab. */
+    @PostMapping("/{id}/merge")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.OrderKitchenResponse>> merge(
+            @PathVariable UUID id, @Valid @RequestBody OrderDtos.MergeOrderRequest request) {
+        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderKitchenResponse>builder()
+                .success(true)
+                .message("Tabs merged")
+                .data(orderService.merge(id, request))
+                .build());
+    }
+
     /** Order, payment and kitchen ticket in one call — see {@link OrderDtos.TakeawayRequest}. */
     @PostMapping("/takeaway")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")

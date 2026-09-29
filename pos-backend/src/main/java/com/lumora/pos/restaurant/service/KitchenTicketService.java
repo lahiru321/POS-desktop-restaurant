@@ -130,6 +130,28 @@ public class KitchenTicketService {
         return saved;
     }
 
+    /**
+     * A notice that food already sent now goes to another table. Printed only
+     * when the kitchen has something for this tab — moving a tab nobody has
+     * cooked for yet tells the kitchen nothing it needs to know.
+     *
+     * @return the ticket, or empty when nothing on the order has been fired
+     */
+    @Transactional
+    public List<KitchenTicketEntity> moveNotice(RestaurantOrderEntity order, String notice) {
+        boolean anythingCooking = order.getItems().stream().anyMatch(i -> i.getFiredQuantity().signum() > 0);
+        if (!anythingCooking) {
+            return List.of();
+        }
+        KitchenTicketEntity ticket = newTicket(order, KitchenTicketEntity.TicketType.MOVE, nextRound(order),
+                KitchenTicketEntity.DEFAULT_STATION);
+        ticket.setNotice(truncate(notice, 255));
+        KitchenTicketEntity saved = ticketRepository.save(ticket);
+        auditService.log(AuditAction.KITCHEN_TICKET_FIRE, "KITCHEN_TICKET", saved.getId(), null,
+                Map.of("label", saved.getLabel(), "notice", saved.getNotice()));
+        return List.of(saved);
+    }
+
     // ------------------------------------------------------------------
     // After the print
     // ------------------------------------------------------------------
@@ -244,7 +266,11 @@ public class KitchenTicketService {
     /** "#0042-R2" or "#0042-R3-VOID" — zero-padded so it reads the same at a glance. */
     static String label(int orderNumber, int round, KitchenTicketEntity.TicketType type) {
         String base = String.format("#%04d-R%d", orderNumber, round);
-        return type == KitchenTicketEntity.TicketType.VOID ? base + "-VOID" : base;
+        return switch (type) {
+            case VOID -> base + "-VOID";
+            case MOVE -> base + "-MOVE";
+            case ROUND -> base;
+        };
     }
 
     private KitchenTicketItemEntity snapshot(RestaurantOrderItemEntity item, BigDecimal quantity, int sortOrder) {
@@ -351,6 +377,7 @@ public class KitchenTicketService {
                 .serverName(ticket.getServerName())
                 .printAttempts(ticket.getPrintAttempts())
                 .lastError(ticket.getLastError())
+                .notice(ticket.getNotice())
                 .firedAt(ticket.getCreatedAt())
                 .printedAt(ticket.getPrintedAt())
                 .items(ticket.getItems().stream()

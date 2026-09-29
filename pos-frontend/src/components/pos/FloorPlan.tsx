@@ -46,10 +46,19 @@ export interface FloorPlanProps {
    * opened (the table was free) or resumed (it was already occupied).
    */
   onOrderReady: (orderId: string) => void;
+  /**
+   * Pick mode: a tap chooses a table for something else — moving a tab — rather
+   * than seating it or resuming its tab. The tab being moved is shown but cannot
+   * be tapped, and parked takeaways are hidden: only tables can be picked.
+   */
+  pick?: {
+    excludeOrderId: string;
+    onPick: (table: RestaurantTable, order: RestaurantOrder | undefined) => void;
+  };
   className?: string;
 }
 
-export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
+export function FloorPlan({ onOrderReady, pick, className }: FloorPlanProps) {
   const queryClient = useQueryClient();
 
   const {
@@ -80,9 +89,10 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
   });
 
   // Parked counter sales: unpaid takeaway orders waiting to be picked up.
+  // Hidden in pick mode — a tab is moved to a table, never to a parked order.
   const takeaways = useMemo(
-    () => openOrders.filter((o) => o.orderType === "TAKEAWAY"),
-    [openOrders]
+    () => (pick ? [] : openOrders.filter((o) => o.orderType === "TAKEAWAY")),
+    [openOrders, pick]
   );
 
   const ordersByTable = useMemo(() => {
@@ -156,6 +166,18 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
     order: RestaurantOrder | undefined
   ) => {
     if (openTab.isPending) return;
+
+    if (pick) {
+      if (order?.id === pick.excludeOrderId) return;
+      if (!order && table.status === "OCCUPIED") {
+        toast.error(
+          `${table.name} is occupied by a tab that is not visible here — it may belong to another branch.`
+        );
+        return;
+      }
+      pick.onPick(table, order);
+      return;
+    }
 
     // Occupied → resume the tab already running on it. Never try to open a
     // second one: `uk_rest_order_open_table` is a partial unique index on
@@ -270,7 +292,10 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
                   order={ordersByTable.get(table.id)}
                   now={now}
                   pending={pendingTableId === table.id}
-                  disabled={openTab.isPending && pendingTableId !== table.id}
+                  disabled={
+                    (openTab.isPending && pendingTableId !== table.id) ||
+                    (!!pick && ordersByTable.get(table.id)?.id === pick.excludeOrderId)
+                  }
                   onTap={handleTap}
                 />
               ))}

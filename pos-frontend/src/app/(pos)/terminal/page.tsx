@@ -11,7 +11,7 @@ import { SaleResponse, salesService, SaleRequest, SaleItemRequest, SalesSummaryR
 import { useCart, TaxContext, type CartView } from '@/hooks/useCart';
 import { useDineInCart } from '@/hooks/useDineInCart';
 import { useKitchenPrinting } from '@/hooks/useKitchenPrinting';
-import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send } from 'lucide-react';
+import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send, ArrowRightLeft } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -31,6 +31,7 @@ import { useConfirmDialog } from '@/components/super-admin/ConfirmDialog';
 import {
   restaurantOrderService,
   type RepricedLine,
+  type RestaurantOrder,
   type SettleRequest,
   type TakeawayRequest,
 } from '@/services/restaurantOrderService';
@@ -49,6 +50,7 @@ import { CorrectSalePickerModal } from '@/components/pos/CorrectSalePickerModal'
 import { ReturnModal } from '@/components/pos/ReturnModal';
 import { ShortcutsOverlay } from '@/components/pos/ShortcutsOverlay';
 import { FloorSheet } from '@/components/pos/FloorSheet';
+import type { RestaurantTable } from '@/services/tableService';
 import { KitchenPrintFailedDialog } from '@/components/pos/KitchenPrintFailedDialog';
 import { KitchenTicketsBadge } from '@/components/pos/KitchenTicketsBadge';
 import { OrderKitchenTickets } from '@/components/pos/OrderKitchenTickets';
@@ -798,6 +800,62 @@ function Terminal() {
     parkMutation.mutate();
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Move / merge — the party changes tables, or joins another party
+  // ─────────────────────────────────────────────────────────────────────────
+  const [moveOpen, setMoveOpen] = useState(false);
+
+  const moveMutation = useMutation({
+    mutationFn: ({ orderId, tableId }: { orderId: string; tableId: string }) =>
+      restaurantOrderService.move(orderId, tableId),
+    onSuccess: ({ order, tickets }) => {
+      queryClient.setQueryData(QK.restaurantOrder(order.id), order);
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
+      toast.success(`${order.label} — moved`);
+      // If the kitchen already has food for this tab, the runner needs telling.
+      if (tickets.length > 0) void kitchen.dispatchTickets(tickets);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not move this tab'));
+    },
+  });
+
+  const mergeMutation = useMutation({
+    mutationFn: ({ targetId, sourceId }: { targetId: string; sourceId: string }) =>
+      restaurantOrderService.merge(targetId, sourceId),
+    onSuccess: ({ order, tickets }, { sourceId }) => {
+      queryClient.removeQueries({ queryKey: QK.restaurantOrder(sourceId) });
+      queryClient.setQueryData(QK.restaurantOrder(order.id), order);
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
+      toast.success(`Merged into ${order.label}`);
+      // The till follows the bill: the tab it was on no longer exists.
+      selectOrder(order.id);
+      if (tickets.length > 0) void kitchen.dispatchTickets(tickets);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not merge these tabs'));
+    },
+  });
+
+  const handlePickTable = async (table: RestaurantTable, occupiedBy: RestaurantOrder | undefined) => {
+    const current = dineIn.order;
+    if (!current) return;
+    if (!occupiedBy) {
+      moveMutation.mutate({ orderId: current.id, tableId: table.id });
+      return;
+    }
+    const ok = await confirm({
+      title: `Merge into ${occupiedBy.label}?`,
+      description: `Everything on ${current.label} joins ${table.name}'s tab and becomes one bill. ${
+        current.tableName ?? 'This table'
+      } is freed. Nothing is sent to the kitchen twice.`,
+      confirmLabel: 'Merge tabs',
+    });
+    if (ok) mergeMutation.mutate({ targetId: occupiedBy.id, sourceId: current.id });
+  };
+
   // F8 on a tab. ADMIN/MANAGER server-side; the message from a refused attempt
   // is shown rather than the control being hidden from cashiers here.
   const voidOrderMutation = useMutation({
@@ -1088,6 +1146,17 @@ function Terminal() {
                   <kbd className="hidden rounded border border-primary-foreground/30 px-1 font-mono text-[10px] sm:inline">F5</kbd>
                 </Button>
                 <OrderKitchenTickets orderId={dineIn.order.id} onReprint={kitchen.reprint} />
+                {dineIn.order.orderType === 'DINE_IN' && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setMoveOpen(true)}
+                    disabled={moveMutation.isPending || mergeMutation.isPending || dineIn.isBusy}
+                    className="h-8 gap-2 border-gray-800 bg-gray-950 px-3 text-gray-300 hover:bg-gray-800 hover:text-primary"
+                    title="Move this tab to another table, or merge it with one"
+                  >
+                    <ArrowRightLeft size={14} /> Move
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => setFloorOpen(true)}
@@ -1310,6 +1379,14 @@ function Terminal() {
 
       {/* The mid-service floor. Mounted inside the terminal, never routed to, so
           switching tables cannot unmount the cart. */}
+      {dineInActive && dineIn.order && (
+        <FloorSheet
+          open={moveOpen}
+          onOpenChange={setMoveOpen}
+          onSelectOrder={() => undefined}
+          moving={{ order: dineIn.order, onPickTable: handlePickTable }}
+        />
+      )}
       <FloorSheet
         open={floorOpen}
         onOpenChange={setFloorOpen}

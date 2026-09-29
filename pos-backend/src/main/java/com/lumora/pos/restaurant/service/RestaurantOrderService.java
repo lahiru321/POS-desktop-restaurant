@@ -10,6 +10,7 @@ import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.restaurant.dto.OrderDtos;
 import com.lumora.pos.restaurant.entity.*;
 import com.lumora.pos.restaurant.repository.RestaurantOrderCounterDao;
+import com.lumora.pos.restaurant.repository.RestaurantOrderItemRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderRepository;
 import com.lumora.pos.restaurant.repository.RestaurantTableRepository;
 import com.lumora.pos.restaurant.repository.ToppingRepository;
@@ -63,6 +64,7 @@ public class RestaurantOrderService {
     private static final String OPEN_TABLE_CONSTRAINT = "uk_rest_order_open_table";
 
     private final RestaurantOrderRepository orderRepository;
+    private final RestaurantOrderItemRepository itemRepository;
     private final RestaurantTableRepository tableRepository;
     private final RestaurantOrderCounterDao counterDao;
     private final ProductRepository productRepository;
@@ -275,6 +277,119 @@ public class RestaurantOrderService {
         RestaurantOrderEntity order = requireOpenForUpdate(orderId);
         List<KitchenTicketEntity> tickets = kitchenTicketService.fireRound(order);
         RestaurantOrderEntity saved = orderRepository.save(order);
+        return withTickets(saved, tickets);
+    }
+
+    // ------------------------------------------------------------------
+    // Moving and merging tabs
+    // ------------------------------------------------------------------
+
+    /**
+     * Carries a dine-in tab to another, free table.
+     *
+     * <p>The target must be free: two parties on one table is a merge, and the
+     * caller is told so rather than having it guessed. {@code uk_rest_order_open_table}
+     * is the real guarantee under a race, exactly as when opening a tab.
+     *
+     * <p>If the kitchen already has food for this tab, a MOVE ticket goes out so
+     * the runner carries it to the new table, not the old one.
+     */
+    @Transactional
+    public OrderDtos.OrderKitchenResponse move(UUID orderId, OrderDtos.MoveOrderRequest request) {
+        UUID tenantId = TenantContext.getTenantId();
+        RestaurantOrderEntity order = requireOpenForUpdate(orderId);
+        if (order.getOrderType() != RestaurantOrderEntity.OrderType.DINE_IN) {
+            throw new BusinessException("A takeaway has no table to move");
+        }
+        RestaurantTableEntity target = tableRepository.findByIdAndTenantId(request.getTableId(), tenantId)
+                .orElseThrow(() -> new BusinessException("Table not found"));
+        RestaurantTableEntity from = order.getTable();
+        if (from != null && from.getId().equals(target.getId())) {
+            throw new BusinessException("This tab is already on " + target.getName());
+        }
+        orderRepository.findOpenByTableId(tenantId, target.getId()).ifPresent(open -> {
+            throw new BusinessException(tableBusy(target) + " (order " + open.getOrderNumber()
+                    + "). Merge the two tabs instead.");
+        });
+
+        order.setTable(target);
+        try {
+            // Flushed inside the try for the same reason open() does: the index,
+            // not the check above, is what settles a genuine race.
+            orderRepository.saveAndFlush(order);
+        } catch (DataIntegrityViolationException ex) {
+            if (mentionsConstraint(ex, OPEN_TABLE_CONSTRAINT)) {
+                throw new BusinessException(tableBusy(target));
+            }
+            throw ex;
+        }
+        if (from != null) {
+            from.setStatus(RestaurantTableEntity.TableStatus.AVAILABLE);
+        }
+        target.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+
+        String fromName = from != null ? from.getName() : "?";
+        List<KitchenTicketEntity> tickets = kitchenTicketService.moveNotice(order, "MOVED FROM " + fromName);
+        RestaurantOrderEntity saved = orderRepository.save(order);
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", orderId, Map.of("table", fromName),
+                Map.of("table", target.getName()));
+        return withTickets(saved, tickets);
+    }
+
+    /**
+     * Folds another open tab into this one: the party at T2 joins their friends
+     * at T7, and the two bills become one.
+     *
+     * <p>The lines move as they are — same rows, same fired and voided counts —
+     * so nothing is sent to the kitchen twice. The absorbed order becomes MERGED
+     * and its table is freed; its own kitchen tickets stay with it as the record
+     * of what was sent under that number. If the kitchen was cooking for it, a
+     * MOVE ticket on this order tells the runner where that food now goes.
+     */
+    @Transactional
+    public OrderDtos.OrderKitchenResponse merge(UUID targetId, OrderDtos.MergeOrderRequest request) {
+        UUID tenantId = TenantContext.getTenantId();
+        UUID sourceId = request.getSourceOrderId();
+        if (targetId.equals(sourceId)) {
+            throw new BusinessException("A tab cannot be merged into itself");
+        }
+
+        // Always lock the lower id first, so two tills merging the same pair from
+        // opposite ends queue instead of deadlocking.
+        boolean targetFirst = targetId.compareTo(sourceId) < 0;
+        RestaurantOrderEntity first = requireOpenForUpdate(targetFirst ? targetId : sourceId);
+        RestaurantOrderEntity second = requireOpenForUpdate(targetFirst ? sourceId : targetId);
+        RestaurantOrderEntity target = targetFirst ? first : second;
+        RestaurantOrderEntity source = targetFirst ? second : first;
+
+        if (!target.getBranch().getId().equals(source.getBranch().getId())) {
+            // A sale has to match its drawer's branch; one bill cannot straddle two.
+            throw new BusinessException("Those tabs belong to different branches");
+        }
+
+        boolean sourceCooking = source.getItems().stream().anyMatch(i -> i.getFiredQuantity().signum() > 0);
+        String sourceWhere = source.getTable() != null ? source.getTable().getName() : "takeaway";
+        int sourceNumber = source.getOrderNumber();
+
+        target.setCovers(target.getCovers() + source.getCovers());
+        if (target.getCustomerId() == null) {
+            target.setCustomerId(source.getCustomerId());
+        }
+        source.setStatus(RestaurantOrderEntity.OrderStatus.MERGED);
+        freeTable(source);
+
+        // Flushes the changes above, re-parents the rows, then clears the context.
+        int moved = itemRepository.reassignLines(source, target, tenantId);
+
+        RestaurantOrderEntity merged = require(targetId);
+        List<KitchenTicketEntity> tickets = sourceCooking
+                ? kitchenTicketService.moveNotice(merged, "ORDER " + sourceNumber + " FROM " + sourceWhere + " JOINS")
+                : List.of();
+        RestaurantOrderEntity saved = orderRepository.save(merged);
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", targetId, null, Map.of(
+                "mergedFrom", sourceId, "lines", moved));
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", sourceId, null, Map.of(
+                "status", "MERGED", "into", targetId));
         return withTickets(saved, tickets);
     }
 

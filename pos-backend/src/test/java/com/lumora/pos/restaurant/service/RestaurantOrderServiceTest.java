@@ -9,6 +9,7 @@ import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.restaurant.dto.OrderDtos;
 import com.lumora.pos.restaurant.entity.*;
 import com.lumora.pos.restaurant.repository.RestaurantOrderCounterDao;
+import com.lumora.pos.restaurant.repository.RestaurantOrderItemRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderRepository;
 import com.lumora.pos.restaurant.repository.RestaurantTableRepository;
 import com.lumora.pos.restaurant.repository.ToppingRepository;
@@ -48,6 +49,7 @@ import static org.mockito.Mockito.*;
 class RestaurantOrderServiceTest {
 
     @Mock private RestaurantOrderRepository orderRepository;
+    @Mock private RestaurantOrderItemRepository itemRepository;
     @Mock private RestaurantTableRepository tableRepository;
     @Mock private RestaurantOrderCounterDao counterDao;
     @Mock private ProductRepository productRepository;
@@ -775,6 +777,155 @@ class RestaurantOrderServiceTest {
             assertThat(firedPortionPassedFor(order, unsent)).isEqualByComparingTo("0");
             assertThat(cooking.getVoidedQuantity()).isEqualByComparingTo("3");
             assertThat(cooking.getFiredQuantity()).isEqualByComparingTo("0");
+        }
+    }
+
+    // ==================================================================
+    @Nested
+    @DisplayName("Moving and merging tabs")
+    class MoveAndMerge {
+
+        private RestaurantTableEntity otherTable() {
+            RestaurantTableEntity t7 = RestaurantTableEntity.builder().area(table.getArea()).name("T7").seats(4).build();
+            t7.setId(UUID.randomUUID());
+            t7.setTenantId(tenantId);
+            return t7;
+        }
+
+        @Test
+        @DisplayName("Moving frees the old table, occupies the new one, and tells the kitchen")
+        void shouldMoveToFreeTable() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "1", "950.00").setFiredQuantity(BigDecimal.ONE);
+            table.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+            RestaurantTableEntity t7 = otherTable();
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tableRepository.findByIdAndTenantId(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
+            when(orderRepository.findOpenByTableId(tenantId, t7.getId())).thenReturn(Optional.empty());
+            when(orderRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(kitchenTicketService.moveNotice(eq(order), any())).thenReturn(List.of());
+
+            OrderDtos.OrderKitchenResponse response = orderService.move(order.getId(),
+                    OrderDtos.MoveOrderRequest.builder().tableId(t7.getId()).build());
+
+            assertThat(response.getOrder().getTableName()).isEqualTo("T7");
+            assertThat(table.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            assertThat(t7.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.OCCUPIED);
+            verify(kitchenTicketService).moveNotice(order, "MOVED FROM T1");
+        }
+
+        @Test
+        @DisplayName("Moving onto a table with its own tab is refused, pointing at merge")
+        void shouldRefuseMoveOntoOccupiedTable() {
+            RestaurantOrderEntity order = order();
+            RestaurantTableEntity t7 = otherTable();
+            RestaurantOrderEntity there = order();
+            there.setOrderNumber(15);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tableRepository.findByIdAndTenantId(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
+            when(orderRepository.findOpenByTableId(tenantId, t7.getId())).thenReturn(Optional.of(there));
+
+            assertThatThrownBy(() -> orderService.move(order.getId(),
+                    OrderDtos.MoveOrderRequest.builder().tableId(t7.getId()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Merge the two tabs instead");
+            assertThat(order.getTable()).isSameAs(table);
+        }
+
+        @Test
+        @DisplayName("A takeaway has no table to move")
+        void shouldRefuseMovingTakeaway() {
+            RestaurantOrderEntity order = order();
+            order.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
+            order.setTable(null);
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+
+            assertThatThrownBy(() -> orderService.move(order.getId(),
+                    OrderDtos.MoveOrderRequest.builder().tableId(UUID.randomUUID()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("no table");
+        }
+
+        @Test
+        @DisplayName("Merging moves the lines in place, sums covers, frees the source table")
+        void shouldMerge() {
+            RestaurantOrderEntity target = order();
+            target.setCovers(2);
+            RestaurantTableEntity t7 = otherTable();
+            RestaurantOrderEntity source = order();
+            source.setOrderNumber(9);
+            source.setTable(t7);
+            source.setCovers(3);
+            t7.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+            item(source, "Lime juice", "1", "300.00").setFiredQuantity(BigDecimal.ONE);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(orderRepository.findByIdAndTenantIdForUpdate(source.getId(), tenantId)).thenReturn(Optional.of(source));
+            when(itemRepository.reassignLines(source, target, tenantId)).thenReturn(1);
+            when(orderRepository.findByIdAndTenantId(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(kitchenTicketService.moveNotice(eq(target), any())).thenReturn(List.of());
+
+            orderService.merge(target.getId(),
+                    OrderDtos.MergeOrderRequest.builder().sourceOrderId(source.getId()).build());
+
+            assertThat(source.getStatus()).isEqualTo(RestaurantOrderEntity.OrderStatus.MERGED);
+            assertThat(t7.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            assertThat(target.getCovers()).isEqualTo(5);
+            verify(itemRepository).reassignLines(source, target, tenantId);
+            // The source's food was cooking, so the runner is told where it now goes.
+            verify(kitchenTicketService).moveNotice(target, "ORDER 9 FROM T7 JOINS");
+        }
+
+        @Test
+        @DisplayName("Merging a tab the kitchen never saw prints nothing")
+        void shouldMergeQuietlyWhenNothingFired() {
+            RestaurantOrderEntity target = order();
+            RestaurantOrderEntity source = order();
+            source.setTable(otherTable());
+            item(source, "Lime juice", "1", "300.00");
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(orderRepository.findByIdAndTenantIdForUpdate(source.getId(), tenantId)).thenReturn(Optional.of(source));
+            when(orderRepository.findByIdAndTenantId(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            orderService.merge(target.getId(),
+                    OrderDtos.MergeOrderRequest.builder().sourceOrderId(source.getId()).build());
+
+            verify(kitchenTicketService, never()).moveNotice(any(), any());
+        }
+
+        @Test
+        @DisplayName("A tab cannot be merged into itself")
+        void shouldRefuseSelfMerge() {
+            UUID id = UUID.randomUUID();
+            assertThatThrownBy(() -> orderService.merge(id,
+                    OrderDtos.MergeOrderRequest.builder().sourceOrderId(id).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("into itself");
+        }
+
+        @Test
+        @DisplayName("Tabs on different branches cannot become one bill")
+        void shouldRefuseCrossBranchMerge() {
+            RestaurantOrderEntity target = order();
+            RestaurantOrderEntity source = order();
+            BranchEntity other = new BranchEntity();
+            other.setId(UUID.randomUUID());
+            source.setBranch(other);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(orderRepository.findByIdAndTenantIdForUpdate(source.getId(), tenantId)).thenReturn(Optional.of(source));
+
+            assertThatThrownBy(() -> orderService.merge(target.getId(),
+                    OrderDtos.MergeOrderRequest.builder().sourceOrderId(source.getId()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("different branches");
+            verify(itemRepository, never()).reassignLines(any(), any(), any());
         }
     }
 

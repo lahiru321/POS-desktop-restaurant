@@ -23,11 +23,13 @@ import { API_URL, TERMINAL_USER } from "./fixtures/test-credentials";
 const V1 = `${API_URL}/api/v1`;
 const RUN = Date.now().toString(36).slice(-5);
 const TABLE = `E2E-${RUN}`;
+const TABLE2 = `E2F-${RUN}`;
 const DISH = `E2E Kottu ${RUN}`;
 const ADDON = `Extra cheese ${RUN}`;
 
 let adminToken = "";
 let dishId = "";
+let table2Id = "";
 
 async function adminLogin(request: APIRequestContext): Promise<string> {
   const res = await request.post(`${V1}/auth/login`, {
@@ -50,6 +52,8 @@ async function api<T>(request: APIRequestContext, method: "get" | "post" | "put"
 
 type Ticket = {
   label: string;
+  ticketType: string;
+  notice?: string | null;
   status: string;
   lastError?: string | null;
   items: { itemName: string; quantity: number; modifiers: string[] }[];
@@ -100,6 +104,13 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
       seats: 2,
       isActive: true,
     });
+    const second = await api<{ id: string }>(request, "post", "/restaurant/tables", {
+      areaId: area.id,
+      name: TABLE2,
+      seats: 4,
+      isActive: true,
+    });
+    table2Id = second.id;
 
     const dish = await api<{ id: string }>(request, "post", "/products", {
       name: DISH,
@@ -178,6 +189,61 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     expect(stillOpen.some((o) => o.tableName === TABLE)).toBe(false);
     // A dine-in settle sends nothing further to the kitchen.
     expect(await ticketsFor(request, order!.id)).toHaveLength(2);
+  });
+
+  test("moving a tab tells the kitchen; merging makes one bill without re-sending", async ({ page, request }) => {
+    await openShift(page);
+
+    // Seat TABLE, send one dish.
+    await page.keyboard.press("F11");
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE}, 2 seats, available`) }).click();
+    await addDishWithAddon(page);
+    await page.getByRole("button", { name: /^send \(1\)/i }).click();
+    await expect(page.getByText(/-R1 recorded — tell the kitchen/)).toBeVisible();
+
+    // ── Move to TABLE2: the kitchen gets a MOVE slip ─────────────────────
+    await page.getByRole("button", { name: /^move$/i }).click();
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE2}, 4 seats, available`) }).click();
+    await expect(page.getByText(new RegExp(`Order \\d+ · ${TABLE2} — moved`))).toBeVisible();
+    await expect(page.getByText(/-R2-MOVE recorded — tell the kitchen/)).toBeVisible();
+
+    const afterMove = await api<{ id: string; tableName: string }[]>(request, "get", "/restaurant/orders");
+    const moved = afterMove.find((o) => o.tableName === TABLE2)!;
+    expect(moved, "the tab is now on the second table").toBeTruthy();
+    expect(afterMove.some((o) => o.tableName === TABLE)).toBe(false);
+    const moveTicket = (await ticketsFor(request, moved.id)).at(-1)!;
+    expect(moveTicket).toMatchObject({ ticketType: "MOVE", notice: `MOVED FROM ${TABLE}`, items: [] });
+
+    // ── Another party sits at TABLE; then this tab merges into theirs ────
+    const tables = await api<{ id: string; name: string }[]>(request, "get", "/restaurant/tables");
+    const other = await api<{ id: string; label: string }>(request, "post", "/restaurant/orders", {
+      tableId: tables.find((t) => t.name === TABLE)!.id,
+      covers: 2,
+      items: [{ productId: dishId, quantity: 1 }],
+    });
+
+    await page.getByRole("button", { name: /^move$/i }).click();
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE}, occupied`) }).click();
+    await page.getByRole("button", { name: /^merge tabs$/i }).click();
+    await expect(page.getByText(`Merged into ${other.label}`)).toBeVisible();
+
+    const afterMerge = await api<{ id: string; tableName: string; covers: number; items: unknown[] }[]>(
+      request, "get", "/restaurant/orders");
+    expect(afterMerge.some((o) => o.tableName === TABLE2)).toBe(false);
+    const merged = afterMerge.find((o) => o.id === other.id)!;
+    expect(merged.items).toHaveLength(2);
+    expect(merged.covers).toBe(4);
+    // The merged-in dish was already cooking: one MOVE slip, and nothing re-fired.
+    const mergedTickets = await ticketsFor(request, merged.id);
+    expect(mergedTickets.map((t) => t.ticketType)).toEqual(["MOVE"]);
+
+    // Tidy: settle the merged bill so the tables are free for the next test.
+    await page.getByRole("button", { name: /^settle/i }).click();
+    await payExactCash(page);
+    await expect(page.getByText(new RegExp(`${other.label} paid`))).toBeVisible();
   });
 
   test("a parked sale waits on the floor, then fires the kitchen when paid", async ({ page, request }) => {

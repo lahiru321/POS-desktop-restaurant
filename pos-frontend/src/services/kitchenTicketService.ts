@@ -2,8 +2,11 @@ import api from "./api";
 import { ApiResponse } from "@/types/common";
 import type { OrderType } from "./restaurantOrderService";
 
-/** ROUND = new work for the kitchen; VOID = stop cooking these. */
-export type KitchenTicketType = "ROUND" | "VOID";
+/**
+ * ROUND = new work for the kitchen; VOID = stop cooking these;
+ * MOVE = no lines, the food already sent goes to a different table.
+ */
+export type KitchenTicketType = "ROUND" | "VOID" | "MOVE";
 
 /**
  * PENDING — recorded, not yet confirmed printed. Counts as unresolved once it
@@ -43,6 +46,8 @@ export interface KitchenTicket {
   serverName?: string | null;
   printAttempts: number;
   lastError?: string | null;
+  /** MOVE tickets only: "MOVED FROM T4". */
+  notice?: string | null;
   /** ISO-8601 — the time printed on the sheet. */
   firedAt: string;
   printedAt?: string | null;

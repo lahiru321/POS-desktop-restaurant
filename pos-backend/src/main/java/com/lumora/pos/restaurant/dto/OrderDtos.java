@@ -152,6 +152,26 @@ public final class OrderDtos {
         private String reason;
     }
 
+    /** Carry a tab to another, free table. */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MoveOrderRequest {
+        @NotNull(message = "Pick the table to move to")
+        private UUID tableId;
+    }
+
+    /** Fold another open tab into this one. */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MergeOrderRequest {
+        @NotNull(message = "Pick the tab to merge in")
+        private UUID sourceOrderId;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor

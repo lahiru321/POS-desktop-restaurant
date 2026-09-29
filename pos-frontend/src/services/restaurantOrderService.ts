@@ -11,8 +11,9 @@ export type OrderType = "DINE_IN" | "TAKEAWAY";
  * OPEN    — accumulating rounds. At most one per table, enforced by a partial index.
  * SETTLED — paid; `saleId` points at the sale it became.
  * VOIDED  — abandoned without payment.
+ * MERGED  — joined another tab; its lines now live on that order.
  */
-export type OrderStatus = "OPEN" | "SETTLED" | "VOIDED";
+export type OrderStatus = "OPEN" | "SETTLED" | "VOIDED" | "MERGED";
 
 // ──────────────────────────────────────────────
 // Requests
@@ -270,6 +271,20 @@ export const restaurantOrderService = {
   settle: (id: string, data: SettleRequest) =>
     api
       .post<ApiResponse<SettleResponse>>(`/restaurant/orders/${id}/settle`, data)
+      .then((res) => res.data.data),
+
+  /** Carries a dine-in tab to a free table. A MOVE ticket comes back if the
+   *  kitchen already has food for it. */
+  move: (id: string, tableId: string) =>
+    api
+      .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/move`, { tableId })
+      .then((res) => res.data.data),
+
+  /** Folds `sourceOrderId` into the tab `id`. Lines move as they are, so
+   *  nothing is sent to the kitchen twice. */
+  merge: (id: string, sourceOrderId: string) =>
+    api
+      .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/merge`, { sourceOrderId })
       .then((res) => res.data.data),
 
   /** Pays for a counter takeaway and fires the kitchen, atomically. */

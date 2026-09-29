@@ -46,6 +46,8 @@ public final class KitchenTicketDtos {
         private String serverName;
         private int printAttempts;
         private String lastError;
+        /** MOVE tickets only: "MOVED FROM T4". */
+        private String notice;
         /** When the ticket was fired — the time printed on the sheet. */
         private LocalDateTime firedAt;
         private LocalDateTime printedAt;
