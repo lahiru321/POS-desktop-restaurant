@@ -9,41 +9,59 @@ import org.springframework.context.annotation.Configuration;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 /**
  * Global Jackson customization for timestamp serialization.
  *
- * Entities persist instant-in-time values as {@link LocalDateTime} captured on a
- * UTC JVM (see {@code hibernate.jdbc.time_zone: UTC} and {@code LocalDateTime.now()}
- * in auditing). With the default jsr310 serializer these go out as a naive ISO
- * string with no zone marker (e.g. {@code 2026-05-28T09:00:00}). Browsers parse a
- * zoneless string as *local* time, so every timestamp rendered via {@code new Date()}
- * on the frontend was shifted by the viewer's UTC offset.
+ * Entities hold instants as {@link LocalDateTime}. The database stores them in UTC
+ * ({@code hibernate.jdbc.time_zone: UTC}), but Hibernate converts on the way in and
+ * out, so inside the JVM every {@code LocalDateTime} — read from the database or made
+ * by {@code LocalDateTime.now()} — is wall-clock time in the <em>JVM's</em> zone.
  *
- * Emitting the UTC offset ({@code 2026-05-28T09:00:00Z}) lets the client convert the
- * instant to its own zone correctly.
+ * The default jsr310 serializer writes that as a naive string with no zone marker,
+ * which a browser reads as its own local time. So each value is written with the
+ * JVM zone's offset: {@code 2026-05-28T09:00:00Z} on a UTC container,
+ * {@code 2026-05-28T14:30:00+05:30} on a Colombo desktop. Both are the same instant,
+ * and the client converts either to its own zone correctly.
+ *
+ * This used to hard-code {@code Z}. That was right only on a UTC JVM: the desktop
+ * build runs on the till's own zone, so every timestamp reached the browser 5h30m in
+ * the future and the till's shift clock counted down into negative time.
  *
  * Note: a small number of request-side {@code LocalDateTime} fields are user-entered
  * wall-clock dates (PurchaseOrderRequest.expectedDate, TenantConfigurationRequest
- * .subscriptionEnd). They are typically midnight date-picker values, so the UTC tag
- * keeps them on the same calendar day for positive (e.g. UTC+5:30) offsets.
+ * .subscriptionEnd). They are typically midnight date-picker values and are not
+ * affected by how responses are serialized.
  */
 @Configuration
 public class JacksonConfig {
 
     @Bean
-    public Jackson2ObjectMapperBuilderCustomizer localDateTimeUtcCustomizer() {
-        return builder -> builder.serializerByType(LocalDateTime.class, new UtcLocalDateTimeSerializer());
+    public Jackson2ObjectMapperBuilderCustomizer localDateTimeOffsetCustomizer() {
+        return builder -> builder.serializerByType(LocalDateTime.class, new ZonedLocalDateTimeSerializer());
     }
 
-    static class UtcLocalDateTimeSerializer extends JsonSerializer<LocalDateTime> {
+    static class ZonedLocalDateTimeSerializer extends JsonSerializer<LocalDateTime> {
         private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+
+        private final ZoneId zone;
+
+        ZonedLocalDateTimeSerializer() {
+            this(ZoneId.systemDefault());
+        }
+
+        /** For tests: the zone the JVM would otherwise supply. */
+        ZonedLocalDateTimeSerializer(ZoneId zone) {
+            this.zone = zone;
+        }
 
         @Override
         public void serialize(LocalDateTime value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
-            gen.writeString(value.atOffset(ZoneOffset.UTC).format(FORMATTER));
+            // atZone, not atOffset: the offset is looked up for that moment, so a
+            // zone with daylight saving gets the right one either side of a change.
+            gen.writeString(value.atZone(zone).toOffsetDateTime().format(FORMATTER));
         }
     }
 }

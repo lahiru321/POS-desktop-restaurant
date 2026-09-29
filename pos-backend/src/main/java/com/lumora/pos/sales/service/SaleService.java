@@ -34,7 +34,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.HashMap;
 import com.lumora.pos.restaurant.entity.ToppingEntity;
 import com.lumora.pos.restaurant.repository.ToppingRepository;
@@ -748,14 +747,17 @@ public class SaleService {
         @Transactional(readOnly = true)
         public SalesSummaryResponse getDailySummary() {
                 UUID tenantId = TenantContext.getTenantId();
-                // "Today" is the store's calendar day (Asia/Colombo), mapped to the UTC
-                // wall-clock window the timestamps are stored in. Using the server-zone
-                // date (UTC in containers) would roll the day over at 05:30 local time.
+                // "Today" is the store's calendar day (Asia/Colombo), mapped to the JVM's
+                // wall clock — which is what every LocalDateTime in this process is in,
+                // since Hibernate converts to and from the UTC database (see JacksonConfig).
+                // UTC in a container, Colombo on a desktop till; hard-coding UTC shifted
+                // the desktop's daily summary by 5h30m.
                 LocalDate today = LocalDate.now(STORE_ZONE);
+                ZoneId jvmZone = ZoneId.systemDefault();
                 LocalDateTime startOfDay = today.atStartOfDay(STORE_ZONE)
-                                .withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+                                .withZoneSameInstant(jvmZone).toLocalDateTime();
                 LocalDateTime endOfDay = today.atTime(LocalTime.MAX).atZone(STORE_ZONE)
-                                .withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+                                .withZoneSameInstant(jvmZone).toLocalDateTime();
 
                 List<Object[]> summaryData = saleRepository.aggregateDailySummary(tenantId, startOfDay, endOfDay);
 
