@@ -299,6 +299,19 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
   });
 
   test("returning a dish refunds its add-on with it", async ({ page, request }) => {
+    // Other tests in this run sell the same add-on, so the report is compared
+    // before and after rather than against absolute figures.
+    const day = new Date().toLocaleDateString("en-CA"); // yyyy-MM-dd, local
+    type AddonRow = { name: string; portionsSold: number; revenue: number;
+      portionsReturned: number; refunded: number; netRevenue: number };
+    const addonRow = async (): Promise<AddonRow> => {
+      const report = await api<{ toppings: AddonRow[] }>(
+        request, "get", `/reports/topping-sales?start=${day}T00:00:00&end=${day}T23:59:59`);
+      return report.toppings.find((t) => t.name === ADDON) ??
+        { name: ADDON, portionsSold: 0, revenue: 0, portionsReturned: 0, refunded: 0, netRevenue: 0 };
+    };
+    const before = await addonRow();
+
     // A paid sale of 2 dishes with the add-on, rung by the cashier on a fresh shift.
     const cashier = await request.post(`${V1}/auth/login`, {
       data: { email: TEST_USER.email, password: TEST_USER.password },
@@ -331,7 +344,8 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     await modal.getByRole("button", { name: /process return/i }).click();
     await expect(page.getByText(/return (processed|submitted)/i)).toBeVisible();
 
-    const returns = await api<{ refundAmount: number; items: { productName: string; quantityReturned: number }[] }[]>(
+    const returns = await api<{ id: string; status: string; refundAmount: number;
+      items: { productName: string; quantityReturned: number }[] }[]>(
       request, "get", `/returns/sale/${sale.id}`);
     expect(returns).toHaveLength(1);
     // 1 dish (950) + its 1 cheese portion (150).
@@ -340,6 +354,23 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
       [DISH, 1],
       [ADDON, 1],
     ]);
+
+    // Over the auto-approve limit, so a manager approves it; only a completed
+    // refund counts against revenue.
+    if (returns[0].status === "PENDING") {
+      await api(request, "put", `/returns/${returns[0].id}/approve?approve=true`);
+    }
+
+    // The add-on report counts both the sale and the refund.
+    const after = await addonRow();
+    expect({
+      sold: after.portionsSold - before.portionsSold,
+      revenue: after.revenue - before.revenue,
+      returned: after.portionsReturned - before.portionsReturned,
+      refunded: after.refunded - before.refunded,
+    }).toEqual({ sold: 2, revenue: 300, returned: 1, refunded: 150 });
+    await page.getByRole("tab", { name: /add-ons/i }).click();
+    await expect(page.getByRole("row", { name: new RegExp(ADDON) })).toBeVisible();
   });
 
   test("a split bill pays for part of the tab and leaves the rest open", async ({ page, request }) => {

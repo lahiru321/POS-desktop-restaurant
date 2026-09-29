@@ -211,6 +211,34 @@ public class ReportDtos {
         private List<StockVarianceRecord> products;     // sorted desc by totalLost
     }
 
+    /**
+     * Add-ons sold, and refunded, in a period. The product reports leave these
+     * out by design (add-on rows carry no product), so without this their
+     * revenue is invisible.
+     */
+    @Data
+    @Builder
+    public static class ToppingSalesReport {
+        private BigDecimal totalRevenue;
+        private BigDecimal totalRefunded;
+        private BigDecimal netRevenue;
+        private BigDecimal totalPortions;
+        private List<ToppingSalesLine> toppings;   // sorted desc by net revenue
+    }
+
+    @Data
+    @Builder
+    public static class ToppingSalesLine {
+        private UUID toppingId;
+        /** As it was named on the sales — the add-on may since be renamed or gone. */
+        private String name;
+        private BigDecimal portionsSold;
+        private BigDecimal revenue;
+        private BigDecimal portionsReturned;
+        private BigDecimal refunded;
+        private BigDecimal netRevenue;
+    }
+
     @Data
     @Builder
     public static class CashReconciliationRecord {

@@ -17,7 +17,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ReturnModal } from "@/components/pos/ReturnModal";
 import { ExchangeModal } from "@/components/pos/ExchangeModal";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Salad } from "lucide-react";
 import { FeatureGuard } from "@/components/auth/FeatureGuard";
 import { ReturnItemRequest } from "@/services/returnService";
 
@@ -32,6 +32,7 @@ import { SupplierSalesTab } from "./_tabs/SupplierSalesTab";
 import { StockVarianceTab } from "./_tabs/StockVarianceTab";
 import { CashReconciliationTab } from "./_tabs/CashReconciliationTab";
 import { CreditReportTab } from "./_tabs/CreditReportTab";
+import { ToppingSalesTab } from "./_tabs/ToppingSalesTab";
 import { BranchFilter } from "@/components/reports/BranchFilter";
 
 export default function ReportsPage() {
@@ -127,6 +128,10 @@ export default function ReportsPage() {
               <span>Stock Variance</span>
             </TabsTrigger>
           </FeatureGuard>
+          <TabsTrigger value="addons" className="gap-2 px-3">
+            <Salad size={16} />
+            <span>Add-ons</span>
+          </TabsTrigger>
           <TabsTrigger value="cash-reconciliation" className="gap-2 px-3">
             <Wallet size={16} />
             <span>Cash Reconciliation</span>
@@ -195,6 +200,10 @@ export default function ReportsPage() {
             <StockVarianceTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
           </TabsContent>
         </FeatureGuard>
+
+        <TabsContent value="addons" className="space-y-6">
+          <ToppingSalesTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
+        </TabsContent>
 
         <TabsContent value="cash-reconciliation" className="space-y-6">
           <CashReconciliationTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />

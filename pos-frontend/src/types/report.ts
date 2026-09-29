@@ -177,3 +177,27 @@ export interface CashReconciliationRecord {
   variance: number | null;
   notes: string | null;
 }
+
+/**
+ * Add-ons sold and refunded in a period. The product reports leave these out
+ * by design (an add-on row carries no product), so this is where that revenue shows.
+ */
+export interface ToppingSalesLine {
+  toppingId: string;
+  /** As named on the sales; the add-on may since be renamed or deleted. */
+  name: string;
+  portionsSold: number;
+  revenue: number;
+  portionsReturned: number;
+  refunded: number;
+  netRevenue: number;
+}
+
+export interface ToppingSalesReport {
+  totalRevenue: number;
+  totalRefunded: number;
+  netRevenue: number;
+  totalPortions: number;
+  /** Sorted by net revenue, highest first. */
+  toppings: ToppingSalesLine[];
+}

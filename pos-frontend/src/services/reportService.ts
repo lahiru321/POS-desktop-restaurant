@@ -11,6 +11,7 @@ import {
   SoldItemsBySupplierReport,
   StockVarianceReport,
   CashReconciliationRecord,
+  ToppingSalesReport,
 } from "@/types/report";
 
 /** Only include branchId in the query string when a specific branch is selected. */
@@ -52,6 +53,13 @@ export const reportService = {
     api
       .get<ApiResponse<Page<CustomerCreditRecord>>>("/reports/customer-credit", {
         params: { page, size },
+      })
+      .then((res) => res.data.data),
+
+  getToppingSales: (start: string, end: string, branchId?: string) =>
+    api
+      .get<ApiResponse<ToppingSalesReport>>("/reports/topping-sales", {
+        params: { start, end, ...branchParam(branchId) },
       })
       .then((res) => res.data.data),
 

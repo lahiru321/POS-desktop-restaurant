@@ -274,6 +274,70 @@ public class ReportService {
                                 .build();
         }
 
+        /**
+         * Add-on sales for the period, net of completed refunds, one row per
+         * add-on. Branch-restricted users see only their branches, exactly as
+         * the other branch-aware reports do.
+         */
+        @Transactional(readOnly = true)
+        public ToppingSalesReport getToppingSales(LocalDateTime start, LocalDateTime end, UUID branchId) {
+                UUID tenantId = TenantContext.getTenantId();
+                Optional<Set<UUID>> branchFilter = branchAccessGuard.reportBranchFilter(branchId);
+
+                List<Object[]> sold = branchFilter.isPresent()
+                                ? saleRepository.aggregateToppingSalesByBranch(tenantId, start, end, branchFilter.get())
+                                : saleRepository.aggregateToppingSales(tenantId, start, end);
+                List<Object[]> refunded = branchFilter.isPresent()
+                                ? saleRepository.aggregateToppingRefundsByBranch(tenantId, start, end, branchFilter.get())
+                                : saleRepository.aggregateToppingRefunds(tenantId, start, end);
+
+                Map<UUID, Object[]> refundsById = new HashMap<>();
+                for (Object[] row : refunded) {
+                        refundsById.put((UUID) row[0], row);
+                }
+
+                List<ToppingSalesLine> lines = new ArrayList<>();
+                BigDecimal totalRevenue = BigDecimal.ZERO;
+                BigDecimal totalRefunded = BigDecimal.ZERO;
+                BigDecimal totalPortions = BigDecimal.ZERO;
+                for (Object[] row : sold) {
+                        UUID toppingId = (UUID) row[0];
+                        BigDecimal portions = toDecimal(row[2]);
+                        BigDecimal revenue = toDecimal(row[3]);
+                        Object[] back = refundsById.get(toppingId);
+                        BigDecimal portionsReturned = back != null ? toDecimal(back[1]) : BigDecimal.ZERO;
+                        BigDecimal refundAmount = back != null ? toDecimal(back[2]) : BigDecimal.ZERO;
+
+                        lines.add(ToppingSalesLine.builder()
+                                        .toppingId(toppingId)
+                                        .name((String) row[1])
+                                        .portionsSold(portions)
+                                        .revenue(revenue)
+                                        .portionsReturned(portionsReturned)
+                                        .refunded(refundAmount)
+                                        .netRevenue(revenue.subtract(refundAmount))
+                                        .build());
+                        totalRevenue = totalRevenue.add(revenue);
+                        totalRefunded = totalRefunded.add(refundAmount);
+                        totalPortions = totalPortions.add(portions);
+                }
+                lines.sort(Comparator.comparing(ToppingSalesLine::getNetRevenue).reversed());
+
+                return ToppingSalesReport.builder()
+                                .totalRevenue(totalRevenue)
+                                .totalRefunded(totalRefunded)
+                                .netRevenue(totalRevenue.subtract(totalRefunded))
+                                .totalPortions(totalPortions)
+                                .toppings(lines)
+                                .build();
+        }
+
+        private static BigDecimal toDecimal(Object value) {
+                if (value == null) return BigDecimal.ZERO;
+                if (value instanceof BigDecimal bd) return bd;
+                return new BigDecimal(value.toString());
+        }
+
         @Transactional(readOnly = true)
         public ProfitabilityReport getProfitabilityReport(LocalDateTime start, LocalDateTime end, UUID branchId, Pageable pageable) {
                 UUID tenantId = TenantContext.getTenantId();

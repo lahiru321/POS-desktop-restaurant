@@ -93,6 +93,18 @@ public class ReportController {
                 "Profitability report retrieved successfully"));
     }
 
+    /** Add-ons sold and refunded — the revenue the product reports leave out. */
+    @GetMapping("/topping-sales")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<ToppingSalesReport>> getToppingSales(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
+            @RequestParam(required = false) java.util.UUID branchId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                reportService.getToppingSales(start, end, branchId),
+                "Add-on sales retrieved successfully"));
+    }
+
     @GetMapping("/sold-items-by-supplier")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<SoldItemsBySupplierReport>> getSoldItemsBySupplier(

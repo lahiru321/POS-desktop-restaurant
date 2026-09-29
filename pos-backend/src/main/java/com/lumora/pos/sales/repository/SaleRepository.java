@@ -56,6 +56,49 @@ public interface SaleRepository extends JpaRepository<SaleEntity, UUID> {
             @Param("end") LocalDateTime end,
             @Param("branchIds") Collection<UUID> branchIds);
 
+    // --- Add-on (topping) sales ------------------------------------------
+    //
+    // Every product report filters si.productId IS NOT NULL, which is exactly
+    // what keeps add-on rows (V61 children, product_id NULL) out of them. These
+    // are the other side: only add-on rows, grouped by the add-on they were.
+    // Rows are {toppingId, MAX(itemName), SUM(quantity), SUM(totalAmount)} for
+    // sales and {toppingId, SUM(quantityReturned), SUM(refundAmount)} for
+    // completed refunds, both keyed on the SALE's date so the two line up.
+
+    @Query("SELECT si.toppingId, MAX(si.itemName), SUM(si.quantity), SUM(si.totalAmount) " +
+            "FROM SaleItemEntity si JOIN si.sale s " +
+            "WHERE s.tenantId = :tenantId AND s.createdAt BETWEEN :start AND :end " +
+            "AND si.toppingId IS NOT NULL GROUP BY si.toppingId")
+    List<Object[]> aggregateToppingSales(@Param("tenantId") UUID tenantId,
+            @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT si.toppingId, MAX(si.itemName), SUM(si.quantity), SUM(si.totalAmount) " +
+            "FROM SaleItemEntity si JOIN si.sale s " +
+            "WHERE s.tenantId = :tenantId AND s.createdAt BETWEEN :start AND :end " +
+            "AND si.toppingId IS NOT NULL AND s.branch.id IN :branchIds GROUP BY si.toppingId")
+    List<Object[]> aggregateToppingSalesByBranch(@Param("tenantId") UUID tenantId,
+            @Param("start") LocalDateTime start, @Param("end") LocalDateTime end,
+            @Param("branchIds") Collection<UUID> branchIds);
+
+    @Query("SELECT si.toppingId, SUM(ri.quantityReturned), SUM(ri.refundAmount) " +
+            "FROM com.lumora.pos.returns.entity.ReturnItemEntity ri JOIN ri.saleItem si JOIN si.sale s " +
+            "WHERE s.tenantId = :tenantId AND s.createdAt BETWEEN :start AND :end " +
+            "AND si.toppingId IS NOT NULL " +
+            "AND ri.returnEntity.status = com.lumora.pos.returns.entity.ReturnEntity.ReturnStatus.COMPLETED " +
+            "GROUP BY si.toppingId")
+    List<Object[]> aggregateToppingRefunds(@Param("tenantId") UUID tenantId,
+            @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT si.toppingId, SUM(ri.quantityReturned), SUM(ri.refundAmount) " +
+            "FROM com.lumora.pos.returns.entity.ReturnItemEntity ri JOIN ri.saleItem si JOIN si.sale s " +
+            "WHERE s.tenantId = :tenantId AND s.createdAt BETWEEN :start AND :end " +
+            "AND si.toppingId IS NOT NULL AND s.branch.id IN :branchIds " +
+            "AND ri.returnEntity.status = com.lumora.pos.returns.entity.ReturnEntity.ReturnStatus.COMPLETED " +
+            "GROUP BY si.toppingId")
+    List<Object[]> aggregateToppingRefundsByBranch(@Param("tenantId") UUID tenantId,
+            @Param("start") LocalDateTime start, @Param("end") LocalDateTime end,
+            @Param("branchIds") Collection<UUID> branchIds);
+
     /**
      * Top selling products by quantity in a date range.
      * Returns Object[] = {productId (UUID), SUM(quantity) (BigDecimal),
