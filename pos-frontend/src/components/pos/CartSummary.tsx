@@ -31,6 +31,8 @@ interface CartSummaryProps {
    * either — a dine-in tab is already parked, server-side, the moment it exists.
    */
   showHold?: boolean;
+  /** Verb on the hold control — 'Park' in this build. */
+  holdLabel?: string;
   onDiscard: () => void;
   /** Verb on the secondary destructive control. */
   discardLabel?: string;
@@ -53,6 +55,7 @@ export function CartSummary({
   chargeLabel = 'CHARGE',
   onHold,
   showHold = false,
+  holdLabel = 'Hold Sale',
   onDiscard,
   discardLabel = 'Discard',
 }: CartSummaryProps) {
@@ -96,7 +99,7 @@ export function CartSummary({
       <div className="flex gap-2">
         {showHold && (
           <Button variant="outline" className="flex-1 min-h-touch rounded-xl" onClick={onHold} disabled={empty}>
-            Hold Sale
+            {holdLabel}
           </Button>
         )}
         <Button

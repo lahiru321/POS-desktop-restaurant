@@ -16,7 +16,7 @@ export interface PosKeyboardActions {
   cyclePayment: () => void;
   printLastReceipt: () => void;
   correctLastPayment: () => void;
-  /** F5 — on a tab, send the new items to the kitchen. A no-op at a counter sale. */
+  /** F5 — on a tab, send the new items to the kitchen; at the counter, park the sale. */
   hold: () => void;
   discard: () => void;
   showHelp: () => void;
@@ -169,7 +169,7 @@ export const HOTKEY_LEGEND: HotkeyLegendEntry[] = [
   { key: 'F10', label: 'Custom item' },
   { key: 'F9', label: 'Charge' },
   { key: 'F7', label: 'Correct payment' },
-  { key: 'F5', label: 'Send to kitchen' },
+  { key: 'F5', label: 'Send / Park' },
   { key: 'F11', label: 'Floor' },
   { key: 'F1', label: 'Shortcuts' },
 ];

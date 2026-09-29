@@ -167,6 +167,36 @@ public final class OrderDtos {
         private Integer pointsToRedeem;
     }
 
+    /**
+     * A takeaway paid at the counter: the order, the payment and the kitchen
+     * ticket in one call and one transaction. If the payment is refused — out of
+     * stock, wrong drawer — nothing is left behind: no orphan OPEN order, no
+     * burned order number, no ticket for food nobody paid for.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TakeawayRequest {
+        @NotEmpty(message = "Add at least one item")
+        @Valid
+        private List<OrderItemRequest> items;
+
+        private UUID customerId;
+
+        /** Falls back to the user's primary branch, then the tenant default. */
+        private UUID branchId;
+
+        @NotBlank(message = "Payment method is required")
+        private String paymentMethod;
+
+        @DecimalMin(value = "0", message = "cashTendered must be non-negative")
+        private BigDecimal cashTendered;
+
+        @Min(value = 0, message = "pointsToRedeem must be non-negative")
+        private Integer pointsToRedeem;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -280,5 +310,12 @@ public final class OrderDtos {
         private String label;
         /** Empty when nothing re-priced, which is the normal case. */
         private List<RepricedLine> repricedLines;
+        /**
+         * Kitchen tickets fired by the settle — a takeaway pays, then fires, so
+         * anything it has not yet sent goes to the kitchen now. Always empty for
+         * dine-in, whose rounds were sent while the guests were eating. Saved
+         * PENDING; the till prints and acknowledges them.
+         */
+        private List<KitchenTicketDtos.KitchenTicketResponse> tickets;
     }
 }

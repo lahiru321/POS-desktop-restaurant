@@ -7,7 +7,7 @@ import { branchService, Branch } from '@/services/branchService';
 import { taxService } from '@/services/taxService';
 import { cashSessionService } from '@/services/cashSessionService';
 import { tenantService } from '@/services/tenantService';
-import { SaleResponse, salesService, SaleRequest, SalesSummaryResponse } from '@/services/salesService';
+import { SaleResponse, salesService, SaleRequest, SaleItemRequest, SalesSummaryResponse } from '@/services/salesService';
 import { useCart, TaxContext, type CartView } from '@/hooks/useCart';
 import { useDineInCart } from '@/hooks/useDineInCart';
 import { useKitchenPrinting } from '@/hooks/useKitchenPrinting';
@@ -32,6 +32,7 @@ import {
   restaurantOrderService,
   type RepricedLine,
   type SettleRequest,
+  type TakeawayRequest,
 } from '@/services/restaurantOrderService';
 
 // POS Components
@@ -95,6 +96,10 @@ function Terminal() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [cashTendered, setCashTendered] = useState(0);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  // A counter sale either stays at the counter (a bottle of water) or goes to
+  // the kitchen once paid (takeaway). The cashier decides per sale; the choice
+  // sticks until changed, because a takeaway rush is many takeaways in a row.
+  const [counterMode, setCounterMode] = useState<'COUNTER' | 'TAKEAWAY'>('COUNTER');
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [lastSale, setLastSale] = useState<SaleResponse | null>(null);
   // F7 → picker lists this shift's sales; choosing one sets correctSale, which
@@ -540,6 +545,25 @@ function Terminal() {
     setTenderOpen(true);
   };
 
+  // One shape for every way a counter cart leaves the till — a sale, a paid
+  // takeaway, a parked order — so the three can never disagree about a line.
+  const cartLines = (): SaleItemRequest[] =>
+    items.map(item => ({
+      productId: item.isCustom ? null : item.id,
+      itemName: item.isCustom ? item.name : undefined,
+      quantity: item.cartQuantity,
+      unitPrice: item.basePrice,
+      discountAmount: item.discountAmount,
+      notes: item.notes,
+      // The server re-resolves every price from the topping definition; a
+      // FIXED topping's unitPrice here is ignored entirely.
+      toppings: item.toppings?.map(t => ({
+        toppingId: t.toppingId,
+        quantity: t.quantity,
+        unitPrice: t.priceMode === 'PROMPT' ? t.unitPrice : undefined,
+      })),
+    }));
+
   const handleCheckout = () => {
     if (items.length === 0) return;
 
@@ -556,7 +580,7 @@ function Terminal() {
       return;
     }
 
-    checkoutMutation.mutate({
+    const payment = {
       customerId: selectedCustomer?.id,
       branchId: selectedBranch?.id,
       paymentMethod,
@@ -564,22 +588,16 @@ function Terminal() {
         ? cashTendered
         : undefined,
       pointsToRedeem: selectedCustomer && pointsToRedeem > 0 ? pointsToRedeem : undefined,
-      items: items.map(item => ({
-        productId: item.isCustom ? null : item.id,
-        itemName: item.isCustom ? item.name : undefined,
-        quantity: item.cartQuantity,
-        unitPrice: item.basePrice,
-        discountAmount: item.discountAmount,
-        notes: item.notes,
-        // The server re-resolves every price from the topping definition; a
-        // FIXED topping's unitPrice here is ignored entirely.
-        toppings: item.toppings?.map(t => ({
-          toppingId: t.toppingId,
-          quantity: t.quantity,
-          unitPrice: t.priceMode === 'PROMPT' ? t.unitPrice : undefined,
-        })),
-      }))
-    });
+    };
+
+    // Takeaway: order, payment and kitchen ticket in one server transaction. A
+    // refused payment leaves no order behind and sends nothing to the kitchen.
+    if (counterMode === 'TAKEAWAY') {
+      takeawayMutation.mutate({ ...payment, items: cartLines() });
+      return;
+    }
+
+    checkoutMutation.mutate({ ...payment, items: cartLines() });
   };
 
   const doLogout = async () => {
@@ -714,6 +732,8 @@ function Terminal() {
       setPointsToRedeem(0);
       selectOrder(null);
       receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(result.sale));
+      // A parked takeaway fires on payment; a dine-in settle never does.
+      if (result.tickets.length > 0) void kitchen.dispatchTickets(result.tickets);
     },
     onError: (error: unknown) => {
       // Surfaced, never swallowed. This is where `createSale`'s branch guard
@@ -723,6 +743,60 @@ function Terminal() {
       toast.error(getApiErrorMessage(error, 'Could not settle this tab'));
     },
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Takeaway and Park — counter sales that involve the kitchen
+  // ─────────────────────────────────────────────────────────────────────────
+  const takeawayMutation = useMutation({
+    mutationFn: (data: TakeawayRequest) => restaurantOrderService.takeaway(data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: QK.cashSessionActive });
+      toast.success(`${result.label} paid — ${result.sale.invoiceNumber}`);
+      setTenderOpen(false);
+      setLastSale(result.sale);
+      setSelectedCustomer(null);
+      setCashTendered(0);
+      setPointsToRedeem(0);
+      retailCart.clearCart();
+      receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(result.sale));
+      void kitchen.dispatchTickets(result.tickets);
+    },
+    onError: (error: unknown) => {
+      // Nothing was saved: the server rolls the order back with the payment.
+      toast.error(getApiErrorMessage(error, 'Could not take this takeaway'));
+    },
+  });
+
+  // F5 / Park at the counter: the cart becomes an unpaid takeaway order, the
+  // till is free for the next customer, and the order waits on the floor's
+  // Takeaway tab. Nothing is sent to the kitchen until it is paid for.
+  const parkMutation = useMutation({
+    mutationFn: () =>
+      restaurantOrderService.openOrder({
+        orderType: 'TAKEAWAY',
+        customerId: selectedCustomer?.id ?? null,
+        branchId: selectedBranch?.id ?? null,
+        items: cartLines(),
+      }),
+    onSuccess: (order) => {
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      retailCart.clearCart();
+      setSelectedCustomer(null);
+      setPointsToRedeem(0);
+      toast.success(`Parked as ${order.label}`, {
+        description: 'Pick it up from the floor (F11) → Takeaway.',
+      });
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not park this sale'));
+    },
+  });
+
+  const parkSale = () => {
+    if (dineInActive || items.length === 0 || parkMutation.isPending) return;
+    parkMutation.mutate();
+  };
 
   // F8 on a tab. ADMIN/MANAGER server-side; the message from a refused attempt
   // is shown rather than the control being hidden from cashiers here.
@@ -766,14 +840,37 @@ function Terminal() {
     },
   });
 
+  // Tap a dish, hit F5: the dish is still saving when the key lands. Dropping
+  // the press would leave the cashier believing the kitchen has it, so it is
+  // queued instead and fires the moment the tab settles.
+  const [sendQueued, setSendQueued] = useState(false);
+
   const sendToKitchen = () => {
-    if (!dineInActive || !dineIn.order || fireMutation.isPending || dineIn.isBusy) return;
+    if (!dineInActive || !dineIn.order || fireMutation.isPending) return;
+    if (dineIn.isBusy) {
+      setSendQueued(true);
+      return;
+    }
     if (unsentCount === 0) {
       toast.info('Nothing new to send to the kitchen');
       return;
     }
     fireMutation.mutate(dineIn.order.id);
   };
+
+  useEffect(() => {
+    if (!sendQueued || dineIn.isBusy) return;
+    setSendQueued(false);
+    // Only if the tab is still the one it was queued on and has something new.
+    if (dineInActive && dineIn.order && unsentCount > 0 && !fireMutation.isPending) {
+      fireMutation.mutate(dineIn.order.id);
+    }
+  }, [sendQueued, dineIn.isBusy, dineInActive, dineIn.order, unsentCount, fireMutation]);
+
+  // Leaving the tab drops a queued send rather than firing it at another table.
+  useEffect(() => {
+    setSendQueued(false);
+  }, [dineInOrderId]);
 
   usePosKeyboard({
     // Disabled while a blocking surface owns the keyboard: the tender overlay
@@ -818,9 +915,8 @@ function Terminal() {
       cyclePayment: cyclePaymentMethod,
       printLastReceipt: handlePrintLastReceipt,
       correctLastPayment: handleCorrectLastPayment,
-      // On a tab, F5 sends the new items to the kitchen. At a counter sale it
-      // still does nothing — parking a sale is Phase 4.
-      hold: sendToKitchen,
+      // On a tab, F5 sends the new items to the kitchen; at the counter it parks.
+      hold: dineInActive ? sendToKitchen : parkSale,
       discard: handleDiscard,
       showHelp: () => setHelpOpen(true),
       toggleFloor: () => setFloorOpen((open) => !open),
@@ -851,7 +947,7 @@ function Terminal() {
 
   const tenderWarning = dineInActive ? (
     <>
-      {unsentCount > 0 && (
+      {unsentCount > 0 && dineIn.order?.orderType === 'DINE_IN' && (
         <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
           <p className="font-semibold text-warning">
             {unsentCount} line{unsentCount === 1 ? ' was' : 's were'} never sent to the kitchen
@@ -965,7 +1061,7 @@ function Terminal() {
           {dineInActive && dineIn.order ? (
             <>
               <span className="shrink-0 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                Dine-in
+                {dineIn.order.orderType === 'TAKEAWAY' ? 'Takeaway' : 'Dine-in'}
               </span>
               <span className="truncate font-semibold text-white">{dineIn.order.label}</span>
               {dineIn.order.covers > 0 && (
@@ -1013,8 +1109,30 @@ function Terminal() {
             </>
           ) : (
             <>
-              <span className="truncate text-gray-400">
-                Counter sale &mdash; no table. Open the floor to seat one.
+              <div
+                role="radiogroup"
+                aria-label="Counter sale type"
+                className="flex shrink-0 rounded-lg border border-gray-800 bg-gray-950 p-0.5"
+              >
+                {(['COUNTER', 'TAKEAWAY'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={counterMode === mode}
+                    onClick={() => setCounterMode(mode)}
+                    className={`h-7 rounded-md px-3 text-xs font-semibold transition-colors ${
+                      counterMode === mode ? 'bg-primary text-primary-foreground' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {mode === 'COUNTER' ? 'Counter' : 'Takeaway'}
+                  </button>
+                ))}
+              </div>
+              <span className="hidden truncate text-gray-400 md:inline">
+                {counterMode === 'TAKEAWAY'
+                  ? 'Paid now, then sent to the kitchen.'
+                  : 'No table. Open the floor to seat one.'}
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-2">
                 <KitchenTicketsBadge onReview={kitchen.review} />
@@ -1134,12 +1252,12 @@ function Terminal() {
           total={total}
           itemCount={itemCount}
           onCharge={openTender}
-          chargeLabel={dineInActive ? 'SETTLE' : 'CHARGE'}
-          // "Hold Sale" has been wired to a no-op since this terminal was
-          // written. Hidden now, in both modes — nothing here can hold a sale,
-          // and a tab is already parked server-side the moment it exists.
-          onHold={() => {}}
-          showHold={false}
+          chargeLabel={dineInActive ? 'SETTLE' : counterMode === 'TAKEAWAY' ? 'CHARGE & SEND' : 'CHARGE'}
+          // Park turns a counter cart into an unpaid takeaway order waiting on the
+          // floor. Absent on a tab, which is already held server-side.
+          onHold={parkSale}
+          showHold={!dineInActive}
+          holdLabel={parkMutation.isPending ? 'Parking…' : 'Park'}
           onDiscard={handleDiscard}
           discardLabel={dineInActive ? 'Void tab' : 'Discard'}
         />
@@ -1164,7 +1282,13 @@ function Terminal() {
         taxLabel={taxLabel}
         taxInclusive={taxInclusive}
         total={total}
-        isProcessing={dineInActive ? settleMutation.isPending : checkoutMutation.isPending}
+        isProcessing={
+          dineInActive
+            ? settleMutation.isPending
+            : counterMode === 'TAKEAWAY'
+              ? takeawayMutation.isPending
+              : checkoutMutation.isPending
+        }
         onComplete={handleCheckout}
         loyaltyEnabled={!dineInActive && !!tenantInfo?.loyaltyEnabled && !!selectedCustomer}
         customerPoints={selectedCustomer?.loyaltyPoints ?? 0}

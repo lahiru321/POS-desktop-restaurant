@@ -88,6 +88,19 @@ export interface VoidItemRequest {
   reason?: string;
 }
 
+/**
+ * A takeaway paid at the counter — order, payment and kitchen ticket in one
+ * call and one server transaction. A refused payment leaves nothing behind.
+ */
+export interface TakeawayRequest {
+  items: OrderItemRequest[];
+  customerId?: string | null;
+  branchId?: string | null;
+  paymentMethod: string;
+  cashTendered?: number;
+  pointsToRedeem?: number;
+}
+
 export interface SettleRequest {
   paymentMethod: string;
   cashTendered?: number;
@@ -193,6 +206,11 @@ export interface SettleResponse {
   label: string;
   /** Empty when nothing re-priced, which is the normal case. */
   repricedLines: RepricedLine[];
+  /**
+   * Kitchen tickets the settle fired — a takeaway pays, then fires. Always
+   * empty for dine-in. Saved PENDING; print and acknowledge each one.
+   */
+  tickets: KitchenTicket[];
 }
 
 // ──────────────────────────────────────────────
@@ -252,6 +270,12 @@ export const restaurantOrderService = {
   settle: (id: string, data: SettleRequest) =>
     api
       .post<ApiResponse<SettleResponse>>(`/restaurant/orders/${id}/settle`, data)
+      .then((res) => res.data.data),
+
+  /** Pays for a counter takeaway and fires the kitchen, atomically. */
+  takeaway: (data: TakeawayRequest) =>
+    api
+      .post<ApiResponse<SettleResponse>>("/restaurant/orders/takeaway", data)
       .then((res) => res.data.data),
 
   /** ADMIN/MANAGER only — writes off the whole tab. Anything the kitchen was

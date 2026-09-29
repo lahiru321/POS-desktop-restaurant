@@ -108,6 +108,19 @@ public class RestaurantOrderController {
                         .build());
     }
 
+    /** Order, payment and kitchen ticket in one call — see {@link OrderDtos.TakeawayRequest}. */
+    @PostMapping("/takeaway")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.SettleResponse>> takeaway(
+            @Valid @RequestBody OrderDtos.TakeawayRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.<OrderDtos.SettleResponse>builder()
+                        .success(true)
+                        .message("Takeaway paid and sent to the kitchen")
+                        .data(orderService.takeaway(request))
+                        .build());
+    }
+
     @PostMapping("/{id}/settle")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
     public ResponseEntity<ApiResponse<OrderDtos.SettleResponse>> settle(

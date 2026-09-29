@@ -312,6 +312,15 @@ public class RestaurantOrderService {
         order.setStatus(RestaurantOrderEntity.OrderStatus.SETTLED);
         order.setSettledAt(LocalDateTime.now());
         freeTable(order);
+
+        // Takeaway pays, then fires: whatever the kitchen has not been told about
+        // goes now, in the same transaction as the sale, so a paid order can never
+        // be missing its ticket. Dine-in never fires here — its rounds were sent
+        // while the guests were eating, and a leftover is the cashier's call.
+        List<KitchenTicketEntity> tickets = order.getOrderType() == RestaurantOrderEntity.OrderType.TAKEAWAY
+                && order.getItems().stream().anyMatch(i -> i.pendingQuantity().signum() > 0)
+                ? kitchenTicketService.fireRound(order)
+                : List.of();
         orderRepository.save(order);
 
         auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", orderId, null, Map.of(
@@ -321,7 +330,28 @@ public class RestaurantOrderService {
                 .sale(sale)
                 .label(label(order))
                 .repricedLines(repricedLines(billable, sale))
+                .tickets(tickets.stream().map(kitchenTicketService::toResponse).toList())
                 .build();
+    }
+
+    /**
+     * A takeaway paid at the counter, as one transaction: open the order, settle
+     * it through the unmodified {@code createSale}, fire the kitchen. Any refusal
+     * rolls all three back, order number included.
+     */
+    @Transactional
+    public OrderDtos.SettleResponse takeaway(OrderDtos.TakeawayRequest request) {
+        OrderDtos.OrderResponse opened = open(OrderDtos.OpenOrderRequest.builder()
+                .orderType(RestaurantOrderEntity.OrderType.TAKEAWAY)
+                .customerId(request.getCustomerId())
+                .branchId(request.getBranchId())
+                .items(request.getItems())
+                .build());
+        return settle(opened.getId(), OrderDtos.SettleRequest.builder()
+                .paymentMethod(request.getPaymentMethod())
+                .cashTendered(request.getCashTendered())
+                .pointsToRedeem(request.getPointsToRedeem())
+                .build());
     }
 
     /**

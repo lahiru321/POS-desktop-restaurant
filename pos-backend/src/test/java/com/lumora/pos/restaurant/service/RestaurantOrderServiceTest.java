@@ -506,6 +506,82 @@ class RestaurantOrderServiceTest {
         }
 
         @Test
+        @DisplayName("A dine-in settle never fires the kitchen, even with unsent lines")
+        void shouldNotFireOnDineInSettle() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "1", "950.00");       // never sent
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
+                    .thenReturn(Optional.of(order));
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("950.00")));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDtos.SettleResponse response = orderService.settle(order.getId(),
+                    OrderDtos.SettleRequest.builder().paymentMethod("CASH").build());
+
+            verify(kitchenTicketService, never()).fireRound(any());
+            assertThat(response.getTickets()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("A takeaway settle pays, then fires whatever the kitchen has not seen")
+        void shouldFireOnTakeawaySettle() {
+            RestaurantOrderEntity order = order();
+            order.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
+            order.setTable(null);
+            item(order, "Kottu", "2", "950.00");
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
+                    .thenReturn(Optional.of(order));
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("1900.00")));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(kitchenTicketService.fireRound(order)).thenReturn(List.of());
+
+            orderService.settle(order.getId(), OrderDtos.SettleRequest.builder().paymentMethod("CASH").build());
+
+            // Paid first, then fired — a refused payment must never reach the kitchen.
+            var inOrder = inOrder(saleService, kitchenTicketService);
+            inOrder.verify(saleService).createSale(any());
+            inOrder.verify(kitchenTicketService).fireRound(order);
+        }
+
+        @Test
+        @DisplayName("A takeaway already fully sent settles without a second ticket")
+        void shouldNotRefireSentTakeaway() {
+            RestaurantOrderEntity order = order();
+            order.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
+            order.setTable(null);
+            item(order, "Kottu", "1", "950.00").setFiredQuantity(BigDecimal.ONE);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
+                    .thenReturn(Optional.of(order));
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("950.00")));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            orderService.settle(order.getId(), OrderDtos.SettleRequest.builder().paymentMethod("CASH").build());
+
+            verify(kitchenTicketService, never()).fireRound(any());
+        }
+
+        @Test
+        @DisplayName("A refused takeaway payment fires nothing")
+        void shouldNotFireWhenPaymentRefused() {
+            RestaurantOrderEntity order = order();
+            order.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
+            order.setTable(null);
+            item(order, "Kottu", "1", "950.00");
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
+                    .thenReturn(Optional.of(order));
+            when(saleService.createSale(any())).thenThrow(new BusinessException("Insufficient stock"));
+
+            assertThatThrownBy(() -> orderService.settle(order.getId(),
+                    OrderDtos.SettleRequest.builder().paymentMethod("CASH").build()))
+                    .isInstanceOf(BusinessException.class);
+            verify(kitchenTicketService, never()).fireRound(any());
+        }
+
+        @Test
         @DisplayName("A tab with nothing left to bill is refused, not sent as an empty sale")
         void shouldRefuseEmptySettle() {
             RestaurantOrderEntity order = order();

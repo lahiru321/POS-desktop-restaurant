@@ -52,8 +52,8 @@ everything and should not be relitigated without reading it:
 - **`ProductEntity.stockQuantity` is a `@Formula`** over `stock_levels`, so an untracked product reports `0`;
   client guards must key off `trackStock`, never the number. **`PUT /tenant/info` is a full replace**, so a new
   settings-tab save handler must re-send the business fields (`handleSaveLoyalty`, `settings/page.tsx`
-  L163-173). **`CartSummary`'s "Hold Sale" is wired to `onHold={() => {}}`** — a live dead control that `F5`
-  already routes to; `F11` is unused.
+  L163-173). **`F5` means two things:** send to kitchen on a tab, Park at the counter (Hold Sale is now Park).
+  **Email login always lands on `/overview`**, so the older e2e specs expecting `/terminal` fail — pre-existing.
 
 ## Layout
 

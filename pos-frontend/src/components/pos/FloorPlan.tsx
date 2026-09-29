@@ -79,6 +79,12 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Parked counter sales: unpaid takeaway orders waiting to be picked up.
+  const takeaways = useMemo(
+    () => openOrders.filter((o) => o.orderType === "TAKEAWAY"),
+    [openOrders]
+  );
+
   const ordersByTable = useMemo(() => {
     const map = new Map<string, RestaurantOrder>();
     for (const order of openOrders) {
@@ -107,10 +113,11 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
 
   const [activeArea, setActiveArea] = useState<string | null>(null);
   useEffect(() => {
-    if (visibleAreas.length === 0) return;
+    if (activeArea === TAKEAWAY_TAB && takeaways.length > 0) return;
     if (activeArea && visibleAreas.some((a) => a.id === activeArea)) return;
-    setActiveArea(visibleAreas[0].id);
-  }, [visibleAreas, activeArea]);
+    if (visibleAreas.length > 0) setActiveArea(visibleAreas[0].id);
+    else if (takeaways.length > 0) setActiveArea(TAKEAWAY_TAB);
+  }, [visibleAreas, activeArea, takeaways.length]);
 
   const [pendingTableId, setPendingTableId] = useState<string | null>(null);
 
@@ -194,7 +201,7 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
     );
   }
 
-  if (visibleAreas.length === 0) {
+  if (visibleAreas.length === 0 && takeaways.length === 0) {
     return (
       <div className={cn("px-4 py-16 text-center", className)}>
         <p className="text-sm text-gray-400">No areas are on the floor yet.</p>
@@ -207,7 +214,7 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
 
   return (
     <Tabs
-      value={activeArea ?? visibleAreas[0].id}
+      value={activeArea ?? visibleAreas[0]?.id ?? TAKEAWAY_TAB}
       onValueChange={setActiveArea}
       className={cn("flex min-h-0 flex-col", className)}
     >
@@ -231,6 +238,17 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
             </TabsTrigger>
           );
         })}
+        {takeaways.length > 0 && (
+          <TabsTrigger
+            value={TAKEAWAY_TAB}
+            className="h-12 shrink-0 rounded-lg px-5 text-base font-semibold text-gray-400 data-[state=active]:bg-gray-800 data-[state=active]:text-white"
+          >
+            Takeaway
+            <span className="ml-2 text-xs font-normal tabular-nums text-amber-300">
+              {takeaways.length}
+            </span>
+          </TabsTrigger>
+        )}
       </TabsList>
 
       {visibleAreas.map((area) => (
@@ -260,9 +278,43 @@ export function FloorPlan({ onOrderReady, className }: FloorPlanProps) {
           )}
         </TabsContent>
       ))}
+
+      {takeaways.length > 0 && (
+        <TabsContent value={TAKEAWAY_TAB} className="mt-4 min-h-0 flex-1 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+            {takeaways.map((order) => (
+              <button
+                key={order.id}
+                type="button"
+                onClick={() => onOrderReady(order.id)}
+                aria-label={`${order.label}, parked. Pick it up.`}
+                className={cn(
+                  "flex min-h-[132px] flex-col justify-between rounded-2xl border-2 p-4 text-left transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                  "border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20"
+                )}
+              >
+                <span className="truncate text-2xl font-bold leading-tight text-white">
+                  #{order.orderNumber}
+                </span>
+                <div className="mt-3 space-y-0.5">
+                  <p className="text-lg font-bold tabular-nums text-white">{fc(order.runningTotal)}</p>
+                  <p className="text-xs tabular-nums text-gray-400">
+                    Parked {formatElapsed(order.openedAt, now)} ago
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </TabsContent>
+      )}
     </Tabs>
   );
 }
+
+/** The floor's pseudo-area for parked takeaway orders. Not a UUID, so it can
+ *  never collide with a real area id. */
+const TAKEAWAY_TAB = "__takeaway__";
 
 function TableTile({
   table,
