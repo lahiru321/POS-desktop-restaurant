@@ -15,6 +15,7 @@ import {
   type RepricedLine,
   type RestaurantOrder,
 } from '@/services/restaurantOrderService';
+import type { KitchenTicket } from '@/services/kitchenTicketService';
 import {
   lineKey,
   stockForBranch,
@@ -71,6 +72,13 @@ export interface UseDineInCartOptions {
   taxInclusive: boolean;
   /** The drawer's branch, for the stock ceiling. */
   branchId?: string;
+  /**
+   * Called with any kitchen tickets a change produced — a void of something the
+   * kitchen already had comes back as a VOID ticket, already saved PENDING.
+   * The caller prints and acknowledges them; dropping them on the floor would
+   * leave the kitchen cooking a dish nobody wants.
+   */
+  onKitchenTickets?: (tickets: KitchenTicket[]) => void;
 }
 
 export interface DineInCart extends CartView {
@@ -159,6 +167,7 @@ export function useDineInCart({
   taxContext,
   taxInclusive,
   branchId,
+  onKitchenTickets,
 }: UseDineInCartOptions): DineInCart {
   const queryClient = useQueryClient();
   const active = !!orderId;
@@ -242,9 +251,12 @@ export function useDineInCart({
   });
 
   const voidItem = useMutation({
-    mutationFn: ({ id, itemId }: { id: string; itemId: string }) =>
-      restaurantOrderService.voidItem(id, itemId),
-    onSuccess: applyOrder,
+    mutationFn: ({ id, itemId, quantity }: { id: string; itemId: string; quantity?: number }) =>
+      restaurantOrderService.voidItem(id, itemId, quantity !== undefined ? { quantity } : undefined),
+    onSuccess: (result) => {
+      applyOrder(result.order);
+      if (result.tickets.length > 0) onKitchenTickets?.(result.tickets);
+    },
     onError: (err) => toast.error(getApiErrorMessage(err, 'Could not remove that line')),
   });
 
@@ -352,6 +364,17 @@ export function useDineInCart({
         return;
       }
 
+      // `quantity` is what the cart shows — the billable figure. Going down is a
+      // partial void, so the server can tell the kitchen about any of it that was
+      // already fired; going up grows the ordered figure by the same step. Both
+      // are deltas, because a line with earlier voids has quantity ≠ billable.
+      const delta = quantity - item.billableQuantity;
+      if (delta === 0) return;
+      if (delta < 0) {
+        voidItem.mutate({ id: order.id, itemId: lineId, quantity: -delta });
+        return;
+      }
+
       // Only when the catalogue row is to hand. If it is not, the ceiling is left
       // to `createSale` at settle, which is the authority on it either way.
       const product = item.productId ? menu.get(item.productId) : undefined;
@@ -364,7 +387,7 @@ export function useDineInCart({
         }
       }
 
-      updateItem.mutate({ id: order.id, itemId: lineId, quantity });
+      updateItem.mutate({ id: order.id, itemId: lineId, quantity: item.quantity + delta });
     },
     [order, isBusy, menu, branchId, orderedQuantityOf, updateItem, voidItem],
   );

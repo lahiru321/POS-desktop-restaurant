@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useDineInCart } from "./useDineInCart";
 import type { TaxContext } from "./useCart";
 import type { Product } from "@/types/inventory";
+import type { KitchenTicket } from "@/services/kitchenTicketService";
 import type {
   OrderItemResponse,
   RestaurantOrder,
@@ -62,6 +63,7 @@ function makeLine(overrides: Partial<OrderItemResponse> = {}): OrderItemResponse
     firedQuantity: 0,
     voidedQuantity: 0,
     billableQuantity: 2,
+    pendingQuantity: 2,
     unitPriceSnapshot: 500,
     discountAmount: 0,
     notes: null,
@@ -223,24 +225,24 @@ describe("useDineInCart", () => {
 
   it("removing a line voids it server-side rather than deleting anything locally", async () => {
     getOrder.mockResolvedValue(makeOrder());
-    voidItem.mockResolvedValue(makeOrder());
+    voidItem.mockResolvedValue({ order: makeOrder(), tickets: [] });
     const { result } = mount();
     await waitFor(() => expect(result.current.items).toHaveLength(1));
 
     act(() => result.current.removeFromCart("i1"));
 
-    await waitFor(() => expect(voidItem).toHaveBeenCalledWith("o1", "i1"));
+    await waitFor(() => expect(voidItem).toHaveBeenCalledWith("o1", "i1", undefined));
   });
 
   it("taking a line to zero is a void, not a quantity update", async () => {
     getOrder.mockResolvedValue(makeOrder());
-    voidItem.mockResolvedValue(makeOrder());
+    voidItem.mockResolvedValue({ order: makeOrder(), tickets: [] });
     const { result } = mount();
     await waitFor(() => expect(result.current.items).toHaveLength(1));
 
     act(() => result.current.updateQuantity("i1", 0));
 
-    await waitFor(() => expect(voidItem).toHaveBeenCalledWith("o1", "i1"));
+    await waitFor(() => expect(voidItem).toHaveBeenCalledWith("o1", "i1", undefined));
     expect(updateItem).not.toHaveBeenCalled();
   });
 
@@ -253,6 +255,46 @@ describe("useDineInCart", () => {
     act(() => result.current.updateQuantity("i1", 5));
 
     await waitFor(() => expect(updateItem).toHaveBeenCalledWith("o1", "i1", { quantity: 5 }));
+  });
+
+  it("taking a line down by one is a partial void of one, so the kitchen can be told", async () => {
+    getOrder.mockResolvedValue(makeOrder());
+    voidItem.mockResolvedValue({ order: makeOrder(), tickets: [] });
+    const { result } = mount();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => result.current.updateQuantity("i1", 1));
+
+    await waitFor(() => expect(voidItem).toHaveBeenCalledWith("o1", "i1", { quantity: 1 }));
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it("going up on a line with earlier voids grows the ORDERED figure by the step", async () => {
+    // 3 ordered, 1 voided: the cart shows 2. Pressing + must order a 4th, not
+    // send "3" — which would change nothing on the server.
+    getOrder.mockResolvedValue(
+      makeOrder({ items: [makeLine({ quantity: 3, voidedQuantity: 1, billableQuantity: 2 })] }),
+    );
+    updateItem.mockResolvedValue(makeOrder());
+    const { result } = mount();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => result.current.updateQuantity("i1", 3));
+
+    await waitFor(() => expect(updateItem).toHaveBeenCalledWith("o1", "i1", { quantity: 4 }));
+  });
+
+  it("hands a void's kitchen tickets to the caller to print", async () => {
+    const onKitchenTickets = vi.fn();
+    const voidTicket = { id: "kt9", label: "#0014-R2-VOID" } as unknown as KitchenTicket;
+    getOrder.mockResolvedValue(makeOrder());
+    voidItem.mockResolvedValue({ order: makeOrder(), tickets: [voidTicket] });
+    const { result } = mount({ onKitchenTickets });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => result.current.removeFromCart("i1"));
+
+    await waitFor(() => expect(onKitchenTickets).toHaveBeenCalledWith([voidTicket]));
   });
 
   it("warns before settle about a line the menu has re-priced under the tab", async () => {

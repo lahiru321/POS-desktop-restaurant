@@ -86,6 +86,18 @@ public class RestaurantOrderItemEntity extends BaseEntity {
         return quantity.subtract(voidedQuantity);
     }
 
+    /**
+     * What the kitchen has not been told about yet — the next round.
+     *
+     * <p>{@code firedQuantity} is the kitchen's current instruction, net of void
+     * tickets: voiding a fired unit sends a VOID ticket and takes it back off
+     * {@code firedQuantity}. So ordered less fired less voided is exactly the
+     * unsent work, and never double-counts a unit that was fired and then voided.
+     */
+    public BigDecimal pendingQuantity() {
+        return quantity.subtract(firedQuantity).subtract(voidedQuantity).max(BigDecimal.ZERO);
+    }
+
     public void addTopping(RestaurantOrderItemToppingEntity topping) {
         topping.setOrderItem(this);
         topping.setTenantId(getTenantId());

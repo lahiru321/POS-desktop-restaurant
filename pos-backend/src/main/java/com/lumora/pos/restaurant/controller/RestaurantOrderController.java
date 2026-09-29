@@ -85,14 +85,27 @@ public class RestaurantOrderController {
 
     @PostMapping("/{id}/items/{itemId}/void")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
-    public ResponseEntity<ApiResponse<OrderDtos.OrderResponse>> voidItem(
+    public ResponseEntity<ApiResponse<OrderDtos.OrderKitchenResponse>> voidItem(
             @PathVariable UUID id, @PathVariable UUID itemId,
-            @RequestBody(required = false) OrderDtos.VoidItemRequest request) {
-        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderResponse>builder()
+            @Valid @RequestBody(required = false) OrderDtos.VoidItemRequest request) {
+        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderKitchenResponse>builder()
                 .success(true)
                 .message("Line voided")
                 .data(orderService.voidItem(id, itemId, request))
                 .build());
+    }
+
+    /** Sends every unsent line to the kitchen as the next round. The tickets come
+     *  back PENDING; the till prints them and acknowledges each one. */
+    @PostMapping("/{id}/fire")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.OrderKitchenResponse>> fire(@PathVariable UUID id) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.<OrderDtos.OrderKitchenResponse>builder()
+                        .success(true)
+                        .message("Sent to the kitchen")
+                        .data(orderService.fire(id))
+                        .build());
     }
 
     @PostMapping("/{id}/settle")
@@ -108,8 +121,8 @@ public class RestaurantOrderController {
 
     @PostMapping("/{id}/void")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-    public ResponseEntity<ApiResponse<OrderDtos.OrderResponse>> voidOrder(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderResponse>builder()
+    public ResponseEntity<ApiResponse<OrderDtos.OrderKitchenResponse>> voidOrder(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderKitchenResponse>builder()
                 .success(true)
                 .message("Order voided")
                 .data(orderService.voidOrder(id))

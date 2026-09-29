@@ -20,6 +20,8 @@ export const QK = {
   /** One catalogue read behind a dine-in tab: resolves each ordered line's tax
    *  category and its current menu price. Restaurant mode only. */
   restaurantMenuSnapshot: ['restaurant-menu-snapshot'] as const,
+  kitchenTicketsUnresolved: ['kitchen-tickets', 'unresolved'] as const,
+  kitchenTicketsForOrder: (orderId: string) => ['kitchen-tickets', 'order', orderId] as const,
   brands: ['brands'] as const,
   expenses: ['expenses'] as const,
   expenseCategories: ['expense-categories'] as const,

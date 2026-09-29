@@ -9,6 +9,22 @@ export interface HardwareConfig {
   paperWidth: '58mm' | '80mm';
   cashDrawerKick: boolean;
   kickCode: string; // Often [27, 112, 0, 25, 250] in ESC/POS
+  /**
+   * Kitchen printer. Per-machine like the receipt printer, so it lives here in
+   * localStorage rather than in the tenant settings. Kitchen printing is QZ Tray
+   * only: there is no browser fallback, because a fallback that silently does
+   * nothing (Electron denies window.open) means the kitchen never gets the order.
+   */
+  kitchenPrintEnabled: boolean;
+  kitchenPrinterTarget: string;
+  kitchenPaperWidth: '58mm' | '80mm';
+  /** Sheets per ticket — 2 for a kitchen that keeps one at the pass. */
+  kitchenCopies: number;
+  /**
+   * The multi-printer seam: station → printer. Empty today; every station
+   * prints to `kitchenPrinterTarget` until per-station routing is switched on.
+   */
+  kitchenStationTargets: Record<string, string>;
 }
 
 const DEFAULT_CONFIG: HardwareConfig = {
@@ -17,6 +33,11 @@ const DEFAULT_CONFIG: HardwareConfig = {
   paperWidth: '80mm',
   cashDrawerKick: true,
   kickCode: '27,112,0,25,250',
+  kitchenPrintEnabled: false,
+  kitchenPrinterTarget: '',
+  kitchenPaperWidth: '80mm',
+  kitchenCopies: 1,
+  kitchenStationTargets: {},
 };
 
 export const hardwareService = {

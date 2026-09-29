@@ -54,6 +54,7 @@ const GROUPS: ShortcutGroup[] = [
   {
     title: 'Restaurant',
     rows: [
+      ['F5', 'Send new items to the kitchen'],
       ['F11', 'Floor / switch table'],
       ['F9', 'Settle the tab'],
     ],
@@ -64,9 +65,9 @@ const GROUPS: ShortcutGroup[] = [
  * Keyboard-shortcuts reference, opened with F1 or "?". Portals to <body>, so it
  * carries its own `dark` class to match the force-dark terminal.
  *
- * Note there is no "F5 — Hold sale" row any more. The button it described was
- * wired to a no-op and is now hidden, so documenting the shortcut would be
- * documenting nothing.
+ * Note there is no "F5 — Hold sale" row. The Hold Sale button was wired to a
+ * no-op and is now hidden. F5 is listed under Restaurant instead: on a tab it
+ * sends the new items to the kitchen; at a counter sale it does nothing yet.
  */
 export function ShortcutsOverlay({
   open,

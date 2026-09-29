@@ -32,4 +32,8 @@ public class CategoryEntity extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tax_rate_id")
     private TaxRateEntity taxRate;
+
+    /** Default kitchen printer for this category's dishes. Null = {@code KITCHEN}. */
+    @Column(name = "kitchen_station", length = 20)
+    private String kitchenStation;
 }

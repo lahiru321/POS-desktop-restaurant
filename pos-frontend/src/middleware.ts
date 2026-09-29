@@ -106,7 +106,12 @@ export function middleware(request: NextRequest) {
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: ${apiUrl}`,
     "font-src 'self'",
-    `connect-src 'self' ${apiUrl}`,
+    // QZ Tray talks to the local printers over a WebSocket on loopback — wss on
+    // 8181 (then 8282/8383/8484), ws on 8182 (then 8283/…) — and connect-src
+    // governs WebSockets. Without these, QZ is blocked by the browser before it
+    // is even contacted: kitchen printing cannot work at all, and receipt QZ
+    // printing silently falls back to a browser print Electron refuses to open.
+    `connect-src 'self' ${apiUrl} wss://localhost:* ws://localhost:* wss://127.0.0.1:* ws://127.0.0.1:*`,
     "frame-ancestors 'none'",
     "object-src 'none'",
   ].join('; ');

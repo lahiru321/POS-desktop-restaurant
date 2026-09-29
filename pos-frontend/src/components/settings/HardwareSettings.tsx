@@ -3,7 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { hardwareService, HardwareConfig } from '@/services/hardwareService';
 import { qzTrayService } from '@/services/qzTrayService';
-import { Printer, Usb, Keyboard, Save, CheckCircle2, AlertTriangle, Wifi, RefreshCw, Loader2 } from 'lucide-react';
+import { Printer, Usb, Keyboard, Save, CheckCircle2, AlertTriangle, Wifi, RefreshCw, Loader2, ChefHat } from 'lucide-react';
+import { buildKitchenTicketCommands } from '@/services/kitchenTicketBuilder';
+import type { KitchenTicket } from '@/services/kitchenTicketService';
 import { toast } from 'sonner';
 
 /**
@@ -14,6 +16,28 @@ import { toast } from 'sonner';
  * Lives as a self-contained component so it can be embedded in the Settings
  * tab layout without needing a dedicated route.
  */
+/** What "Test kitchen ticket" prints. Never saved or acknowledged — it is not an order. */
+const SAMPLE_KITCHEN_TICKET: KitchenTicket = {
+  id: 'test',
+  orderId: 'test',
+  orderNumber: 0,
+  label: '#0000-TEST',
+  ticketType: 'ROUND',
+  roundNo: 1,
+  station: 'KITCHEN',
+  status: 'PENDING',
+  orderType: 'DINE_IN',
+  tableName: 'T1',
+  covers: 2,
+  serverName: 'Test',
+  printAttempts: 0,
+  firedAt: new Date().toISOString(),
+  items: [
+    { itemName: 'Chicken kottu', quantity: 2, modifiers: ['Extra cheese'], notes: 'no chilli', courseNo: 1 },
+    { itemName: 'Lime juice', quantity: 1, modifiers: [], courseNo: 1 },
+  ],
+};
+
 export function HardwareSettings() {
   const [config, setConfig] = useState<HardwareConfig | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -61,6 +85,30 @@ export function HardwareSettings() {
       toast.success('Test sent to printer');
     } catch {
       toast.error('Test print failed', { description: 'Check QZ Tray and the selected printer.' });
+    } finally {
+      setQzBusy(false);
+    }
+  };
+
+  const handleTestKitchen = async () => {
+    if (!cfg.kitchenPrinterTarget) {
+      toast.error('Choose a kitchen printer first');
+      return;
+    }
+    setQzBusy(true);
+    try {
+      await qzTrayService.printRaw(
+        cfg.kitchenPrinterTarget,
+        buildKitchenTicketCommands(
+          { ...SAMPLE_KITCHEN_TICKET, firedAt: new Date().toISOString() },
+          { paperWidth: cfg.kitchenPaperWidth, copies: 1 },
+        ),
+      );
+      toast.success('Test ticket sent to the kitchen printer', {
+        description: 'Check it has no prices and that no drawer opened.',
+      });
+    } catch {
+      toast.error('Kitchen test print failed', { description: 'Check QZ Tray and the kitchen printer.' });
     } finally {
       setQzBusy(false);
     }
@@ -236,6 +284,99 @@ export function HardwareSettings() {
               Test Kick Signal
             </button>
           </div>
+        </div>
+
+        {/* Kitchen Printer */}
+        <div className="col-span-1 md:col-span-3 bg-card border border-border rounded-2xl p-6 shadow-xl">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <ChefHat className="text-warning" /> Kitchen Printer
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
+                Prints a ticket every time a table&apos;s new items are sent (F5), and a VOID ticket when
+                something the kitchen already has is removed. No prices, no drawer. Turn it off if this till
+                has no kitchen printer: orders are still recorded, and the till reminds you to tell the kitchen.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <span className="mr-3 text-sm font-medium text-foreground">
+                {config.kitchenPrintEnabled ? 'On' : 'Off'}
+              </span>
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={config.kitchenPrintEnabled}
+                onChange={(e) => setConfig({ ...config, kitchenPrintEnabled: e.target.checked })}
+              />
+              <div className="relative w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-background after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-success"></div>
+            </label>
+          </div>
+
+          {config.kitchenPrintEnabled && config.printerMode !== 'qz_tray' && (
+            <p className="mb-5 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning">
+              <AlertTriangle size={16} className="shrink-0" />
+              Kitchen printing needs QZ Tray. Set Printing Mode above to QZ Tray, or every ticket will fail.
+            </p>
+          )}
+
+          <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 ${config.kitchenPrintEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Kitchen printer</label>
+              <select
+                value={config.kitchenPrinterTarget}
+                onChange={(e) => setConfig({ ...config, kitchenPrinterTarget: e.target.value })}
+                className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-foreground focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                <option value="">— Choose a printer —</option>
+                {printers.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+                {config.kitchenPrinterTarget && !printers.includes(config.kitchenPrinterTarget) && (
+                  <option value={config.kitchenPrinterTarget}>{config.kitchenPrinterTarget}</option>
+                )}
+              </select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Use &quot;Connect to QZ Tray&quot; above to list printers. Pick a different printer from the receipt one.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Paper width</label>
+              <select
+                value={config.kitchenPaperWidth}
+                onChange={(e) =>
+                  setConfig({ ...config, kitchenPaperWidth: e.target.value as HardwareConfig['kitchenPaperWidth'] })
+                }
+                className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-foreground focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                <option value="58mm">58mm (Small)</option>
+                <option value="80mm">80mm (Standard)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Copies per ticket</label>
+              <select
+                value={config.kitchenCopies}
+                onChange={(e) => setConfig({ ...config, kitchenCopies: Number(e.target.value) })}
+                className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-foreground focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                <option value={1}>1</option>
+                <option value={2}>2 (one for the pass)</option>
+                <option value={3}>3</option>
+              </select>
+            </div>
+          </div>
+
+          {config.kitchenPrintEnabled && config.printerMode === 'qz_tray' && (
+            <button
+              onClick={handleTestKitchen}
+              disabled={qzBusy}
+              className="mt-5 inline-flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60"
+            >
+              {qzBusy ? <Loader2 size={16} className="animate-spin" /> : <ChefHat size={16} />}
+              Test kitchen ticket
+            </button>
+          )}
         </div>
 
         {/* Global Barcode Scanner */}

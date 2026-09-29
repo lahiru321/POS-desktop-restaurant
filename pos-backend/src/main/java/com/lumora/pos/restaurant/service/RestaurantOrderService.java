@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -69,6 +70,7 @@ public class RestaurantOrderService {
     private final BranchRepository branchRepository;
     private final UserRepository userRepository;
     private final SaleService saleService;
+    private final KitchenTicketService kitchenTicketService;
     private final AuditService auditService;
 
     // ------------------------------------------------------------------
@@ -188,12 +190,14 @@ public class RestaurantOrderService {
 
         if (request.getQuantity() != null) {
             BigDecimal quantity = request.getQuantity();
-            if (quantity.compareTo(item.getFiredQuantity()) < 0) {
-                throw new BusinessException("The kitchen already has " + item.getFiredQuantity()
-                        + " of this. Void it instead of reducing the quantity.");
-            }
-            if (quantity.compareTo(item.getVoidedQuantity()) < 0) {
-                throw new BusinessException("Cannot go below the quantity already voided on this line");
+            // Fired and voided units are both already accounted for — one is in the
+            // kitchen, the other written off — so neither can be edited away.
+            BigDecimal committed = item.getFiredQuantity().add(item.getVoidedQuantity());
+            if (quantity.compareTo(committed) < 0) {
+                throw new BusinessException(item.getFiredQuantity().signum() > 0
+                        ? "The kitchen already has " + item.getFiredQuantity().stripTrailingZeros().toPlainString()
+                                + " of this. Void it instead of reducing the quantity."
+                        : "Cannot go below the quantity already voided on this line");
             }
             item.setQuantity(quantity);
         }
@@ -211,13 +215,17 @@ public class RestaurantOrderService {
     }
 
     /**
-     * Voids some or all of a line. Voided quantity is counted, never subtracted
-     * from {@code quantity}: the kitchen may already be cooking it, and Phase 3
-     * needs to know exactly how much to un-cook.
+     * Voids some or all of a line, telling the kitchen only about what it had.
+     *
+     * <p>Voided quantity is counted, never subtracted from {@code quantity}. The
+     * void is taken from the unsent units first — there is nothing to un-cook, so
+     * no ticket — and only the remainder, which the kitchen was already told to
+     * cook, becomes a VOID ticket and comes back off {@code firedQuantity}. A cook
+     * who has already started needs telling; a silent delete tells no one.
      */
     @Transactional
-    public OrderDtos.OrderResponse voidItem(UUID orderId, UUID itemId, OrderDtos.VoidItemRequest request) {
-        RestaurantOrderEntity order = requireOpen(orderId);
+    public OrderDtos.OrderKitchenResponse voidItem(UUID orderId, UUID itemId, OrderDtos.VoidItemRequest request) {
+        RestaurantOrderEntity order = requireOpenForUpdate(orderId);
         RestaurantOrderItemEntity item = requireItem(order, itemId);
 
         BigDecimal remaining = item.billableQuantity();
@@ -231,14 +239,43 @@ public class RestaurantOrderService {
             throw new BusinessException("Cannot void " + amount.toPlainString()
                     + " — only " + remaining.toPlainString() + " left on this line");
         }
+        String reason = request != null && request.getReason() != null ? request.getReason() : "";
+
+        BigDecimal fromUnsent = amount.min(item.pendingQuantity());
+        BigDecimal firedPortion = amount.subtract(fromUnsent);
 
         item.setVoidedQuantity(item.getVoidedQuantity().add(amount));
+        item.setFiredQuantity(item.getFiredQuantity().subtract(firedPortion));
+
+        Map<RestaurantOrderItemEntity, BigDecimal> portions = new LinkedHashMap<>();
+        portions.put(item, firedPortion);
+        List<KitchenTicketEntity> tickets = kitchenTicketService.voidPortions(order, portions, reason);
 
         RestaurantOrderEntity saved = orderRepository.save(order);
         auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER_ITEM", itemId, null, Map.of(
                 "voided", amount.toPlainString(),
-                "reason", request != null && request.getReason() != null ? request.getReason() : ""));
-        return toResponse(saved);
+                "firedPortion", firedPortion.toPlainString(),
+                "reason", reason));
+        return withTickets(saved, tickets);
+    }
+
+    // ------------------------------------------------------------------
+    // Kitchen
+    // ------------------------------------------------------------------
+
+    /**
+     * Sends everything not yet fired as the next round.
+     *
+     * <p>Locked, so two servers pressing Send on the same table a moment apart
+     * queue: the second sees nothing left to send instead of printing the same
+     * dishes twice.
+     */
+    @Transactional
+    public OrderDtos.OrderKitchenResponse fire(UUID orderId) {
+        RestaurantOrderEntity order = requireOpenForUpdate(orderId);
+        List<KitchenTicketEntity> tickets = kitchenTicketService.fireRound(order);
+        RestaurantOrderEntity saved = orderRepository.save(order);
+        return withTickets(saved, tickets);
     }
 
     // ------------------------------------------------------------------
@@ -287,20 +324,27 @@ public class RestaurantOrderService {
                 .build();
     }
 
+    /**
+     * Writes off the whole tab and frees the table. Anything the kitchen was
+     * already cooking goes out on one VOID ticket; unsent lines need no paper.
+     */
     @Transactional
-    public OrderDtos.OrderResponse voidOrder(UUID orderId) {
-        UUID tenantId = TenantContext.getTenantId();
-        RestaurantOrderEntity order = orderRepository.findByIdAndTenantIdForUpdate(orderId, tenantId)
-                .orElseThrow(() -> new BusinessException("Order not found"));
-        if (order.getStatus() != RestaurantOrderEntity.OrderStatus.OPEN) {
-            throw new BusinessException("This order is already " + order.getStatus());
+    public OrderDtos.OrderKitchenResponse voidOrder(UUID orderId) {
+        RestaurantOrderEntity order = requireOpenForUpdate(orderId);
+
+        Map<RestaurantOrderItemEntity, BigDecimal> firedPortions = new LinkedHashMap<>();
+        for (RestaurantOrderItemEntity item : order.getItems()) {
+            firedPortions.put(item, item.getFiredQuantity());
+            item.setVoidedQuantity(item.getQuantity());
+            item.setFiredQuantity(BigDecimal.ZERO);
         }
+        List<KitchenTicketEntity> tickets = kitchenTicketService.voidPortions(order, firedPortions, "Tab voided");
 
         order.setStatus(RestaurantOrderEntity.OrderStatus.VOIDED);
         freeTable(order);
         RestaurantOrderEntity saved = orderRepository.save(order);
         auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", orderId, null, Map.of("status", "VOIDED"));
-        return toResponse(saved);
+        return withTickets(saved, tickets);
     }
 
     // ------------------------------------------------------------------
@@ -538,6 +582,23 @@ public class RestaurantOrderService {
         return order;
     }
 
+    /** Row-locked, for anything that may print: see {@link #fire}. */
+    private RestaurantOrderEntity requireOpenForUpdate(UUID id) {
+        RestaurantOrderEntity order = orderRepository.findByIdAndTenantIdForUpdate(id, TenantContext.getTenantId())
+                .orElseThrow(() -> new BusinessException("Order not found"));
+        if (order.getStatus() != RestaurantOrderEntity.OrderStatus.OPEN) {
+            throw new BusinessException("This order is already " + order.getStatus());
+        }
+        return order;
+    }
+
+    private OrderDtos.OrderKitchenResponse withTickets(RestaurantOrderEntity order, List<KitchenTicketEntity> tickets) {
+        return OrderDtos.OrderKitchenResponse.builder()
+                .order(toResponse(order))
+                .tickets(tickets.stream().map(kitchenTicketService::toResponse).toList())
+                .build();
+    }
+
     private RestaurantOrderItemEntity requireItem(RestaurantOrderEntity order, UUID itemId) {
         return order.getItems().stream()
                 .filter(i -> itemId.equals(i.getId()))
@@ -670,6 +731,7 @@ public class RestaurantOrderService {
                 .firedQuantity(item.getFiredQuantity())
                 .voidedQuantity(item.getVoidedQuantity())
                 .billableQuantity(item.billableQuantity())
+                .pendingQuantity(item.pendingQuantity())
                 .unitPriceSnapshot(item.getUnitPriceSnapshot())
                 .discountAmount(item.getDiscountAmount())
                 .notes(item.getNotes())

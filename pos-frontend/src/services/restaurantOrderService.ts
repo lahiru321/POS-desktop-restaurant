@@ -2,6 +2,7 @@ import api from "./api";
 import { ApiResponse } from "@/types/common";
 import { SaleResponse } from "./salesService";
 import { ToppingPriceMode } from "./toppingService";
+import type { KitchenTicket } from "./kitchenTicketService";
 
 /** DINE_IN needs a table; TAKEAWAY refuses one. */
 export type OrderType = "DINE_IN" | "TAKEAWAY";
@@ -116,6 +117,8 @@ export interface OrderItemResponse {
   voidedQuantity: number;
   /** quantity − voidedQuantity. What the bill will charge for. */
   billableQuantity: number;
+  /** Not yet sent to the kitchen — what the next fire will print. */
+  pendingQuantity: number;
   unitPriceSnapshot: number;
   discountAmount: number;
   notes?: string | null;
@@ -173,6 +176,17 @@ export interface RepricedLine {
   billedPrice: number;
 }
 
+/**
+ * An order change that may have produced paper for the kitchen: a fire, or a
+ * void of something the kitchen already had. The tickets are already saved
+ * PENDING; the till prints each one and acknowledges it. Empty when nothing
+ * needed telling — voiding a dish that was never sent, for example.
+ */
+export interface OrderKitchenResponse {
+  order: RestaurantOrder;
+  tickets: KitchenTicket[];
+}
+
 export interface SettleResponse {
   sale: SaleResponse;
   /** The order label, for the "Order 14 · T1 paid" confirmation. */
@@ -185,14 +199,7 @@ export interface SettleResponse {
 // Service
 // ──────────────────────────────────────────────
 
-/**
- * The open-tab lifecycle.
- *
- * Note there is deliberately no `fire` here: `POST /orders/{id}/fire` does not
- * exist on `RestaurantOrderController` yet. Kitchen firing arrives with the
- * `kitchen_tickets` migration (V64) — do not add a client method before the
- * endpoint it would call.
- */
+/** The open-tab lifecycle. */
 export const restaurantOrderService = {
   /** Every OPEN order for the tenant. The floor view polls this. */
   getOpenOrders: () =>
@@ -223,13 +230,22 @@ export const restaurantOrderService = {
       )
       .then((res) => res.data.data),
 
-  /** Omit `data` to void the whole remaining line. */
+  /**
+   * Omit `data` to void the whole remaining line. Unsent units go first; any
+   * portion the kitchen already had comes back as a VOID ticket to print.
+   */
   voidItem: (id: string, itemId: string, data?: VoidItemRequest) =>
     api
-      .post<ApiResponse<RestaurantOrder>>(
+      .post<ApiResponse<OrderKitchenResponse>>(
         `/restaurant/orders/${id}/items/${itemId}/void`,
         data ?? {}
       )
+      .then((res) => res.data.data),
+
+  /** Sends every unsent line to the kitchen as the next round. */
+  fire: (id: string) =>
+    api
+      .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/fire`)
       .then((res) => res.data.data),
 
   /** Turns the tab into a sale on the *paying* cashier's drawer. */
@@ -238,9 +254,10 @@ export const restaurantOrderService = {
       .post<ApiResponse<SettleResponse>>(`/restaurant/orders/${id}/settle`, data)
       .then((res) => res.data.data),
 
-  /** ADMIN/MANAGER only — writes off the whole tab. */
+  /** ADMIN/MANAGER only — writes off the whole tab. Anything the kitchen was
+   *  cooking comes back as one VOID ticket to print. */
   voidOrder: (id: string) =>
     api
-      .post<ApiResponse<RestaurantOrder>>(`/restaurant/orders/${id}/void`)
+      .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/void`)
       .then((res) => res.data.data),
 };

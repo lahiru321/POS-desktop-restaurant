@@ -9,24 +9,26 @@ import { format } from 'date-fns';
  */
 
 // ── ESC/POS control codes ─────────────────────────────────────────────────
-const INIT = '\x1B\x40';
-const ALIGN_LEFT = '\x1B\x61\x00';
-const ALIGN_CENTER = '\x1B\x61\x01';
-const BOLD_ON = '\x1B\x45\x01';
-const BOLD_OFF = '\x1B\x45\x00';
-const DOUBLE = '\x1D\x21\x11'; // double width + height
-const NORMAL = '\x1D\x21\x00';
-const FEED_AND_CUT = '\n\n\n\x1D\x56\x42\x00'; // feed then partial cut (GS V fn B)
+// Exported for kitchenTicketBuilder, so the two builders can never drift apart
+// on what a byte sequence means.
+export const INIT = '\x1B\x40';
+export const ALIGN_LEFT = '\x1B\x61\x00';
+export const ALIGN_CENTER = '\x1B\x61\x01';
+export const BOLD_ON = '\x1B\x45\x01';
+export const BOLD_OFF = '\x1B\x45\x00';
+export const DOUBLE = '\x1D\x21\x11'; // double width + height
+export const NORMAL = '\x1D\x21\x00';
+export const FEED_AND_CUT = '\n\n\n\x1D\x56\x42\x00'; // feed then partial cut (GS V fn B)
 
 const ITEM_NAME_MAX = 22;
 
 const money = (n: number) => (Number.isFinite(n) ? n : 0).toFixed(2);
 
-const truncate = (s: string, max: number) =>
+export const truncate = (s: string, max: number) =>
   s.length > max ? s.slice(0, max - 1) + '…' : s;
 
 /** Left text + right text padded to the paper's character width. */
-function leftRight(left: string, right: string, width: number): string {
+export function leftRight(left: string, right: string, width: number): string {
   const space = Math.max(1, width - left.length - right.length);
   if (space === 1 && left.length + right.length >= width) {
     left = truncate(left, width - right.length - 1);

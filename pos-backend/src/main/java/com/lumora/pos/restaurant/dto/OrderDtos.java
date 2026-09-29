@@ -207,6 +207,8 @@ public final class OrderDtos {
         private BigDecimal firedQuantity;
         private BigDecimal voidedQuantity;
         private BigDecimal billableQuantity;
+        /** Not yet sent to the kitchen — what the next fire will print. */
+        private BigDecimal pendingQuantity;
         private BigDecimal unitPriceSnapshot;
         private BigDecimal discountAmount;
         private String notes;
@@ -249,6 +251,24 @@ public final class OrderDtos {
 
         private BigDecimal orderedPrice;
         private BigDecimal billedPrice;
+    }
+
+    /**
+     * An order change that may have produced paper for the kitchen: a fire, or a
+     * void of something the kitchen already had.
+     *
+     * <p>The tickets are already persisted {@code PENDING} when this returns. The
+     * till prints each one and acknowledges it; until it does, the ticket counts
+     * as unresolved. {@code tickets} is empty when nothing needed telling — a void
+     * of an item that was never sent, for example.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrderKitchenResponse {
+        private OrderResponse order;
+        private List<KitchenTicketDtos.KitchenTicketResponse> tickets;
     }
 
     @Data

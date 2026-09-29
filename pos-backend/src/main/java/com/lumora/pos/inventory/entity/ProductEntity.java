@@ -66,6 +66,14 @@ public class ProductEntity extends BaseEntity {
         @Column(name = "track_stock", nullable = false)
         private boolean trackStock = true;
 
+        /**
+         * Which kitchen printer this dish goes to. Null = inherit from the
+         * category, then {@code KITCHEN}. Every station prints to the one kitchen
+         * printer until per-station routing is switched on.
+         */
+        @Column(name = "kitchen_station", length = 20)
+        private String kitchenStation;
+
         @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "category_id")
         private CategoryEntity category;

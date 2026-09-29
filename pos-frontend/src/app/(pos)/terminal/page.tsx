@@ -10,7 +10,8 @@ import { tenantService } from '@/services/tenantService';
 import { SaleResponse, salesService, SaleRequest, SalesSummaryResponse } from '@/services/salesService';
 import { useCart, TaxContext, type CartView } from '@/hooks/useCart';
 import { useDineInCart } from '@/hooks/useDineInCart';
-import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut } from 'lucide-react';
+import { useKitchenPrinting } from '@/hooks/useKitchenPrinting';
+import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -47,6 +48,9 @@ import { CorrectSalePickerModal } from '@/components/pos/CorrectSalePickerModal'
 import { ReturnModal } from '@/components/pos/ReturnModal';
 import { ShortcutsOverlay } from '@/components/pos/ShortcutsOverlay';
 import { FloorSheet } from '@/components/pos/FloorSheet';
+import { KitchenPrintFailedDialog } from '@/components/pos/KitchenPrintFailedDialog';
+import { KitchenTicketsBadge } from '@/components/pos/KitchenTicketsBadge';
+import { OrderKitchenTickets } from '@/components/pos/OrderKitchenTickets';
 import { formatElapsed } from '@/components/pos/FloorPlan';
 import { CustomerSelector } from '@/components/pos/CustomerSelector';
 import { Receipt } from '@/components/pos/Receipt';
@@ -215,6 +219,11 @@ function Terminal() {
   // Cart — branch-aware so add/update reads the right stockLevels row.
   const retailCart = useCart(taxContext, selectedBranch?.id, tenantInfo?.taxInclusive ?? true);
 
+  // Kitchen printing. Every ticket the server hands back — a fired round, or a
+  // void of something already cooking — goes through here: print, acknowledge,
+  // and on failure a blocking dialog nobody can click past.
+  const kitchen = useKitchenPrinting();
+
   // The same interface, backed by `restaurant_orders` instead of `useState`.
   // Every query inside is `enabled: !!orderId`, so a counter sale with no tab
   // open issues no requests at all.
@@ -223,6 +232,7 @@ function Terminal() {
     taxContext,
     taxInclusive: tenantInfo?.taxInclusive ?? true,
     branchId: selectedBranch?.id,
+    onKitchenTickets: (tickets) => void kitchen.dispatchTickets(tickets),
   });
 
   /** The one predicate every restaurant branch below keys off. */
@@ -718,17 +728,52 @@ function Terminal() {
   // is shown rather than the control being hidden from cashiers here.
   const voidOrderMutation = useMutation({
     mutationFn: (orderId: string) => restaurantOrderService.voidOrder(orderId),
-    onSuccess: (order) => {
+    onSuccess: ({ order, tickets }) => {
       queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
       queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
       queryClient.removeQueries({ queryKey: QK.restaurantOrder(order.id) });
       toast.success(`${order.label} voided`);
       selectOrder(null);
+      // Anything the kitchen was already cooking comes back as a VOID ticket.
+      if (tickets.length > 0) void kitchen.dispatchTickets(tickets);
     },
     onError: (error: unknown) => {
       toast.error(getApiErrorMessage(error, 'Could not void this tab'));
     },
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Send to kitchen — F5 on a tab
+  //
+  // The server works out the delta (everything not yet fired), saves the ticket
+  // PENDING and advances what the kitchen has been told, all under a row lock —
+  // so two tills pressing Send on one table queue rather than double-print.
+  // Printing happens here, after, and every outcome is acknowledged.
+  // ─────────────────────────────────────────────────────────────────────────
+  const unsentCount = dineInActive && dineIn.order
+    ? dineIn.order.items.reduce((sum, i) => sum + (i.pendingQuantity > 0 ? 1 : 0), 0)
+    : 0;
+
+  const fireMutation = useMutation({
+    mutationFn: (orderId: string) => restaurantOrderService.fire(orderId),
+    onSuccess: ({ order, tickets }) => {
+      queryClient.setQueryData(QK.restaurantOrder(order.id), order);
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      void kitchen.dispatchTickets(tickets);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not send this to the kitchen'));
+    },
+  });
+
+  const sendToKitchen = () => {
+    if (!dineInActive || !dineIn.order || fireMutation.isPending || dineIn.isBusy) return;
+    if (unsentCount === 0) {
+      toast.info('Nothing new to send to the kitchen');
+      return;
+    }
+    fireMutation.mutate(dineIn.order.id);
+  };
 
   usePosKeyboard({
     // Disabled while a blocking surface owns the keyboard: the tender overlay
@@ -741,7 +786,8 @@ function Terminal() {
       || showSummary
       || correctPickerOpen
       || !!correctSale
-      || !!returnSaleId,
+      || !!returnSaleId
+      || !!kitchen.current,
     activeRegion,
     setActiveRegion,
     productCount: filteredProducts.length,
@@ -772,7 +818,9 @@ function Terminal() {
       cyclePayment: cyclePaymentMethod,
       printLastReceipt: handlePrintLastReceipt,
       correctLastPayment: handleCorrectLastPayment,
-      hold: () => {},
+      // On a tab, F5 sends the new items to the kitchen. At a counter sale it
+      // still does nothing — parking a sale is Phase 4.
+      hold: sendToKitchen,
       discard: handleDiscard,
       showHelp: () => setHelpOpen(true),
       toggleFloor: () => setFloorOpen((open) => !open),
@@ -803,6 +851,18 @@ function Terminal() {
 
   const tenderWarning = dineInActive ? (
     <>
+      {unsentCount > 0 && (
+        <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
+          <p className="font-semibold text-warning">
+            {unsentCount} line{unsentCount === 1 ? ' was' : 's were'} never sent to the kitchen
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Settling does not print a kitchen ticket. If the guest is still waiting on these,
+            go back and press F5 first.
+          </p>
+        </div>
+      )}
+
       {repriced.length > 0 && (
         <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
           <p className="font-semibold text-warning">
@@ -878,6 +938,14 @@ function Terminal() {
   return (
     <>
       {confirmDialog}
+      <KitchenPrintFailedDialog
+        failure={kitchen.current}
+        remaining={kitchen.remaining}
+        busy={kitchen.busy}
+        onRetry={kitchen.retry}
+        onPrintAtCounter={kitchen.printAtCounter}
+        onMarkHandled={kitchen.markHandled}
+      />
       <div className="dark h-screen flex flex-col lg:grid lg:grid-cols-[1fr_22rem] xl:grid-cols-[1fr_26rem] bg-background text-foreground overflow-hidden font-sans print:hidden">
       <div className="flex flex-col min-w-0 min-h-0 overflow-hidden">
         <POSHeader
@@ -912,6 +980,18 @@ function Terminal() {
                 <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gray-400" aria-hidden="true" />
               )}
               <div className="ml-auto flex shrink-0 items-center gap-2">
+                <KitchenTicketsBadge onReview={kitchen.review} />
+                <Button
+                  onClick={sendToKitchen}
+                  disabled={unsentCount === 0 || fireMutation.isPending || dineIn.isBusy}
+                  className="h-8 gap-2 px-3"
+                  title="Send the new items to the kitchen (F5)"
+                >
+                  {fireMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  Send{unsentCount > 0 ? ` (${unsentCount})` : ''}
+                  <kbd className="hidden rounded border border-primary-foreground/30 px-1 font-mono text-[10px] sm:inline">F5</kbd>
+                </Button>
+                <OrderKitchenTickets orderId={dineIn.order.id} onReprint={kitchen.reprint} />
                 <Button
                   variant="outline"
                   onClick={() => setFloorOpen(true)}
@@ -936,7 +1016,8 @@ function Terminal() {
               <span className="truncate text-gray-400">
                 Counter sale &mdash; no table. Open the floor to seat one.
               </span>
-              <div className="ml-auto shrink-0">
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <KitchenTicketsBadge onReview={kitchen.review} />
                 <Button
                   variant="outline"
                   onClick={() => setFloorOpen(true)}

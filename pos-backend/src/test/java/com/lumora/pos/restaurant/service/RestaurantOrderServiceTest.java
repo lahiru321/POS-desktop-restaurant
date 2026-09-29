@@ -33,6 +33,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -54,6 +55,7 @@ class RestaurantOrderServiceTest {
     @Mock private BranchRepository branchRepository;
     @Mock private UserRepository userRepository;
     @Mock private SaleService saleService;
+    @Mock private KitchenTicketService kitchenTicketService;
     @Mock private AuditService auditService;
 
     @InjectMocks private RestaurantOrderService orderService;
@@ -357,15 +359,47 @@ class RestaurantOrderServiceTest {
         void shouldVoidPartially() {
             RestaurantOrderEntity order = order();
             RestaurantOrderItemEntity item = item(order, "Kottu", "3", "950.00");
+            stubLockedOrder(order);
 
-            when(orderRepository.findByIdAndTenantId(order.getId(), tenantId)).thenReturn(Optional.of(order));
-            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            OrderDtos.OrderResponse response = orderService.voidItem(order.getId(), item.getId(),
+            OrderDtos.OrderKitchenResponse response = orderService.voidItem(order.getId(), item.getId(),
                     OrderDtos.VoidItemRequest.builder().quantity(new BigDecimal("1")).reason("dropped").build());
 
-            assertThat(response.getItems().get(0).getVoidedQuantity()).isEqualByComparingTo("1");
-            assertThat(response.getItems().get(0).getBillableQuantity()).isEqualByComparingTo("2");
+            assertThat(response.getOrder().getItems().get(0).getVoidedQuantity()).isEqualByComparingTo("1");
+            assertThat(response.getOrder().getItems().get(0).getBillableQuantity()).isEqualByComparingTo("2");
+        }
+
+        @Test
+        @DisplayName("Voiding a line the kitchen never saw prints nothing")
+        void shouldNotTellKitchenAboutUnsentVoid() {
+            RestaurantOrderEntity order = order();
+            RestaurantOrderItemEntity item = item(order, "Kottu", "2", "950.00");
+            stubLockedOrder(order);
+
+            orderService.voidItem(order.getId(), item.getId(),
+                    OrderDtos.VoidItemRequest.builder().quantity(BigDecimal.ONE).build());
+
+            assertThat(firedPortionPassedFor(order, item)).isEqualByComparingTo("0");
+            assertThat(item.getFiredQuantity()).isEqualByComparingTo("0");
+            assertThat(item.pendingQuantity()).isEqualByComparingTo("1");
+        }
+
+        @Test
+        @DisplayName("A void takes unsent units first; only the fired remainder reaches the kitchen")
+        void shouldVoidUnsentFirstThenFired() {
+            RestaurantOrderEntity order = order();
+            // 3 ordered, 2 already with the kitchen, 1 still unsent.
+            RestaurantOrderItemEntity item = item(order, "Kottu", "3", "950.00");
+            item.setFiredQuantity(new BigDecimal("2"));
+            stubLockedOrder(order);
+
+            orderService.voidItem(order.getId(), item.getId(),
+                    OrderDtos.VoidItemRequest.builder().quantity(new BigDecimal("2")).reason("changed mind").build());
+
+            // 1 of the 2 came off the unsent unit; the other was cooking.
+            assertThat(firedPortionPassedFor(order, item)).isEqualByComparingTo("1");
+            assertThat(item.getFiredQuantity()).isEqualByComparingTo("1");
+            assertThat(item.getVoidedQuantity()).isEqualByComparingTo("2");
+            assertThat(item.pendingQuantity()).isEqualByComparingTo("0");
         }
 
         @Test
@@ -374,12 +408,29 @@ class RestaurantOrderServiceTest {
             RestaurantOrderEntity order = order();
             RestaurantOrderItemEntity item = item(order, "Kottu", "2", "950.00");
 
-            when(orderRepository.findByIdAndTenantId(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
+                    .thenReturn(Optional.of(order));
 
             assertThatThrownBy(() -> orderService.voidItem(order.getId(), item.getId(),
                     OrderDtos.VoidItemRequest.builder().quantity(new BigDecimal("5")).build()))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("only 2 left");
+        }
+
+        @Test
+        @DisplayName("Fire hands the locked order to the ticket service and saves the advance")
+        void shouldFireThroughLockedOrder() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "2", "950.00");
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
+                    .thenReturn(Optional.of(order));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(kitchenTicketService.fireRound(order)).thenReturn(List.of());
+
+            orderService.fire(order.getId());
+
+            verify(kitchenTicketService).fireRound(order);
+            verify(orderRepository).save(order);
         }
 
         @Test
@@ -624,10 +675,7 @@ class RestaurantOrderServiceTest {
             RestaurantOrderEntity order = order();
             item(order, "Kottu", "1", "950.00");
             table.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
-
-            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
-                    .thenReturn(Optional.of(order));
-            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            stubLockedOrder(order);
 
             orderService.voidOrder(order.getId());
 
@@ -635,11 +683,45 @@ class RestaurantOrderServiceTest {
             assertThat(table.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
             verify(saleService, never()).createSale(any());
         }
+
+        @Test
+        @DisplayName("Voiding a whole order tells the kitchen to stop exactly what it was cooking")
+        void shouldVoidFiredPortionsOfWholeOrder() {
+            RestaurantOrderEntity order = order();
+            RestaurantOrderItemEntity cooking = item(order, "Kottu", "3", "950.00");
+            cooking.setFiredQuantity(new BigDecimal("2"));
+            RestaurantOrderItemEntity unsent = item(order, "Lime juice", "1", "300.00");
+            stubLockedOrder(order);
+
+            orderService.voidOrder(order.getId());
+
+            assertThat(firedPortionPassedFor(order, cooking)).isEqualByComparingTo("2");
+            assertThat(firedPortionPassedFor(order, unsent)).isEqualByComparingTo("0");
+            assertThat(cooking.getVoidedQuantity()).isEqualByComparingTo("3");
+            assertThat(cooking.getFiredQuantity()).isEqualByComparingTo("0");
+        }
     }
 
     // ------------------------------------------------------------------
     // Fixtures
     // ------------------------------------------------------------------
+
+    /** The row-locked read every printing operation goes through, plus a save
+     *  that hands the order back and a ticket service that prints nothing. */
+    private void stubLockedOrder(RestaurantOrderEntity order) {
+        when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
+                .thenReturn(Optional.of(order));
+        when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(kitchenTicketService.voidPortions(eq(order), any(), any())).thenReturn(List.of());
+    }
+
+    /** What the order service asked the kitchen to stop cooking for one line. */
+    @SuppressWarnings("unchecked")
+    private BigDecimal firedPortionPassedFor(RestaurantOrderEntity order, RestaurantOrderItemEntity item) {
+        ArgumentCaptor<Map<RestaurantOrderItemEntity, BigDecimal>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(kitchenTicketService).voidPortions(eq(order), captor.capture(), any());
+        return captor.getValue().getOrDefault(item, BigDecimal.ZERO);
+    }
 
     private RestaurantOrderEntity order() {
         RestaurantOrderEntity order = RestaurantOrderEntity.builder()

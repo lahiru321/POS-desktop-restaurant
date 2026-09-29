@@ -41,12 +41,11 @@ everything and should not be relitigated without reading it:
 - **`Feature.java` is decorative — nothing reads it.** Real enforcement is `FeatureGuardInterceptor.FEATURE_ROUTES`
   plus `SuperAdminTenantService.provisionFromSeed` (`STORE_CREDIT` is enforced without being in the enum).
   Adding a value to the enum alone does nothing.
-- **CSP `connect-src` omits QZ Tray's WebSocket.** `src/middleware.ts` L46 is `connect-src 'self' ${apiUrl}`
-  and `connect-src` governs WebSocket; QZ uses `ws://localhost:8181` / `wss://localhost:8182`. Kitchen printing
-  cannot work until this is widened — receipt QZ printing may already be silently broken for the same reason.
+- **CSP `connect-src` must keep the loopback WebSocket entries** (`ws(s)://localhost:*`, `127.0.0.1:*`) in
+  `src/middleware.ts` — `connect-src` governs WebSocket and QZ Tray lives there. Drop them and every QZ print dies.
 - **`processHardwareCheckoutActions` swallows QZ errors and falls back to browser print**, which
-  `electron/main.ts:274-277` makes impossible (it denies `window.open`). A kitchen print must **never** do
-  this — a swallowed failure means the kitchen never got the order.
+  `electron/main.ts:274-277` makes impossible (it denies `window.open`). Kitchen printing never does this:
+  `kitchenPrinterService` never throws or falls back, and every ticket is acked PRINTED/FAILED/HANDLED.
 - **The tax chain is implemented twice** — backend `TaxRateService` + `SaleService`, frontend
   `getProductTaxRate` + the `taxInfo` memo in `useCart.ts`. Change both in one commit or the cart and server
   totals silently disagree. The backend rounds **per `sale_items` row**, so the client rounds per sub-line too.
@@ -155,11 +154,11 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
 ## Flyway version reservation
 
 Migrations live in `pos-backend/src/main/resources/db/migration/`. Reserve the next `V<n>__` number
-before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V63`**: V59
+before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V64`**: V59
 `products.track_stock`, V60 toppings, V61 `sale_items.parent_item_id` + `topping_id` + `sort_order` + `notes`, V62 `restaurant_areas`/`restaurant_tables` + the `RESTAURANT` backfill, V63 `restaurant_orders` +
 `restaurant_order_items` + `restaurant_order_item_toppings` + `restaurant_order_counters`. Toppings landed
-before tables — trust disk over the plan. Reserved next: **V64** `kitchen_tickets` + `kitchen_ticket_items`
-+ `kitchen_station` columns.
+before tables — trust disk over the plan. V64 `kitchen_tickets` + `kitchen_ticket_items` + `kitchen_station`
+columns. Next free: **V65**.
 
 V63's `uk_rest_order_open_table` (partial unique on `table_id WHERE status = 'OPEN'`) is what makes "one
 table, one tab" true under a race, and `restaurant_order_counters` breaks house style on purpose — no `id`,
