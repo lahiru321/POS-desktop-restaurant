@@ -2,6 +2,7 @@ package com.lumora.pos.restaurant.dto;
 
 import com.lumora.pos.restaurant.entity.RestaurantTableEntity;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -80,6 +81,41 @@ public final class TableDtos {
         private int sortOrder;
         @JsonProperty("isActive")
         private boolean isActive;
+        /** Map cell, from 0; both null when the table has not been placed. */
+        private Integer posX;
+        private Integer posY;
+    }
+
+    /**
+     * A new arrangement for one area. Only the tables listed move; the rest keep
+     * their cells. A table with {@code posX}/{@code posY} null is taken off the
+     * map. The result is checked as a whole, so a swap is one request.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class LayoutRequest {
+        @NotNull(message = "tables is required")
+        @Valid
+        private List<TablePlacement> tables;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TablePlacement {
+        @NotNull(message = "tableId is required")
+        private UUID tableId;
+
+        @Min(value = 0, message = "A position cannot be negative")
+        @Max(value = RestaurantTableEntity.MAP_SIZE - 1, message = "The floor map is 16 cells across")
+        private Integer posX;
+
+        @Min(value = 0, message = "A position cannot be negative")
+        @Max(value = RestaurantTableEntity.MAP_SIZE - 1, message = "The floor map is 16 cells deep")
+        private Integer posY;
     }
 
     @Data

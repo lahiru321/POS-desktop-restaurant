@@ -465,6 +465,76 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     await expect(page.getByText(new RegExp(`${TABLE} paid`))).toBeVisible();
   });
 
+  test("arranging an area draws the till's floor as the room", async ({ page, request, browser }) => {
+    const AREA = `Map ${RUN}`;
+    const area = await api<{ id: string }>(request, "post", "/restaurant/areas", {
+      name: AREA,
+      sortOrder: 98,
+      isActive: true,
+    });
+    const names = [`M1-${RUN}`, `M2-${RUN}`, `M3-${RUN}`];
+    for (const name of names) {
+      await api(request, "post", "/restaurant/tables", { areaId: area.id, name, seats: 2, isActive: true });
+    }
+    const [m1, m2, m3] = names;
+
+    // ── Arrange it in the dashboard, as an admin ─────────────────────────
+    const adminContext = await browser.newContext();
+    const admin = await adminContext.newPage();
+    await login(admin, TERMINAL_USER);
+    await admin.goto("/restaurant/tables");
+    await admin.getByRole("button", { name: `Arrange ${AREA}` }).click();
+    const editor = admin.getByRole("dialog", { name: `Arrange ${AREA}` });
+    await expect(editor).toBeVisible();
+
+    // Tap a table, then tap a spot.
+    await editor.getByRole("button", { name: `${m1}, not on the map` }).click();
+    await editor.getByRole("button", { name: "Empty spot, column 3, row 1" }).click();
+    await expect(editor.getByRole("button", { name: `${m1}, column 3, row 1` })).toBeVisible();
+
+    // Drag one with the mouse, the way a finger would.
+    await editor
+      .getByRole("button", { name: `${m2}, not on the map` })
+      .dragTo(editor.getByRole("button", { name: "Empty spot, column 1, row 1" }));
+    await expect(editor.getByRole("button", { name: `${m2}, column 1, row 1` })).toBeVisible();
+
+    // The rest go in the first free spot.
+    await editor.getByRole("button", { name: /place the rest/i }).click();
+    await expect(editor.getByRole("button", { name: `${m3}, column 2, row 1` })).toBeVisible();
+
+    await editor.getByRole("button", { name: /save layout/i }).click();
+    await expect(editor).toBeHidden();
+    await adminContext.close();
+
+    type Placed = { id: string; name: string; posX: number | null; posY: number | null };
+    const areas = await api<{ id: string; tables: Placed[] }[]>(request, "get", "/restaurant/areas");
+    const saved = areas.find((a) => a.id === area.id)!.tables;
+    const spot = (name: string) => saved.find((t) => t.name === name)!;
+    expect([spot(m2), spot(m3), spot(m1)].map((t) => [t.posX, t.posY])).toEqual([[0, 0], [1, 0], [2, 0]]);
+
+    // Two tables on one spot is refused by the server, in words.
+    await expect(
+      api(request, "put", `/restaurant/areas/${area.id}/layout`, {
+        tables: [{ tableId: spot(m1).id, posX: 0, posY: 0 }],
+      }),
+    ).rejects.toThrow(/are on the same spot/);
+
+    // ── The till draws that room ─────────────────────────────────────────
+    await openShift(page);
+    await page.keyboard.press("F11");
+    await page.getByRole("tab", { name: new RegExp(AREA) }).click();
+    const map = page.locator(`[data-floor-map="${AREA}"]`);
+    await expect(map).toBeVisible();
+    const box = async (name: string) =>
+      (await map.getByRole("button", { name: new RegExp(`^${name},`) }).boundingBox())!;
+    const [b2, b3, b1] = [await box(m2), await box(m3), await box(m1)];
+    // One row, left to right M2, M3, M1 — the order they stand in, not their names.
+    expect(b2.x).toBeLessThan(b3.x);
+    expect(b3.x).toBeLessThan(b1.x);
+    expect(Math.abs(b2.y - b1.y)).toBeLessThan(2);
+    await page.keyboard.press("Escape");
+  });
+
   test("a dine-in bill carries the service charge, and it can be removed", async ({ page, request }) => {
     await openShift(page);
 

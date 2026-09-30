@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, Users } from "lucide-react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QK } from "@/lib/queryKeys";
+import { cellOf, mapBounds, type Cell } from "@/lib/floorMap";
 import { cn, fc, getApiErrorMessage } from "@/lib/utils";
 import { tableService, type RestaurantTable } from "@/services/tableService";
 import {
@@ -284,8 +285,10 @@ export function FloorPlan({ onOrderReady, pick, className }: FloorPlanProps) {
               No tables in {area.name} yet.
             </p>
           ) : (
-            <div className="grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
-              {area.tables.map((table) => (
+            <AreaFloor
+              areaName={area.name}
+              tables={area.tables}
+              renderTile={(table, compact) => (
                 <TableTile
                   key={table.id}
                   table={table}
@@ -297,9 +300,10 @@ export function FloorPlan({ onOrderReady, pick, className }: FloorPlanProps) {
                     (!!pick && ordersByTable.get(table.id)?.id === pick.excludeOrderId)
                   }
                   onTap={handleTap}
+                  compact={compact}
                 />
-              ))}
-            </div>
+              )}
+            />
           )}
         </TabsContent>
       ))}
@@ -337,6 +341,68 @@ export function FloorPlan({ onOrderReady, pick, className }: FloorPlanProps) {
   );
 }
 
+/**
+ * One area's tables: drawn as the room once any of them has been placed on the
+ * map (Restaurant -> Tables -> Arrange), otherwise the plain tile grid, exactly
+ * as before maps existed. Tables not yet placed sit under the map as tiles.
+ */
+function AreaFloor({
+  areaName,
+  tables,
+  renderTile,
+}: {
+  areaName: string;
+  tables: RestaurantTable[];
+  renderTile: (table: RestaurantTable, compact: boolean) => ReactNode;
+}) {
+  const placed = tables
+    .map((table) => ({ table, cell: cellOf(table) }))
+    .filter((p): p is { table: RestaurantTable; cell: Cell } => p.cell !== null);
+  const loose = tables.filter((t) => !cellOf(t));
+  const looseGrid = (
+    <div className="grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+      {loose.map((t) => renderTile(t, false))}
+    </div>
+  );
+  if (placed.length === 0) return looseGrid;
+
+  // Cells have a capped size rather than sharing the width, so the map keeps the
+  // room's proportions (three tables in a row stay three tables, not three
+  // banners). Empty cells keep their size, so the gaps between tables are the
+  // gaps in the room; a map wider than the screen scrolls rather than squashing.
+  const { cols, rows } = mapBounds(placed.map((p) => p.cell));
+  return (
+    <div className="space-y-4 pb-4">
+      <div className="w-fit max-w-full overflow-x-auto rounded-2xl border border-gray-800 bg-gray-900/40 p-3">
+        <div
+          data-floor-map={areaName}
+          className="grid gap-2"
+          style={{
+            gridTemplateColumns: `repeat(${cols}, minmax(7.5rem, 9.5rem))`,
+            gridTemplateRows: `repeat(${rows}, minmax(7rem, auto))`,
+          }}
+        >
+          {placed.map(({ table, cell }) => (
+            <div
+              key={table.id}
+              className="flex"
+              style={{ gridColumnStart: cell.x + 1, gridRowStart: cell.y + 1 }}
+            >
+              {renderTile(table, true)}
+            </div>
+          ))}
+        </div>
+      </div>
+      {loose.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Not on the map</p>
+          {looseGrid}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The floor's pseudo-area for parked takeaway orders. Not a UUID, so it can
  *  never collide with a real area id. */
 const TAKEAWAY_TAB = "__takeaway__";
@@ -348,6 +414,7 @@ function TableTile({
   pending,
   disabled,
   onTap,
+  compact = false,
 }: {
   table: RestaurantTable;
   order?: RestaurantOrder;
@@ -355,6 +422,8 @@ function TableTile({
   pending: boolean;
   disabled: boolean;
   onTap: (table: RestaurantTable, order: RestaurantOrder | undefined) => void;
+  /** On the floor map: fills its cell, and smaller type so a room of tables fits. */
+  compact?: boolean;
 }) {
   const occupied = !!order || table.status === "OCCUPIED";
   const elapsed = order ? formatElapsed(order.openedAt, now) : null;
@@ -371,7 +440,8 @@ function TableTile({
       }
       // Tall enough to hit standing up, at speed, with a thumb.
       className={cn(
-        "flex min-h-[132px] flex-col justify-between rounded-2xl border-2 p-4 text-left transition-colors",
+        "flex flex-col justify-between rounded-2xl border-2 text-left transition-colors",
+        compact ? "min-h-[7rem] w-full p-3" : "min-h-[132px] p-4",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-black",
         "disabled:cursor-not-allowed disabled:opacity-60",
         occupied
@@ -380,7 +450,7 @@ function TableTile({
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="truncate text-2xl font-bold leading-tight text-white">
+        <span className={cn("truncate font-bold leading-tight text-white", compact ? "text-xl" : "text-2xl")}>
           {table.name}
         </span>
         {pending ? (
@@ -394,11 +464,11 @@ function TableTile({
       </div>
 
       {order ? (
-        <div className="mt-3 space-y-0.5">
+        <div className={cn("space-y-0.5", compact ? "mt-2" : "mt-3")}>
           <p className="truncate text-sm font-semibold text-amber-200">
             {order.label}
           </p>
-          <p className="text-lg font-bold tabular-nums text-white">
+          <p className={cn("font-bold tabular-nums text-white", compact ? "text-base" : "text-lg")}>
             {fc(order.runningTotal)}
           </p>
           <p className="text-xs tabular-nums text-gray-400">

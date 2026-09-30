@@ -13,8 +13,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -169,6 +172,12 @@ public class TableService {
         }
 
         table.setArea(area);
+        if (moved) {
+            // Its cell belongs to the old area's map; in the new one it could land
+            // on another table. It shows as an unplaced tile until arranged.
+            table.setPosX(null);
+            table.setPosY(null);
+        }
         table.setName(name);
         if (request.getSeats() != null) {
             table.setSeats(request.getSeats());
@@ -181,6 +190,67 @@ public class TableService {
         RestaurantTableEntity saved = tableRepository.save(table);
         TableDtos.TableResponse response = toResponse(saved);
         auditService.log(AuditAction.UPDATE, "RESTAURANT_TABLE", id, null, response);
+        return response;
+    }
+
+    /**
+     * Arranges an area's floor map in one go.
+     *
+     * <p>Only the tables named move; everything else in the area keeps its cell.
+     * The collision check runs over the finished layout rather than per table, so
+     * swapping two tables (each passing through the other's cell) is one valid
+     * request. V69's deferred unique constraint is the backstop for a concurrent
+     * save; this check is what turns a clash into a sentence.
+     *
+     * <p>Hidden tables keep their cells and still count: un-hiding one must never
+     * drop it on top of another table.
+     */
+    @Transactional
+    public TableDtos.AreaResponse saveLayout(UUID areaId, TableDtos.LayoutRequest request) {
+        UUID tenantId = TenantContext.getTenantId();
+        RestaurantAreaEntity area = areaRepository.findByIdAndTenantId(areaId, tenantId)
+                .orElseThrow(() -> new BusinessException("Area not found"));
+        List<RestaurantTableEntity> tables =
+                tableRepository.findAllByTenantIdAndAreaIdOrderBySortOrderAscNameAsc(tenantId, areaId);
+        Map<UUID, RestaurantTableEntity> byId = tables.stream()
+                .collect(Collectors.toMap(RestaurantTableEntity::getId, t -> t));
+
+        Set<UUID> seen = new HashSet<>();
+        for (TableDtos.TablePlacement placement : request.getTables()) {
+            RestaurantTableEntity table = byId.get(placement.getTableId());
+            if (table == null) {
+                throw new BusinessException("A table in this layout is not in " + area.getName()
+                        + ". Reload the page and try again.");
+            }
+            if (!seen.add(table.getId())) {
+                throw new BusinessException(table.getName() + " is in the layout twice");
+            }
+            if ((placement.getPosX() == null) != (placement.getPosY() == null)) {
+                throw new BusinessException(table.getName() + " needs both a column and a row, or neither");
+            }
+            table.setPosX(placement.getPosX());
+            table.setPosY(placement.getPosY());
+        }
+
+        Map<Integer, RestaurantTableEntity> cells = new HashMap<>();
+        for (RestaurantTableEntity table : tables) {
+            if (table.getPosX() == null) {
+                continue;
+            }
+            int cell = table.getPosY() * RestaurantTableEntity.MAP_SIZE + table.getPosX();
+            RestaurantTableEntity other = cells.putIfAbsent(cell, table);
+            if (other != null) {
+                throw new BusinessException(other.getName() + " and " + table.getName()
+                        + " are on the same spot. Move one of them.");
+            }
+        }
+
+        tableRepository.saveAll(tables);
+        TableDtos.AreaResponse response = toResponse(area, tables);
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_AREA", areaId, null,
+                Map.of("layout", response.getTables().stream()
+                        .map(t -> t.getName() + "@" + (t.getPosX() == null ? "-" : t.getPosX() + "," + t.getPosY()))
+                        .toList()));
         return response;
     }
 
@@ -240,6 +310,8 @@ public class TableService {
                 .status(table.getStatus())
                 .sortOrder(table.getSortOrder())
                 .isActive(table.isActive())
+                .posX(table.getPosX())
+                .posY(table.getPosY())
                 .build();
     }
 }

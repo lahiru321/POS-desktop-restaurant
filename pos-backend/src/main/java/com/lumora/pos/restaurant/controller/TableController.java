@@ -62,6 +62,18 @@ public class TableController {
                 .build());
     }
 
+    /** The area's floor map: where each of its tables stands. */
+    @PutMapping("/areas/{id}/layout")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    public ResponseEntity<ApiResponse<TableDtos.AreaResponse>> saveLayout(
+            @PathVariable UUID id, @Valid @RequestBody TableDtos.LayoutRequest request) {
+        return ResponseEntity.ok(ApiResponse.<TableDtos.AreaResponse>builder()
+                .success(true)
+                .message("Floor layout saved")
+                .data(tableService.saveLayout(id, request))
+                .build());
+    }
+
     @DeleteMapping("/areas/{id}")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<Void>> deleteArea(@PathVariable UUID id) {

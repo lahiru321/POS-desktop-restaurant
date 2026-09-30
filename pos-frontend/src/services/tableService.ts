@@ -25,6 +25,21 @@ export interface RestaurantTable {
   status: TableStatus;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * Where the table stands on its area's floor map: column and row from 0.
+   * Both null until someone places it; the floor then shows it as a plain tile.
+   * Set only through {@link tableService.saveLayout} — the table form never
+   * sends these, and moving a table to another area clears them.
+   */
+  posX?: number | null;
+  posY?: number | null;
+}
+
+/** One table's spot in a layout save. Both null = take it off the map. */
+export interface TablePlacement {
+  tableId: string;
+  posX: number | null;
+  posY: number | null;
 }
 
 export interface RestaurantArea {
@@ -66,6 +81,15 @@ export const tableService = {
   updateArea: (id: string, data: AreaRequest) =>
     api
       .put<ApiResponse<RestaurantArea>>(`/restaurant/areas/${id}`, data)
+      .then((res) => res.data.data),
+
+  /**
+   * Saves an area's floor map. Only the tables listed move; the server checks
+   * the finished layout as a whole, so a swap is a single call.
+   */
+  saveLayout: (areaId: string, tables: TablePlacement[]) =>
+    api
+      .put<ApiResponse<RestaurantArea>>(`/restaurant/areas/${areaId}/layout`, { tables })
       .then((res) => res.data.data),
 
   deleteArea: (id: string) =>

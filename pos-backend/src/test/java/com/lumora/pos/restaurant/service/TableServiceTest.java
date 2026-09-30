@@ -241,6 +241,116 @@ class TableServiceTest {
         verify(areaRepository).delete(area);
     }
 
+    // ------------------------------------------------------------------
+    // Floor map (V69)
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Swapping two tables is one valid layout, though each passes through the other's cell")
+    void shouldSwapTwoTablesInOneLayout() {
+        RestaurantTableEntity t1 = placed("T1", 0, 0);
+        RestaurantTableEntity t4 = placed("T4", 1, 0);
+        givenAreaTables(t1, t4);
+
+        TableDtos.AreaResponse response = tableService.saveLayout(area.getId(), layout(
+                place(t1, 1, 0), place(t4, 0, 0)));
+
+        assertThat(t1.getPosX()).isEqualTo(1);
+        assertThat(t4.getPosX()).isZero();
+        assertThat(response.getTables()).extracting(TableDtos.TableResponse::getPosX).containsExactly(1, 0);
+        verify(tableRepository).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("Dropping a table on a cell another table keeps is refused, naming both, and nothing is saved")
+    void shouldRefuseTwoTablesOnOneCell() {
+        RestaurantTableEntity t1 = placed("T1", 2, 3);
+        RestaurantTableEntity t2 = placed("T2", null, null);
+        givenAreaTables(t1, t2);
+
+        // Only T2 is in the request; T1 keeps its cell and still counts.
+        assertThatThrownBy(() -> tableService.saveLayout(area.getId(), layout(place(t2, 2, 3))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("T1 and T2 are on the same spot");
+
+        verify(tableRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("A null position takes a table off the map; the others keep their cells")
+    void shouldUnplaceWithNulls() {
+        RestaurantTableEntity t1 = placed("T1", 0, 0);
+        RestaurantTableEntity t2 = placed("T2", 1, 1);
+        givenAreaTables(t1, t2);
+
+        tableService.saveLayout(area.getId(), layout(place(t1, null, null)));
+
+        assertThat(t1.getPosX()).isNull();
+        assertThat(t1.getPosY()).isNull();
+        assertThat(t2.getPosX()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("A table from another area, or half a position, is refused")
+    void shouldRefuseForeignTableAndHalfPosition() {
+        RestaurantTableEntity t1 = placed("T1", null, null);
+        givenAreaTables(t1);
+
+        RestaurantTableEntity stranger = table("X9", RestaurantTableEntity.TableStatus.AVAILABLE);
+        assertThatThrownBy(() -> tableService.saveLayout(area.getId(), layout(place(stranger, 0, 0))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("not in Balcony");
+
+        assertThatThrownBy(() -> tableService.saveLayout(area.getId(), layout(place(t1, 3, null))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("both a column and a row");
+
+        verify(tableRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("Moving a table to another area takes it off the map; editing it in place does not")
+    void shouldClearPositionOnlyWhenAreaChanges() {
+        RestaurantAreaEntity garden = RestaurantAreaEntity.builder().name("Garden").build();
+        garden.setId(UUID.randomUUID());
+        garden.setTenantId(tenantId);
+        RestaurantTableEntity t1 = placed("T1", 4, 2);
+        when(tableRepository.findByIdAndTenantId(t1.getId(), tenantId)).thenReturn(Optional.of(t1));
+        when(areaRepository.findByIdAndTenantId(area.getId(), tenantId)).thenReturn(Optional.of(area));
+        when(areaRepository.findByIdAndTenantId(garden.getId(), tenantId)).thenReturn(Optional.of(garden));
+        when(tableRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        tableService.updateTable(t1.getId(), TableDtos.TableRequest.builder()
+                .areaId(area.getId()).name("T1").seats(4).build());
+        assertThat(t1.getPosX()).isEqualTo(4);
+
+        tableService.updateTable(t1.getId(), TableDtos.TableRequest.builder()
+                .areaId(garden.getId()).name("T1").build());
+        assertThat(t1.getPosX()).isNull();
+        assertThat(t1.getPosY()).isNull();
+    }
+
+    private RestaurantTableEntity placed(String name, Integer x, Integer y) {
+        RestaurantTableEntity table = table(name, RestaurantTableEntity.TableStatus.AVAILABLE);
+        table.setPosX(x);
+        table.setPosY(y);
+        return table;
+    }
+
+    private void givenAreaTables(RestaurantTableEntity... tables) {
+        when(areaRepository.findByIdAndTenantId(area.getId(), tenantId)).thenReturn(Optional.of(area));
+        when(tableRepository.findAllByTenantIdAndAreaIdOrderBySortOrderAscNameAsc(tenantId, area.getId()))
+                .thenReturn(java.util.List.of(tables));
+    }
+
+    private static TableDtos.TablePlacement place(RestaurantTableEntity table, Integer x, Integer y) {
+        return TableDtos.TablePlacement.builder().tableId(table.getId()).posX(x).posY(y).build();
+    }
+
+    private static TableDtos.LayoutRequest layout(TableDtos.TablePlacement... placements) {
+        return TableDtos.LayoutRequest.builder().tables(java.util.List.of(placements)).build();
+    }
+
     private RestaurantTableEntity table(String name, RestaurantTableEntity.TableStatus status) {
         RestaurantTableEntity table = RestaurantTableEntity.builder()
                 .area(area)

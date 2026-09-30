@@ -57,6 +57,22 @@ public class RestaurantTableEntity extends BaseEntity {
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 
+    /**
+     * Where the table stands on its area's floor map: column and row of one grid
+     * cell, from 0. Both null means "not placed" and the till shows it as a plain
+     * tile. Set only through the area layout (never the table form), and cleared
+     * when the table moves to another area, where its old cell means nothing.
+     * V69 keeps two tables off one cell.
+     */
+    @Column(name = "pos_x")
+    private Integer posX;
+
+    @Column(name = "pos_y")
+    private Integer posY;
+
+    /** Columns and rows on a floor map; V69's CHECK holds positions to 0..15. */
+    public static final int MAP_SIZE = 16;
+
     public enum TableStatus {
         /** No open tab. Free to seat. */
         AVAILABLE,

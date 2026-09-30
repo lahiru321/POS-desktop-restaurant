@@ -51,6 +51,11 @@ everything and should not be relitigated without reading it:
   (localStorage, per machine). Both sides normalize the same way (`KitchenStations.normalize` /
   `normalizeKitchenStation`: trim, collapse spaces, upper-case); change one, change both. There is no
   stations table — `GET /restaurant/kitchen-stations` is the distinct set in use, KITCHEN first.
+- **An area is a map once any table in it has `pos_x/pos_y`** (V69; Restaurant → Tables → Arrange); unplaced
+  tables still show as tiles under it, and an area with none placed is the old tile grid. Positions are written
+  **only** by `PUT /restaurant/areas/{id}/layout` (whole-area, collision-checked; the table form never sends
+  them), and moving a table to another area clears them. `uk_rest_table_area_pos` is DEFERRABLE so a swap in
+  one save cannot trip it mid-flush. Grid arithmetic lives in `src/lib/floorMap.ts`.
 - **The tax chain is implemented twice** — backend `TaxRateService` + `SaleService`, frontend
   `getProductTaxRate` + the `taxInfo` memo in `useCart.ts`. Change both in one commit or the cart and server
   totals silently disagree. The backend rounds **per `sale_items` row**, so the client rounds per sub-line too.
@@ -127,6 +132,13 @@ Starting a stopped `StoreXRestaurantPostgres` needs **admin**; without it use a 
 binaries, never the installed data dir: `postgres-bin/bin/initdb.exe -D <tmp> -U postgres --auth=trust -E UTF8 --locale=C`
 (**the encoding flags are not optional** — initdb otherwise takes WIN1252 from the Windows locale and Flyway dies at
 `V16__add_returns_refunds.sql` L10, box-drawing characters, SQLState 22P05), then `pg_ctl.exe -D <tmp> -o "-p 5599" start`, point `DATABASE_URL` at 5599, and delete `<tmp>` after.
+Start `pg_ctl` with its output redirected to a file, **never piped** (`| tail`): the postgres child inherits
+the pipe and the shell hangs forever waiting for EOF.
+
+**Running `e2e/restaurant.spec.ts` locally** (backend `prod,demo` on 8082 against that cluster + `npm run dev`)
+needs two env vars on the backend: `ALLOWED_ORIGINS=http://localhost:3000` (`prod` otherwise refuses the
+browser's CORS preflight, so every UI login silently does nothing) and `RATE_LIMIT_LOGIN_CAPACITY=1000` (the
+suite makes more than the default 10 logins per 15 min and the tail of it fails with "Too many login attempts").
 
 ### Staging the installer
 
@@ -159,12 +171,12 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
 ## Flyway version reservation
 
 Migrations live in `pos-backend/src/main/resources/db/migration/`. Reserve the next `V<n>__` number
-before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V68`**: V59
+before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V69`**: V59
 `products.track_stock`, V60 toppings, V61 `sale_items.parent_item_id` + `topping_id` + `sort_order` + `notes`, V62 `restaurant_areas`/`restaurant_tables` + the `RESTAURANT` backfill, V63 `restaurant_orders` +
 `restaurant_order_items` + `restaurant_order_item_toppings` + `restaurant_order_counters`. Toppings landed
 before tables — trust disk over the plan. V64 `kitchen_tickets` + `kitchen_ticket_items` + `kitchen_station`
 columns, V65 ticket `notice`, V66 nullable `return_items.product_id`, V67 `split_from_id`,
-V68 `sales.service_charge_*`. Next free: **V69**.
+V68 `sales.service_charge_*`, V69 `restaurant_tables.pos_x/pos_y` (floor map). Next free: **V70**.
 
 V63's `uk_rest_order_open_table` (partial unique on `table_id WHERE status = 'OPEN'`) is what makes "one
 table, one tab" true under a race, and `restaurant_order_counters` breaks house style on purpose — no `id`,

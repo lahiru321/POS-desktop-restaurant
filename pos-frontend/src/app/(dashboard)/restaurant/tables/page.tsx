@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, Pencil, X, Check } from "lucide-react";
+import { Plus, Trash2, Pencil, X, Check, Map as MapIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import {
   type TableRequest,
   type TableStatus,
 } from "@/services/tableService";
+import { FloorLayoutEditor } from "./FloorLayoutEditor";
 
 /**
  * Authoring for the floor: areas ("Ground Floor", "Terrace") and the tables in
@@ -46,6 +47,9 @@ export default function TablesPage() {
   const [newAreaName, setNewAreaName] = useState("");
   const [renamingArea, setRenamingArea] = useState<RestaurantArea | null>(null);
   const [editingTable, setEditingTable] = useState<{ areaId: string; table?: RestaurantTable } | null>(null);
+  // Held by id, so the editor always sees the area's latest tables.
+  const [arrangingAreaId, setArrangingAreaId] = useState<string | null>(null);
+  const arrangingArea = areas.find((a) => a.id === arrangingAreaId);
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
@@ -140,6 +144,13 @@ export default function TablesPage() {
   return (
     <div className="space-y-6 p-6">
       {confirmDialog}
+      {arrangingArea && (
+        <FloorLayoutEditor
+          key={arrangingArea.id}
+          area={arrangingArea}
+          onClose={() => setArrangingAreaId(null)}
+        />
+      )}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Tables</h1>
@@ -237,10 +248,23 @@ export default function TablesPage() {
                     <CardTitle className="text-lg truncate">{area.name}</CardTitle>
                     <p className="text-[11px] text-muted-foreground">
                       {area.tables.length === 1 ? "1 table" : `${area.tables.length} tables`}
+                      {notOnMap(area) > 0 && area.tables.length > notOnMap(area)
+                        ? ` · ${notOnMap(area)} not on the map`
+                        : ""}
                       {area.isActive ? "" : " · hidden from the floor"}
                     </p>
                   </div>
                   <div className="flex gap-1 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={area.tables.length === 0}
+                      aria-label={`Arrange ${area.name}`}
+                      title={area.tables.length === 0 ? "Add tables first" : "Lay the tables out as they stand in the room"}
+                      onClick={() => setArrangingAreaId(area.id)}
+                    >
+                      <MapIcon size={15} className="mr-1" /> Arrange
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -339,6 +363,11 @@ export default function TablesPage() {
       </div>
     </div>
   );
+}
+
+/** Tables with no spot on the area's map; the till shows them as plain tiles. */
+function notOnMap(area: RestaurantArea): number {
+  return area.tables.filter((t) => t.posX == null || t.posY == null).length;
 }
 
 /** Read-only by design: the order lifecycle owns this, not this screen. */
