@@ -50,6 +50,8 @@ const ACTIVATION_URL =
 
 const PROGRAM_DATA = process.env.ProgramData || 'C:\\ProgramData';
 const DB_PROPERTIES = path.join(PROGRAM_DATA, 'StoreX Restaurant', 'db.properties');
+// Written by setup-qz-signing.ps1 (installer): this machine's QZ Tray signing key.
+const QZ_PROPERTIES = path.join(PROGRAM_DATA, 'StoreX Restaurant', 'qz', 'qz.properties');
 
 let backendProc: ChildProcess | null = null;
 let frontendProc: ChildProcess | null = null;
@@ -89,6 +91,39 @@ interface DbConfig {
   jwtSecret: string;
 }
 
+/** `key=value` lines, `#` comments. The format our install scripts write. */
+function readProperties(file: string): Record<string, string> {
+  const cfg: Record<string, string> = {};
+  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0) continue;
+    cfg[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+  }
+  return cfg;
+}
+
+/**
+ * The backend env for silent QZ Tray printing, or nothing. Optional by design:
+ * without a key the till prints unsigned (QZ asks the cashier to allow it), so a
+ * missing or broken file is logged, never fatal.
+ */
+function qzSigningEnv(): Record<string, string> {
+  try {
+    if (!fs.existsSync(QZ_PROPERTIES)) return {};
+    const qz = readProperties(QZ_PROPERTIES);
+    if (!qz.keystore || !qz.password || !fs.existsSync(qz.keystore)) {
+      appendLog(`[main] ${QZ_PROPERTIES} is incomplete — QZ printing stays unsigned`);
+      return {};
+    }
+    return { QZ_KEYSTORE: qz.keystore, QZ_KEYSTORE_PASSWORD: qz.password };
+  } catch (err) {
+    appendLog(`[main] could not read ${QZ_PROPERTIES}: ${String(err)} — QZ printing stays unsigned`);
+    return {};
+  }
+}
+
 function loadDbConfig(): DbConfig {
   if (!fs.existsSync(DB_PROPERTIES)) {
     throw new Error(
@@ -96,17 +131,7 @@ function loadDbConfig(): DbConfig {
       `Reinstall StoreX Restaurant to provision the database.`
     );
   }
-  const text = fs.readFileSync(DB_PROPERTIES, 'utf8');
-  const cfg: Partial<DbConfig> = {};
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim();
-    (cfg as Record<string, string>)[key] = value;
-  }
+  const cfg = readProperties(DB_PROPERTIES) as Partial<DbConfig>;
   for (const k of ['host', 'port', 'user', 'password', 'database', 'jwtSecret'] as const) {
     if (!cfg[k]) throw new Error(`db.properties is missing key: ${k}`);
   }
@@ -183,6 +208,8 @@ async function startBackend(db: DbConfig, license: ActivatedLicense): Promise<vo
         // JAR-baked public key and aborts startup if it's missing/invalid).
         APP_LICENSE_TOKEN: license.token,
         APP_MACHINE_FINGERPRINT: computeFingerprint(),
+        // Silent QZ Tray printing, when setup-qz-signing.ps1 has made this machine a key.
+        ...qzSigningEnv(),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

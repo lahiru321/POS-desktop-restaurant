@@ -12,6 +12,18 @@
     Abort
   ${EndIf}
   DetailPrint "PostgreSQL service is running."
+
+  ; Silent printing: a per-machine signing key, trusted by QZ Tray. Never fatal —
+  ; without it the till still prints (QZ asks the cashier to allow it), and the
+  ; script can be re-run by hand once QZ Tray is installed.
+  DetailPrint "Setting up silent printing (QZ Tray signing)..."
+  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\setup-qz-signing.ps1" -InstallDir "$INSTDIR"'
+  Pop $0
+  ${If} $0 == 2
+    DetailPrint "QZ Tray is not installed yet - install it, then re-run setup-qz-signing.ps1 as administrator."
+  ${ElseIf} $0 != 0
+    DetailPrint "QZ Tray signing was not set up (exit code $0). Printing will ask for permission. See C:\ProgramData\StoreX Restaurant\logs\qz-setup.log"
+  ${EndIf}
 !macroend
 
 !macro customUnInstall

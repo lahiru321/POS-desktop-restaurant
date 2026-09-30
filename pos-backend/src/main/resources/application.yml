@@ -70,10 +70,14 @@ app:
       MEDIUM_BUSINESS: 150
       ENTERPRISE: 500
   # QZ Tray digital signing (silent ESC/POS printing). Leave blank to run unsigned
-  # (QZ shows a one-time per-machine trust prompt). Supply as env-var secrets in prod.
+  # (QZ asks the cashier to allow the site). Either PEM strings (hosted, with a
+  # commercial QZ certificate) or a PKCS12 keystore — the desktop launcher passes
+  # the per-machine one that setup-qz-signing.ps1 generates. Never committed.
   qz:
     certificate: ${QZ_CERTIFICATE:}
     private-key: ${QZ_PRIVATE_KEY:}
+    keystore: ${QZ_KEYSTORE:}
+    keystore-password: ${QZ_KEYSTORE_PASSWORD:}
 
 # Actuator
 management:

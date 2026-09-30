@@ -1,5 +1,6 @@
 import type { PrintData } from 'qz-tray';
 import api from './api';
+import { toPrinterText } from './printerText';
 
 /**
  * Thin wrapper around the QZ Tray connector (native ESC/POS printing).
@@ -10,8 +11,10 @@ import api from './api';
  * — things browser printing cannot do.
  *
  * The connector is loaded lazily and only in the browser so it never runs
- * during SSR. Printing is currently UNSIGNED: QZ shows a one-time trust prompt
- * per machine. Silent printing needs a backend-signed certificate (later work).
+ * during SSR. Requests are SIGNED when the backend has a key — on a desktop
+ * install, the per-machine one `setup-qz-signing.ps1` makes and installs into
+ * QZ Tray as override.crt — so QZ asks once ("Remember this decision") and then
+ * prints silently. Without a key they go unsigned and QZ asks every time.
  */
 
 type Qz = typeof import('qz-tray').default;
@@ -36,8 +39,8 @@ async function getQz(): Promise<Qz> {
 
 /**
  * Registers the certificate/signature callbacks. When the backend has signing
- * configured, prints are signed (silent). Otherwise the certificate fetch fails,
- * QZ treats the site as untrusted, and shows its one-time per-machine prompt.
+ * configured, prints are signed (silent once allowed). Otherwise the certificate
+ * fetch gets a 204, QZ treats the site as anonymous, and prompts on every connect.
  */
 function setupSecurity(qz: Qz): void {
   qz.security.setSignatureAlgorithm('SHA512');
@@ -94,6 +97,13 @@ export const qzTrayService = {
   /**
    * Sends a raw ESC/POS job to the given printer (or the system default when
    * the target is blank/"default").
+   *
+   * Every plain string is made printable ASCII first (`toPrinterText`) — the one
+   * place that rule is enforced, so no caller can forget it. ISO-8859-1 then
+   * sends each character as exactly one byte; UTF-8 would turn anything above
+   * 0x7F into two, which a thermal printer reads as a Chinese character or
+   * garbage. Bytes that must not be touched (a drawer kick) come in as `hex`
+   * elements (`rawBytes`) and pass through as they are.
    */
   async printRaw(printerTarget: string, data: PrintData[]): Promise<void> {
     const qz = await getQz();
@@ -102,7 +112,7 @@ export const qzTrayService = {
       printerTarget && printerTarget.toLowerCase() !== 'default'
         ? printerTarget
         : await qz.printers.getDefault();
-    const config = qz.configs.create(printer, { encoding: 'UTF-8' });
-    await qz.print(config, data);
+    const config = qz.configs.create(printer, { encoding: 'ISO-8859-1' });
+    await qz.print(config, data.map((d) => (typeof d === 'string' ? toPrinterText(d) : d)));
   },
 };

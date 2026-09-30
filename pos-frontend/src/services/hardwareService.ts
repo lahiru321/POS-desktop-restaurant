@@ -1,3 +1,5 @@
+import { kickBytes } from './escposBuilder';
+
 /**
  * Hardware Service for interacting with specialized POS components.
  * Manages configuration and command pipelines for Thermal Printers and Cash Drawers.
@@ -64,8 +66,9 @@ export const hardwareService = {
    * Generates the raw ESC/POS kick code buffer
    */
   getCashDrawerKickBuffer(config: HardwareConfig): Uint8Array {
-    const codes = config.kickCode.split(',').map(Number);
-    return new Uint8Array(codes);
+    // The same parser the receipt uses, so "Test drawer" and a real cash sale
+    // can never read one setting two ways.
+    return new Uint8Array(kickBytes(config.kickCode));
   },
 
   /**
@@ -79,8 +82,11 @@ export const hardwareService = {
 
     if (config.printerMode === 'qz_tray') {
       const { qzTrayService } = await import('./qzTrayService');
-      const raw = String.fromCharCode(...Array.from(this.getCashDrawerKickBuffer(config)));
-      await qzTrayService.printRaw(config.printerTarget, [raw]);
+      const { rawBytes } = await import('./printerText');
+      // Hex, not a string: the last byte (0xFA) must reach the printer as is.
+      await qzTrayService.printRaw(config.printerTarget, [
+        rawBytes(Array.from(this.getCashDrawerKickBuffer(config))),
+      ]);
       return;
     }
 

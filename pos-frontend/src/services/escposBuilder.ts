@@ -1,6 +1,7 @@
 import type { PrintData } from 'qz-tray';
 import type { ReceiptData } from './receiptPrinterService';
 import { format } from 'date-fns';
+import { rawBytes, toPrinterText } from './printerText';
 
 /**
  * Builds a raw ESC/POS print job (for QZ Tray) from the same {@link ReceiptData}
@@ -12,6 +13,12 @@ import { format } from 'date-fns';
 // Exported for kitchenTicketBuilder, so the two builders can never drift apart
 // on what a byte sequence means.
 export const INIT = '\x1B\x40';
+/**
+ * FS . — cancel Chinese (Kanji) character mode. Many ESC/POS printers (the DBL
+ * 822 among them) ship with a GB18030 font and start in double-byte mode; this
+ * puts them in single-byte mode for the job. Printers without the mode ignore it.
+ */
+export const SINGLE_BYTE = '\x1C\x2E';
 export const ALIGN_LEFT = '\x1B\x61\x00';
 export const ALIGN_CENTER = '\x1B\x61\x01';
 export const BOLD_ON = '\x1B\x45\x01';
@@ -24,11 +31,20 @@ const ITEM_NAME_MAX = 22;
 
 const money = (n: number) => (Number.isFinite(n) ? n : 0).toFixed(2);
 
-export const truncate = (s: string, max: number) =>
-  s.length > max ? s.slice(0, max - 1) + '…' : s;
+/**
+ * Fits text in `max` printable columns, ending "..." when it had to cut.
+ * Cleaned first, so what is measured is what will print ("…" is three columns).
+ */
+export const truncate = (s: string, max: number): string => {
+  const text = toPrinterText(s);
+  if (text.length <= max) return text;
+  return max <= 3 ? text.slice(0, max) : text.slice(0, max - 3) + '...';
+};
 
 /** Left text + right text padded to the paper's character width. */
 export function leftRight(left: string, right: string, width: number): string {
+  left = toPrinterText(left);
+  right = toPrinterText(right);
   const space = Math.max(1, width - left.length - right.length);
   if (space === 1 && left.length + right.length >= width) {
     left = truncate(left, width - right.length - 1);
@@ -36,15 +52,23 @@ export function leftRight(left: string, right: string, width: number): string {
   return left + ' '.repeat(Math.max(1, width - left.length - right.length)) + right + '\n';
 }
 
-/** Decodes "27,112,0,25,250" (dec) or "1B,70,..." (hex) into a raw byte string. */
-function kickCommand(kickCode: string): string {
-  const codes = kickCode
+/**
+ * Decodes the drawer kick setting — "27,112,0,25,250" (decimal) or
+ * "1B,70,00,19,FA" (hex) — into bytes.
+ *
+ * Decimal or hex is decided for the whole code, not number by number: in
+ * "1B,70,00,19,FA" the "70" and "19" are hex too, and reading them as decimal
+ * would send the wrong pulse. Hex when any part has a letter or a 0x prefix.
+ */
+export function kickBytes(kickCode: string): number[] {
+  const parts = kickCode
     .split(',')
     .map((c) => c.trim())
-    .filter(Boolean)
-    .map((c) => (/^0x/i.test(c) || /[a-f]/i.test(c) ? parseInt(c, 16) : parseInt(c, 10)))
+    .filter(Boolean);
+  const hex = parts.some((c) => /^0x/i.test(c) || /[a-f]/i.test(c));
+  return parts
+    .map((c) => parseInt(c.replace(/^0x/i, ''), hex ? 16 : 10))
     .filter((n) => Number.isFinite(n) && n >= 0 && n <= 255);
-  return String.fromCharCode(...codes);
 }
 
 export interface EscPosOptions {
@@ -60,11 +84,12 @@ export function buildReceiptCommands(data: ReceiptData, opts: EscPosOptions): Pr
   const firstName = data.cashierName?.split(' ')[0] ?? 'Staff';
   const method = (data.paymentMethod || '').toUpperCase();
 
-  const cmds: PrintData[] = [INIT];
+  const cmds: PrintData[] = [INIT, SINGLE_BYTE];
 
-  // Open the drawer up front so it pops while the receipt is printing.
+  // Open the drawer up front so it pops while the receipt is printing. As hex:
+  // the pulse timing ends in 0xFA, which no text path may touch.
   if (opts.drawerKick && method === 'CASH') {
-    cmds.push(kickCommand(opts.kickCode));
+    cmds.push(rawBytes(kickBytes(opts.kickCode)));
   }
 
   // ── Header (logo + store details) ─────────────────────────────────────

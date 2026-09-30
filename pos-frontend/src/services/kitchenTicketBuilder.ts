@@ -2,6 +2,7 @@ import type { PrintData } from 'qz-tray';
 import { format } from 'date-fns';
 import {
   INIT,
+  SINGLE_BYTE,
   ALIGN_LEFT,
   ALIGN_CENTER,
   BOLD_ON,
@@ -66,7 +67,7 @@ function sheet(ticket: KitchenTicket, opts: KitchenTicketOptions): PrintData[] {
   const isVoid = ticket.ticketType === 'VOID';
   const isMove = ticket.ticketType === 'MOVE';
 
-  const cmds: PrintData[] = [INIT];
+  const cmds: PrintData[] = [INIT, SINGLE_BYTE];
 
   if (isVoid) cmds.push(...banner('** VOID **'));
   if (isMove) cmds.push(...banner('** MOVED **'));

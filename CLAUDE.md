@@ -61,6 +61,16 @@ everything and should not be relitigated without reading it:
   raises it (bannering the sheets `FIRE COURSE N` via the ticket's `notice`). The server's
   `OrderItemResponse.held` is the verdict — the till only counts it (`src/lib/courses.ts`). Takeaway releases
   every course before firing on payment; a merge keeps the higher release; line merging on tap is per course.
+- **Everything printed goes through `qzTrayService.printRaw`, which sends ISO-8859-1 and cleans every
+  string to printable ASCII (`printerText.toPrinterText`)** — the target printers (DBL 822, 80mm ESC/POS,
+  48 cols) carry a Chinese GB18030 font and no Sinhala/Tamil, so UTF-8 or a stray byte prints as garbage.
+  Bytes that must not be touched (the drawer kick, ending 0xFA) go as `rawBytes()` hex elements, never
+  strings; jobs start `INIT, SINGLE_BYTE` (FS . cancels Chinese mode). `kickBytes` is the one kick parser.
+- **Silent QZ printing is per machine.** `build/setup-qz-signing.ps1` (installer hook, non-fatal; re-run as
+  admin if QZ Tray is installed later) makes a keytool PKCS12 key in `%ProgramData%\StoreX Restaurant\qz\`,
+  copies its cert into QZ Tray as `override.crt` and restarts QZ; the launcher passes `QZ_KEYSTORE`/
+  `QZ_KEYSTORE_PASSWORD`; `QzSigningService` signs. Never ship one shared key — whoever unpacked the
+  installer could sign print jobs for every customer's QZ. The till asks once; "Remember" makes it silent.
 - **The tax chain is implemented twice** — backend `TaxRateService` + `SaleService`, frontend
   `getProductTaxRate` + the `taxInfo` memo in `useCart.ts`. Change both in one commit or the cart and server
   totals silently disagree. The backend rounds **per `sale_items` row**, so the client rounds per sub-line too.

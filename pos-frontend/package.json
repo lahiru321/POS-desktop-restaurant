@@ -141,6 +141,10 @@
       {
         "from": "build/uninstall-postgres.ps1",
         "to": "uninstall-postgres.ps1"
+      },
+      {
+        "from": "build/setup-qz-signing.ps1",
+        "to": "setup-qz-signing.ps1"
       }
     ],
     "win": {
