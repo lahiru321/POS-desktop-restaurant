@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The logic under test is pure; the real module would look for the Electron
+// binary, which CI does not download.
+vi.mock('electron', () => ({ shell: { openExternal: vi.fn() } }));
+
 import { isSafeExternalUrl } from './navigation';
 
 describe('isSafeExternalUrl', () => {

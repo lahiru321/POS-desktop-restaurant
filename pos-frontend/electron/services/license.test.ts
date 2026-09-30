@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Pure date logic; the real module would look for the Electron binary, which CI
+// does not download.
+vi.mock('electron', () => ({ safeStorage: { isEncryptionAvailable: () => false } }));
+
 import { isPastGrace, LICENSE_GRACE_DAYS } from './license';
 
 const DAY = 24 * 60 * 60 * 1000;
