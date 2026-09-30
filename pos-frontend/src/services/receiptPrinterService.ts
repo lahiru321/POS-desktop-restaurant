@@ -55,6 +55,26 @@ export interface ReceiptData {
   pointsBalance?: number;
 }
 
+/**
+ * What happened to a receipt. `notConfigured` means this till has no receipt
+ * printer set up (a till without one is a real setup, so it is a hint, not an
+ * alarm); any other failure means the printer should have printed and did not.
+ */
+export type ReceiptPrintResult =
+  | { ok: true }
+  | { ok: false; error: string; notConfigured?: boolean };
+
+/** The packaged app — Electron's preload exposes `window.lumora`. */
+function isDesktopApp(): boolean {
+  return typeof window !== 'undefined' && !!(window as { lumora?: { isDesktop?: boolean } }).lumora?.isDesktop;
+}
+
+function printErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string' && err) return err;
+  return 'The receipt printer did not respond';
+}
+
 const ITEM_NAME_MAX = 18;
 
 const escape = (s: string) =>
@@ -257,8 +277,9 @@ export const receiptPrinterService = {
    * in a single job). Any QZ failure (not installed, not connected) falls back to
    * browser printing so a completed sale is never blocked.
    */
-  async processHardwareCheckoutActions(data: ReceiptData) {
+  async processHardwareCheckoutActions(data: ReceiptData): Promise<ReceiptPrintResult> {
     const config = hardwareService.getConfig();
+    const desktop = isDesktopApp();
 
     if (config.printerMode === 'qz_tray') {
       try {
@@ -268,18 +289,31 @@ export const receiptPrinterService = {
           kickCode: config.kickCode,
         });
         await qzTrayService.printRaw(config.printerTarget, commands);
-        return;
+        return { ok: true };
       } catch (err) {
+        // In the desktop app there is no browser print to fall back to — the
+        // window denies window.open, which used to send a blank page to the
+        // customer's web browser while the cashier saw nothing. Say so instead.
+        if (desktop) return { ok: false, error: printErrorMessage(err) };
         console.error('QZ Tray print failed — falling back to browser print.', err);
         // fall through to the browser path below
       }
     }
 
-    // browser_print (and the qz fallback): the drawer kick can only be simulated.
+    if (desktop) {
+      return {
+        ok: false,
+        notConfigured: true,
+        error: 'No receipt printer is set up. Choose QZ Tray in Settings → Hardware.',
+      };
+    }
+
+    // browser_print (and the qz fallback, in a browser): the drawer kick can only be simulated.
     if (config.cashDrawerKick) {
       hardwareService.kickCashDrawer();
     }
 
     this.printBrowserReceipt(data);
+    return { ok: true };
   },
 };

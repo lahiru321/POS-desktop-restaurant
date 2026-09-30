@@ -45,6 +45,8 @@ import { ProductGrid } from '@/components/pos/ProductGrid';
 import { ToppingPickerDialog } from '@/components/pos/ToppingPickerDialog';
 import { toppingService } from '@/services/toppingService';
 import { CartItemCard } from '@/components/pos/CartItemCard';
+import { ReceiptPrintFailedDialog, type ReceiptPrintFailure } from '@/components/pos/ReceiptPrintFailedDialog';
+import { hardwareService } from '@/services/hardwareService';
 import { ManagerPinDialog, type ManagerPinRequest } from '@/components/pos/ManagerPinDialog';
 import { CartSummary } from '@/components/pos/CartSummary';
 import { TenderOverlay } from '@/components/pos/TenderOverlay';
@@ -466,6 +468,42 @@ function Terminal() {
   // gross tendered / change off the sale (persisted on the server) so reprints —
   // and receipts reprinted after a payment correction — show the correct
   // Cash/Change lines instead of defaulting to an exact tender.
+  // A receipt that did not print, waiting for Retry or Skip. Never silent: the
+  // customer has no receipt and, on a cash sale, the drawer did not open.
+  const [receiptFailure, setReceiptFailure] = useState<(ReceiptPrintFailure & { data: ReceiptData }) | null>(null);
+  const [receiptRetrying, setReceiptRetrying] = useState(false);
+
+  /** Prints a receipt and puts any failure in front of the cashier. */
+  const printReceipt = async (data: ReceiptData, successMessage?: string) => {
+    const result = await receiptPrinterService.processHardwareCheckoutActions(data);
+    if (result.ok) {
+      setReceiptFailure(null);
+      if (successMessage) toast.success(successMessage);
+      return;
+    }
+    if (result.notConfigured) {
+      // A till with no receipt printer is a real setup: a hint, not a dialog.
+      toast.info('Receipt not printed', { description: result.error });
+      return;
+    }
+    setReceiptFailure({
+      data,
+      label: data.transactionId,
+      opensDrawer: data.paymentMethod?.toUpperCase() === 'CASH' && hardwareService.getConfig().cashDrawerKick,
+      error: result.error,
+    });
+  };
+
+  const retryReceipt = async () => {
+    if (!receiptFailure) return;
+    setReceiptRetrying(true);
+    try {
+      await printReceipt(receiptFailure.data, 'Receipt printed');
+    } finally {
+      setReceiptRetrying(false);
+    }
+  };
+
   const buildReceiptData = (sale: SaleResponse): ReceiptData => ({
     tenantName: tenantInfo?.name || 'StoreX',
     logoUrl: tenantInfo?.logoUrl ?? undefined,
@@ -561,7 +599,7 @@ function Terminal() {
         pointsBalance: data.loyaltyBalance ?? undefined,
       };
       
-      receiptPrinterService.processHardwareCheckoutActions(receiptData);
+      void printReceipt(receiptData);
       clearCart();
     },
     onError: (error: unknown) => {
@@ -765,7 +803,7 @@ function Terminal() {
       toast.info('No recent sale to reprint');
       return;
     }
-    receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(lastSale));
+    void printReceipt(buildReceiptData(lastSale));
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -803,7 +841,7 @@ function Terminal() {
       setCashTendered(0);
       setPointsToRedeem(0);
       selectOrder(null);
-      receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(result.sale));
+      void printReceipt(buildReceiptData(result.sale));
       // A parked takeaway fires on payment; a dine-in settle never does.
       if (result.tickets.length > 0) void kitchen.dispatchTickets(result.tickets);
     },
@@ -831,7 +869,7 @@ function Terminal() {
       setCashTendered(0);
       setPointsToRedeem(0);
       retailCart.clearCart();
-      receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(result.sale));
+      void printReceipt(buildReceiptData(result.sale));
       void kitchen.dispatchTickets(result.tickets);
     },
     onError: (error: unknown) => {
@@ -943,7 +981,7 @@ function Terminal() {
       setLastSale(result.sale);
       setCashTendered(0);
       setPointsToRedeem(0);
-      receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(result.sale));
+      void printReceipt(buildReceiptData(result.sale));
     },
     onError: (error: unknown) => {
       // Nothing moved: the split and the payment are one transaction.
@@ -1058,7 +1096,8 @@ function Terminal() {
       || !!correctSale
       || !!returnSaleId
       || !!kitchen.current
-      || !!pinRequest,
+      || !!pinRequest
+      || !!receiptFailure,
     activeRegion,
     setActiveRegion,
     productCount: filteredProducts.length,
@@ -1251,6 +1290,12 @@ function Terminal() {
           pinRequest?.resolve(null);
           setPinRequest(null);
         }}
+      />
+      <ReceiptPrintFailedDialog
+        failure={receiptFailure}
+        busy={receiptRetrying}
+        onRetry={() => void retryReceipt()}
+        onSkip={() => setReceiptFailure(null)}
       />
       <KitchenPrintFailedDialog
         failure={kitchen.current}
@@ -1667,8 +1712,7 @@ function Terminal() {
           queryClient.invalidateQueries({ queryKey: QK.cashSessionActive });
           queryClient.invalidateQueries({ queryKey: QK.currentSessionSales });
           // Hand the customer a corrected receipt reflecting the new tender/method.
-          receiptPrinterService.processHardwareCheckoutActions(buildReceiptData(updated));
-          toast.success('Corrected receipt sent to printer');
+          void printReceipt(buildReceiptData(updated), 'Corrected receipt printed');
         }}
         onRequestReturn={(s) => setReturnSaleId(s.id)}
       />

@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
+import { lockDownNavigation } from './navigation';
+import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { spawn, ChildProcess } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
@@ -315,10 +316,7 @@ async function createWindow(): Promise<void> {
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.on('closed', () => { mainWindow = null; });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  lockDownNavigation(mainWindow, `http://localhost:${FRONTEND_PORT}`, appendLog);
 
   await mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`);
   if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });

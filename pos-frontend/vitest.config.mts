@@ -9,7 +9,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     css: false,
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "electron/**/*.test.ts"],
     exclude: ["node_modules", ".next", "e2e/**"],
   },
 });

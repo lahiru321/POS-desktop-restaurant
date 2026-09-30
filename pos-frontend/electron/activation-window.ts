@@ -1,3 +1,4 @@
+import { lockDownNavigation } from "./navigation";
 import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { join } from "path";
 
@@ -115,6 +116,10 @@ function runActivationWindow(apiBaseUrl: string, message: string): Promise<Activ
         reject(new Error("Activation cancelled."));
       }
     });
+
+    // A local page: it never navigates, and opens nothing but https links.
+
+    lockDownNavigation(win, null, () => undefined);
 
     void win.loadFile(join(__dirname, "activation.html"));
   });

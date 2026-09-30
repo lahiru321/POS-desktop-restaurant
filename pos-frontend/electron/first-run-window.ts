@@ -1,3 +1,4 @@
+import { lockDownNavigation } from "./navigation";
 import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { join } from "path";
 
@@ -68,6 +69,10 @@ export function runFirstRunWizard(): Promise<FirstRunInput> {
       cleanup();
       if (!submitted) reject(new Error("Setup cancelled."));
     });
+
+    // A local page: it never navigates, and opens nothing but https links.
+
+    lockDownNavigation(win, null, () => undefined);
 
     void win.loadFile(join(__dirname, "first-run.html"));
   });
