@@ -6,6 +6,8 @@ export interface Category {
   parentId?: string;
   taxRateId?: string;
   taxRateName?: string;
+  /** Kitchen printer for this category's dishes ("BAR"). Null = KITCHEN. */
+  kitchenStation?: string | null;
   createdAt: string;
 }
 
@@ -52,6 +54,8 @@ export interface Product {
    * must default it to `true`, which is the behaviour those older products had.
    */
   trackStock?: boolean;
+  /** This product's own station only; null inherits the category's, then KITCHEN. */
+  kitchenStation?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,6 +76,8 @@ export interface ProductRequest {
   isActive: boolean;
   /** False = made to order: no stock row is created and sales never deduct. */
   trackStock: boolean;
+  /** Empty or omitted = inherit. Sent on every update: PUT is a full replace. */
+  kitchenStation?: string;
   branchStockLevels?: { branchId: string; quantity: number }[];
 }
 
@@ -91,6 +97,8 @@ export interface CategoryRequest {
   description?: string;
   parentId?: string;
   taxRateId?: string;
+  /** Empty or omitted = KITCHEN. Sent on every update: PUT is a full replace. */
+  kitchenStation?: string;
 }
 
 export interface BrandRequest {

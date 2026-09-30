@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { KitchenPrintFailure } from '@/hooks/useKitchenPrinting';
+import { DEFAULT_KITCHEN_STATION } from '@/lib/kitchenStations';
 
 interface KitchenPrintFailedDialogProps {
   failure: KitchenPrintFailure | undefined;
@@ -72,6 +73,7 @@ export function KitchenPrintFailedDialog({
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
             Ticket <span className="font-semibold text-foreground">{ticket.label}</span>
+            {ticket.station && ticket.station !== DEFAULT_KITCHEN_STATION ? ` (${ticket.station})` : ''}
             {ticket.tableName ? ` for ${ticket.tableName}` : ticket.orderType === 'TAKEAWAY' ? ' (takeaway)' : ''} was
             recorded but not printed.{' '}
             {isVoid ? 'The kitchen may still be cooking these.' : 'The kitchen does not have this order.'}

@@ -160,6 +160,7 @@ public class ProductService {
                 .imageUrl(request.getImageUrl())
                 .isActive(request.isActive())
                 .trackStock(request.isTrackStock())
+                .kitchenStation(KitchenStations.normalize(request.getKitchenStation()))
                 .build();
 
         // 2. Set Category
@@ -285,6 +286,7 @@ public class ProductService {
         // product that has sold out. Switching it OFF leaves existing rows alone so
         // the history stays intact and flipping back restores the old count.
         product.setTrackStock(request.isTrackStock());
+        product.setKitchenStation(KitchenStations.normalize(request.getKitchenStation()));
 
         // 2. Update Category
         if (request.getCategoryId() != null) {
@@ -502,6 +504,7 @@ public class ProductService {
                 .imageUrl(product.getImageUrl())
                 .isActive(product.isActive())
                 .trackStock(product.isTrackStock())
+                .kitchenStation(product.getKitchenStation())
                 .categoryId(product.getCategory() != null ? product.getCategory().getId() : null)
                 .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
                 .brandId(product.getBrand() != null ? product.getBrand().getId() : null)

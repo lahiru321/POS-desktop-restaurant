@@ -14,6 +14,12 @@ import { taxService } from "@/services/taxService";
 import { QK } from "@/lib/queryKeys";
 import { toast } from "sonner";
 import { Category } from "@/types/inventory";
+import { KitchenStationInput } from "./KitchenStationInput";
+import {
+  KITCHEN_STATION_MAX_LENGTH,
+  KITCHEN_STATION_PATTERN,
+  normalizeKitchenStation,
+} from "@/lib/kitchenStations";
 
 const categorySchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -21,6 +27,11 @@ const categorySchema = z.object({
   description: z.string().optional(),
   parentId: z.string().uuid().optional().nullable(),
   taxRateId: z.string().uuid().optional().nullable(),
+  kitchenStation: z
+    .string()
+    .max(KITCHEN_STATION_MAX_LENGTH, "20 characters or fewer")
+    .regex(KITCHEN_STATION_PATTERN, "Letters, numbers, spaces, - and _ only")
+    .optional(),
 });
 
 type CategoryFormValues = z.infer<typeof categorySchema>;
@@ -54,6 +65,7 @@ export default function CategoryForm({
       description: initialData?.description || "",
       parentId: initialData?.parentId ?? null,
       taxRateId: initialData?.taxRateId ?? null,
+      kitchenStation: initialData?.kitchenStation ?? "",
     },
   });
 
@@ -64,16 +76,19 @@ export default function CategoryForm({
           ...data,
           parentId: data.parentId ?? undefined,
           taxRateId: data.taxRateId ?? undefined,
+          kitchenStation: normalizeKitchenStation(data.kitchenStation),
         });
       }
       return inventoryService.createCategory({
         ...data,
         parentId: data.parentId ?? undefined,
         taxRateId: data.taxRateId ?? undefined,
+        kitchenStation: normalizeKitchenStation(data.kitchenStation),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QK.categories });
+      queryClient.invalidateQueries({ queryKey: QK.kitchenStations });
       toast.success(initialData ? "Category updated" : "Category created");
       onSuccess();
     },
@@ -185,6 +200,30 @@ export default function CategoryForm({
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="kitchenStation"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Kitchen station</FormLabel>
+              <FormControl>
+                <KitchenStationInput
+                  ref={field.ref}
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  placeholder="Kitchen"
+                />
+              </FormControl>
+              <p className="text-[11px] text-muted-foreground">
+                Which kitchen printer this category&apos;s dishes print on — e.g. BAR for drinks. Leave empty for
+                the main kitchen. A product can override it.
+              </p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <div className="flex justify-end gap-3 pt-4">
           <Button type="button" variant="ghost" onClick={onCancel}>

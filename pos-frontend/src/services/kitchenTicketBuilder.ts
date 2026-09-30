@@ -13,6 +13,7 @@ import {
   truncate,
 } from './escposBuilder';
 import type { KitchenTicket } from './kitchenTicketService';
+import { DEFAULT_KITCHEN_STATION } from '@/lib/kitchenStations';
 
 /**
  * Builds the raw ESC/POS job for one kitchen ticket.
@@ -73,6 +74,12 @@ function sheet(ticket: KitchenTicket, opts: KitchenTicketOptions): PrintData[] {
 
   // ── Header ────────────────────────────────────────────────────────────
   cmds.push(ALIGN_CENTER, BOLD_ON, DOUBLE, `${ticket.label}\n`, NORMAL, BOLD_OFF);
+  // Named once there is more than one station, so a sheet reprinted at the
+  // counter — or picked up at the wrong pass — still says where it belongs.
+  // KITCHEN is left off: a one-printer kitchen never sees the word.
+  if (ticket.station && ticket.station !== DEFAULT_KITCHEN_STATION) {
+    cmds.push(BOLD_ON, DOUBLE_HEIGHT, `>> ${truncate(ticket.station, width - 6)} <<\n`, NORMAL, BOLD_OFF);
+  }
   const where =
     ticket.orderType === 'TAKEAWAY'
       ? 'TAKEAWAY'

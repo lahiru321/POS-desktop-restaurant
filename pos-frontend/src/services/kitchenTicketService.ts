@@ -84,6 +84,15 @@ export const kitchenTicketService = {
       .post<ApiResponse<KitchenTicket>>(`/restaurant/kitchen-tickets/${id}/ack`, data)
       .then((res) => res.data.data),
 
+  /**
+   * Every station a ticket can be routed to — KITCHEN first, then each one a
+   * product or category names. Stations are set on the catalogue; this only lists them.
+   */
+  getStations: () =>
+    api
+      .get<ApiResponse<string[]>>("/restaurant/kitchen-stations")
+      .then((res) => res.data.data),
+
   /** The stored sheet, back to PENDING, ready to print again. Fires nothing new. */
   reprint: (id: string) =>
     api

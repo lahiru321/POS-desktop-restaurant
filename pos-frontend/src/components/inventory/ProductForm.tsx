@@ -24,6 +24,13 @@ import { ArrowLeft, Save, Sparkles, PencilLine, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import InventoryAdjustmentModal from "./InventoryAdjustmentModal";
+import { KitchenStationInput } from "./KitchenStationInput";
+import {
+  DEFAULT_KITCHEN_STATION,
+  KITCHEN_STATION_MAX_LENGTH,
+  KITCHEN_STATION_PATTERN,
+  normalizeKitchenStation,
+} from "@/lib/kitchenStations";
 
 const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
@@ -41,6 +48,12 @@ const productSchema = z.object({
   // False = made to order: no stock row, no shortage block, sells freely.
   trackStock: z.boolean().default(true),
   imageUrl: z.string().optional(),
+  // Empty = inherit the category's station, then KITCHEN.
+  kitchenStation: z
+    .string()
+    .max(KITCHEN_STATION_MAX_LENGTH, "20 characters or fewer")
+    .regex(KITCHEN_STATION_PATTERN, "Letters, numbers, spaces, - and _ only")
+    .optional(),
   branchStockLevels: z.record(z.string().uuid(), z.coerce.number().int().min(0)).optional(),
 });
 
@@ -109,6 +122,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
       isActive: initialData?.isActive ?? true,
       trackStock: initialData?.trackStock ?? true,
       imageUrl: initialData?.imageUrl || "",
+      kitchenStation: initialData?.kitchenStation ?? "",
       branchStockLevels: {},
     },
   });
@@ -117,6 +131,12 @@ export default function ProductForm({ initialData }: ProductFormProps) {
   // low-stock threshold to show. stockQuantity stays in the payload as 0 — the
   // API still requires it, and the server ignores it when tracking is off.
   const trackStock = form.watch("trackStock");
+
+  // What an empty station field means for this product: its category's
+  // station if it has one, otherwise the main kitchen.
+  const selectedCategoryId = form.watch("categoryId");
+  const inheritedStation =
+    categories?.find((c: Category) => c.id === selectedCategoryId)?.kitchenStation || null;
 
   // Add-on groups are a separate resource with their own endpoint, so they are
   // held outside the form and saved after the product, once it has an id.
@@ -163,6 +183,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
         // made-to-order product the moment anyone opened it to edit.
         trackStock: initialData.trackStock ?? true,
         imageUrl: initialData.imageUrl || "",
+        kitchenStation: initialData.kitchenStation ?? "",
         branchStockLevels: {},
       });
     }
@@ -191,6 +212,8 @@ export default function ProductForm({ initialData }: ProductFormProps) {
         costPrice: data.costPrice || undefined,
         sku: data.sku || undefined,
         barcode: data.barcode || undefined,
+        // Always sent: the update is a full replace, so omitting it would clear it.
+        kitchenStation: normalizeKitchenStation(data.kitchenStation),
         branchStockLevels: data.branchStockLevels ? Object.entries(data.branchStockLevels).map(([branchId, quantity]) => ({
           branchId,
           quantity
@@ -220,6 +243,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
       // The till caches which products have add-ons; attaching a group here has
       // to invalidate it or the new group is never offered.
       await queryClient.invalidateQueries({ queryKey: QK.productsWithToppings });
+      await queryClient.invalidateQueries({ queryKey: QK.kitchenStations });
       toast.success(initialData ? "Product updated" : "Product created");
       router.push("/inventory/products");
     },
@@ -529,6 +553,33 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                           ))}
                         </select>
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="kitchenStation"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Kitchen station</FormLabel>
+                      <FormControl>
+                        <KitchenStationInput
+                          ref={field.ref}
+                          value={field.value}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          placeholder={
+                            inheritedStation
+                              ? `${inheritedStation} (from category)`
+                              : `${DEFAULT_KITCHEN_STATION} (default)`
+                          }
+                          className="bg-background border-border"
+                        />
+                      </FormControl>
+                      <p className="text-[10px] text-muted-foreground">
+                        The kitchen printer this item&apos;s ticket goes to. Leave empty to follow the category.
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -1,6 +1,7 @@
 package com.lumora.pos.restaurant.entity;
 
 import com.lumora.pos.common.entity.BaseEntity;
+import com.lumora.pos.inventory.service.KitchenStations;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -31,8 +32,8 @@ import java.util.List;
 @Builder
 public class KitchenTicketEntity extends BaseEntity {
 
-    /** The station every ticket goes to until per-station routing is switched on. */
-    public static final String DEFAULT_STATION = "KITCHEN";
+    /** Where a dish goes when neither it nor its category names a station. */
+    public static final String DEFAULT_STATION = KitchenStations.DEFAULT;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)

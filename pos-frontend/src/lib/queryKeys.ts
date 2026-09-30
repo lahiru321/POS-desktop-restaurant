@@ -22,6 +22,8 @@ export const QK = {
   restaurantMenuSnapshot: ['restaurant-menu-snapshot'] as const,
   kitchenTicketsUnresolved: ['kitchen-tickets', 'unresolved'] as const,
   kitchenTicketsForOrder: (orderId: string) => ['kitchen-tickets', 'order', orderId] as const,
+  /** Stations named by any product or category, KITCHEN first. */
+  kitchenStations: ['kitchen-stations'] as const,
   brands: ['brands'] as const,
   expenses: ['expenses'] as const,
   expenseCategories: ['expense-categories'] as const,

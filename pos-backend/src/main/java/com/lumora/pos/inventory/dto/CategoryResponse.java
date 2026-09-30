@@ -21,5 +21,6 @@ public class CategoryResponse {
     private UUID parentId;
     private UUID taxRateId;
     private String taxRateName;
+    private String kitchenStation;
     private LocalDateTime createdAt;
 }

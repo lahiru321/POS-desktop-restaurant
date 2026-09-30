@@ -51,6 +51,7 @@ public class CategoryService {
                 .name(request.getName())
                 .slug(request.getSlug())
                 .description(request.getDescription())
+                .kitchenStation(KitchenStations.normalize(request.getKitchenStation()))
                 .build();
 
         if (request.getParentId() != null) {
@@ -88,6 +89,7 @@ public class CategoryService {
         category.setName(request.getName());
         category.setSlug(request.getSlug());
         category.setDescription(request.getDescription());
+        category.setKitchenStation(KitchenStations.normalize(request.getKitchenStation()));
 
         if (request.getParentId() != null) {
             if (request.getParentId().equals(id)) {
@@ -151,6 +153,7 @@ public class CategoryService {
                 .parentId(category.getParent() != null ? category.getParent().getId() : null)
                 .taxRateId(category.getTaxRate() != null ? category.getTaxRate().getId() : null)
                 .taxRateName(category.getTaxRate() != null ? category.getTaxRate().getName() : null)
+                .kitchenStation(category.getKitchenStation())
                 .createdAt(category.getCreatedAt())
                 .build();
     }

@@ -6,6 +6,7 @@ import com.lumora.pos.auth.repository.UserRepository;
 import com.lumora.pos.common.exception.BusinessException;
 import com.lumora.pos.inventory.entity.ProductEntity;
 import com.lumora.pos.inventory.repository.ProductRepository;
+import com.lumora.pos.inventory.service.KitchenStations;
 import com.lumora.pos.restaurant.dto.KitchenTicketDtos;
 import com.lumora.pos.restaurant.entity.*;
 import com.lumora.pos.restaurant.repository.KitchenTicketRepository;
@@ -323,9 +324,9 @@ public class KitchenTicketService {
             if (!Objects.equals(product.getTenantId(), tenantId)) {
                 continue;
             }
-            String station = blankToNull(product.getKitchenStation());
+            String station = KitchenStations.normalize(product.getKitchenStation());
             if (station == null && product.getCategory() != null) {
-                station = blankToNull(product.getCategory().getKitchenStation());
+                station = KitchenStations.normalize(product.getCategory().getKitchenStation());
             }
             if (station != null) {
                 stations.put(product.getId(), station);
@@ -347,10 +348,6 @@ public class KitchenTicketService {
                 .map(u -> u.getFirstName() != null ? u.getFirstName() : u.getEmail())
                 .map(name -> truncate(name, 100))
                 .orElse(null);
-    }
-
-    private static String blankToNull(String s) {
-        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private static String truncate(String s) {

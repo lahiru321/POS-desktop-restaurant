@@ -185,6 +185,26 @@ class KitchenTicketServiceTest {
             assertThat(tickets).extracting(KitchenTicketEntity::getLabel).containsOnly("#0042-R1");
             assertThat(rice.getFiredQuantity()).isEqualByComparingTo("1");
         }
+
+        @Test
+        @DisplayName("A product's own station beats its category's, whatever case it was stored in")
+        void shouldPreferProductStationAndNormalize() {
+            RestaurantOrderItemEntity dessert = item("Watalappan", "1");
+
+            CategoryEntity mains = new CategoryEntity();
+            mains.setKitchenStation("GRILL");
+            ProductEntity product = new ProductEntity();
+            product.setId(dessert.getProductId());
+            product.setTenantId(tenantId);
+            product.setCategory(mains);
+            // Hand-edited in the DB: the till's printer map is keyed "PASTRY".
+            product.setKitchenStation(" pastry ");
+            when(productRepository.findAllById(any())).thenReturn(List.of(product));
+
+            List<KitchenTicketEntity> tickets = ticketService.fireRound(order);
+
+            assertThat(tickets).extracting(KitchenTicketEntity::getStation).containsExactly("PASTRY");
+        }
     }
 
     // ==================================================================

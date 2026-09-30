@@ -5,7 +5,10 @@ import { hardwareService, HardwareConfig } from '@/services/hardwareService';
 import { qzTrayService } from '@/services/qzTrayService';
 import { Printer, Usb, Keyboard, Save, CheckCircle2, AlertTriangle, Wifi, RefreshCw, Loader2, ChefHat } from 'lucide-react';
 import { buildKitchenTicketCommands } from '@/services/kitchenTicketBuilder';
-import type { KitchenTicket } from '@/services/kitchenTicketService';
+import { kitchenTicketService, type KitchenTicket } from '@/services/kitchenTicketService';
+import { useQuery } from '@tanstack/react-query';
+import { QK } from '@/lib/queryKeys';
+import { DEFAULT_KITCHEN_STATION } from '@/lib/kitchenStations';
 import { toast } from 'sonner';
 
 /**
@@ -44,6 +47,14 @@ export function HardwareSettings() {
   const [printers, setPrinters] = useState<string[]>([]);
   const [qzConnected, setQzConnected] = useState(false);
   const [qzBusy, setQzBusy] = useState(false);
+
+  // Stations named anywhere in the catalogue. Only the tenant knows these; which
+  // printer each goes to is this till's business, so the mapping is saved locally.
+  const { data: namedStations = [DEFAULT_KITCHEN_STATION], isSuccess: stationsLoaded } = useQuery({
+    queryKey: QK.kitchenStations,
+    queryFn: kitchenTicketService.getStations,
+    staleTime: 60 * 1000,
+  });
 
   useEffect(() => {
     setConfig(hardwareService.getConfig());
@@ -90,21 +101,36 @@ export function HardwareSettings() {
     }
   };
 
-  const handleTestKitchen = async () => {
-    if (!cfg.kitchenPrinterTarget) {
+  // Every station other than KITCHEN, including ones this till still maps but
+  // no product names any more — so a stale mapping can be seen and cleared.
+  const otherStations = Array.from(
+    new Set([...namedStations, ...Object.keys(cfg.kitchenStationTargets ?? {})]),
+  ).filter((s) => s !== DEFAULT_KITCHEN_STATION);
+
+  const setStationTarget = (station: string, target: string) => {
+    const next = { ...(cfg.kitchenStationTargets ?? {}) };
+    if (target) next[station] = target;
+    else delete next[station];
+    setConfig({ ...cfg, kitchenStationTargets: next });
+  };
+
+  /** Prints the sample on the printer `station` routes to — the same lookup a real ticket uses. */
+  const handleTestKitchen = async (station: string = DEFAULT_KITCHEN_STATION) => {
+    const target = cfg.kitchenStationTargets?.[station] || cfg.kitchenPrinterTarget;
+    if (!target) {
       toast.error('Choose a kitchen printer first');
       return;
     }
     setQzBusy(true);
     try {
       await qzTrayService.printRaw(
-        cfg.kitchenPrinterTarget,
+        target,
         buildKitchenTicketCommands(
-          { ...SAMPLE_KITCHEN_TICKET, firedAt: new Date().toISOString() },
+          { ...SAMPLE_KITCHEN_TICKET, station, firedAt: new Date().toISOString() },
           { paperWidth: cfg.kitchenPaperWidth, copies: 1 },
         ),
       );
-      toast.success('Test ticket sent to the kitchen printer', {
+      toast.success(`Test ticket sent to ${target}`, {
         description: 'Check it has no prices and that no drawer opened.',
       });
     } catch {
@@ -367,9 +393,65 @@ export function HardwareSettings() {
             </div>
           </div>
 
+          <div className={`mt-6 border-t border-border pt-5 ${config.kitchenPrintEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+            <h3 className="text-sm font-semibold text-foreground">Stations</h3>
+            {otherStations.length === 0 ? (
+              <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
+                Every dish prints on the kitchen printer. To send drinks to a bar printer, set a Kitchen station
+                such as BAR on the category or product in Inventory — it then appears here to give it a printer.
+              </p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
+                  A round is split into one ticket per station. KITCHEN always uses the kitchen printer above; give
+                  any other station its own printer, or leave it on the kitchen printer.
+                </p>
+                <div className="mt-4 space-y-3">
+                  {otherStations.map((station) => {
+                    const target = config.kitchenStationTargets?.[station] ?? '';
+                    const orphan = stationsLoaded && !namedStations.includes(station);
+                    return (
+                      <div key={station} className="grid grid-cols-1 sm:grid-cols-[10rem_1fr_auto] items-center gap-3">
+                        <div className="font-mono text-sm font-semibold text-foreground">
+                          {station}
+                          {orphan && (
+                            <span className="ml-2 font-sans text-[11px] font-normal text-muted-foreground">
+                              no longer used
+                            </span>
+                          )}
+                        </div>
+                        <select
+                          aria-label={`Printer for ${station}`}
+                          value={target}
+                          onChange={(e) => setStationTarget(station, e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-foreground focus:ring-2 focus:ring-indigo-500 outline-none"
+                        >
+                          <option value="">Same as kitchen printer</option>
+                          {printers.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                          {target && !printers.includes(target) && <option value={target}>{target}</option>}
+                        </select>
+                        {config.printerMode === 'qz_tray' && (
+                          <button
+                            onClick={() => handleTestKitchen(station)}
+                            disabled={qzBusy}
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60"
+                          >
+                            <ChefHat size={14} /> Test
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
           {config.kitchenPrintEnabled && config.printerMode === 'qz_tray' && (
             <button
-              onClick={handleTestKitchen}
+              onClick={() => handleTestKitchen()}
               disabled={qzBusy}
               className="mt-5 inline-flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60"
             >

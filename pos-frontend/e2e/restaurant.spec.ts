@@ -26,6 +26,7 @@ const TABLE = `E2E-${RUN}`;
 const TABLE2 = `E2F-${RUN}`;
 const DISH = `E2E Kottu ${RUN}`;
 const ADDON = `Extra cheese ${RUN}`;
+const DRINK = `E2E Lime juice ${RUN}`;
 
 let adminToken = "";
 let dishId = "";
@@ -53,6 +54,7 @@ async function api<T>(request: APIRequestContext, method: "get" | "post" | "put"
 
 type Ticket = {
   label: string;
+  station: string;
   ticketType: string;
   notice?: string | null;
   status: string;
@@ -403,6 +405,64 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     await page.getByRole("button", { name: /^settle/i }).click();
     await payExactCash(page);
     await expect(page.getByText(new RegExp(`Order \\d+ · ${TABLE} paid`))).toBeVisible();
+  });
+
+  test("a round splits by station: the bar gets the drink, the kitchen the dish", async ({ page, request, browser }) => {
+    // Route a whole category to the bar, typed the way a person would.
+    const drinks = await api<{ id: string; kitchenStation: string | null }>(request, "post", "/categories", {
+      name: `E2E Drinks ${RUN}`,
+      kitchenStation: " bar ",
+    });
+    expect(drinks.kitchenStation, "stored in one spelling").toBe("BAR");
+    await api(request, "post", "/products", {
+      name: DRINK,
+      basePrice: 400,
+      stockQuantity: 0,
+      lowStockThreshold: 0,
+      trackStock: false,
+      isActive: true,
+      categoryId: drinks.id,
+    });
+    const stations = await api<string[]>(request, "get", "/restaurant/kitchen-stations");
+    expect(stations[0]).toBe("KITCHEN");
+    expect(stations).toContain("BAR");
+
+    // Settings → Hardware offers BAR a printer of its own. An admin, in a
+    // separate browser so the cashier's login below starts clean.
+    const adminContext = await browser.newContext();
+    const adminPage = await adminContext.newPage();
+    await login(adminPage, TERMINAL_USER);
+    await adminPage.goto("/settings");
+    await adminPage.getByRole("tab", { name: /hardware/i }).click();
+    await expect(adminPage.getByRole("combobox", { name: "Printer for BAR" })).toBeVisible();
+    await adminContext.close();
+
+    await openShift(page);
+    await page.keyboard.press("F11");
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE}, 2 seats, available`) }).click();
+    await addDishWithAddon(page);
+    await page.locator("[data-product-card]", { hasText: DRINK }).first().click();
+    await page.getByRole("button", { name: /^send \(2\)/i }).click();
+    // One toast per sheet, each saying who to tell.
+    await expect(page.getByText(/-R1 recorded — tell the kitchen$/)).toBeVisible();
+    await expect(page.getByText(/-R1 recorded — tell BAR$/)).toBeVisible();
+
+    const open = await api<{ id: string; tableName: string }[]>(request, "get", "/restaurant/orders");
+    const order = open.find((o) => o.tableName === TABLE)!;
+    const tickets = await ticketsFor(request, order.id);
+    // One round, two sheets with the same label, each for its own printer.
+    expect(tickets.map((t) => [t.station, t.label.endsWith("-R1"), t.items.map((i) => i.itemName)])).toEqual(
+      expect.arrayContaining([
+        ["KITCHEN", true, [DISH]],
+        ["BAR", true, [DRINK]],
+      ]),
+    );
+    expect(tickets).toHaveLength(2);
+
+    await page.getByRole("button", { name: /^settle/i }).click();
+    await payExactCash(page);
+    await expect(page.getByText(new RegExp(`${TABLE} paid`))).toBeVisible();
   });
 
   test("a dine-in bill carries the service charge, and it can be removed", async ({ page, request }) => {

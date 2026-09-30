@@ -46,6 +46,11 @@ everything and should not be relitigated without reading it:
 - **`processHardwareCheckoutActions` swallows QZ errors and falls back to browser print**, which
   `electron/main.ts:274-277` makes impossible (it denies `window.open`). Kitchen printing never does this:
   `kitchenPrinterService` never throws or falls back, and every ticket is acked PRINTED/FAILED/HANDLED.
+- **Kitchen stations are free-text codes matched by string equality** — once when a round is split into one
+  ticket per station (`product → category → KITCHEN`), once on the till's `kitchenStationTargets` map
+  (localStorage, per machine). Both sides normalize the same way (`KitchenStations.normalize` /
+  `normalizeKitchenStation`: trim, collapse spaces, upper-case); change one, change both. There is no
+  stations table — `GET /restaurant/kitchen-stations` is the distinct set in use, KITCHEN first.
 - **The tax chain is implemented twice** — backend `TaxRateService` + `SaleService`, frontend
   `getProductTaxRate` + the `taxInfo` memo in `useCart.ts`. Change both in one commit or the cart and server
   totals silently disagree. The backend rounds **per `sale_items` row**, so the client rounds per sub-line too.

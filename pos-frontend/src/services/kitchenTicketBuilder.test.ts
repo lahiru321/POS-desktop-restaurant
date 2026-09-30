@@ -70,6 +70,11 @@ describe('kitchenTicketBuilder', () => {
     expect(out).toContain('Server: Nimal');
   });
 
+  it('names a station other than KITCHEN in the header, and never prints KITCHEN', () => {
+    expect(text(makeTicket({ station: 'BAR' }))).toContain('>> BAR <<');
+    expect(text(makeTicket())).not.toContain('KITCHEN');
+  });
+
   it('labels takeaway tickets TAKEAWAY with no table', () => {
     const out = text(makeTicket({ orderType: 'TAKEAWAY', tableName: null, covers: 0 }));
     expect(out).toContain('TAKEAWAY');

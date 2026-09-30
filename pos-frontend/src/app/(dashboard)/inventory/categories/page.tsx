@@ -168,6 +168,13 @@ export default function CategoriesPage() {
                     onSort={handleSort}
                   />
                   <SortableHeader
+                    label="Station"
+                    sortKey="kitchenStation"
+                    currentSort={sortKey}
+                    currentDirection={sortDirection}
+                    onSort={handleSort}
+                  />
+                  <SortableHeader
                     label="Actions"
                     sortKey=""
                     currentSort={null}
@@ -199,6 +206,13 @@ export default function CategoriesPage() {
                         <span className="text-xs text-muted-foreground italic">Default</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {category.kitchenStation ? (
+                        <span className="font-mono text-xs text-foreground">{category.kitchenStation}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">Kitchen</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button
@@ -227,7 +241,7 @@ export default function CategoriesPage() {
                 ))}
                 {sortedCategories.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       No categories found.
                     </TableCell>
                   </TableRow>

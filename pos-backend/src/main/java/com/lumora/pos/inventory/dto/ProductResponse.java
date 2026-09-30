@@ -37,6 +37,9 @@ public class ProductResponse {
     // the "is" prefix yields "trackStock" — already the name the frontend wants.
     private boolean trackStock;
 
+    /** The product's own station only — null means it inherits the category's. */
+    private String kitchenStation;
+
     private UUID categoryId;
     private String categoryName;
 

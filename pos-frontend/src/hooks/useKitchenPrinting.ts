@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
+import { kitchenStationAudience } from '@/lib/kitchenStations';
 import { QK } from '@/lib/queryKeys';
 import { getApiErrorMessage } from '@/lib/utils';
 import { kitchenPrinterService } from '@/services/kitchenPrinterService';
@@ -59,13 +60,14 @@ export function useKitchenPrinting() {
       const failed: KitchenPrintFailure[] = [];
       for (const ticket of tickets) {
         const outcome = await kitchenPrinterService.dispatch(ticket, opts);
+        const who = kitchenStationAudience(ticket.station);
         if (outcome.status === 'printed') {
-          toast.success(`${ticket.label} sent to the kitchen`);
+          toast.success(`${ticket.label} sent to ${who}`);
         } else if (outcome.status === 'noPrinter') {
           toast.info(
             ticket.ticketType === 'VOID'
-              ? `${ticket.label} recorded — tell the kitchen to stop`
-              : `${ticket.label} recorded — tell the kitchen`,
+              ? `${ticket.label} recorded — tell ${who} to stop`
+              : `${ticket.label} recorded — tell ${who}`,
             { description: 'No kitchen printer is set up on this till.', duration: 8000 },
           );
         } else {

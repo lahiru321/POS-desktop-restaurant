@@ -15,6 +15,10 @@ public interface CategoryRepository extends JpaRepository<CategoryEntity, UUID> 
 
     List<CategoryEntity> findAllByTenantId(UUID tenantId);
 
+    /** Every station a category names, for the till's station → printer settings. */
+    @Query("SELECT DISTINCT c.kitchenStation FROM CategoryEntity c WHERE c.tenantId = :tenantId AND c.kitchenStation IS NOT NULL")
+    List<String> findDistinctKitchenStations(@Param("tenantId") UUID tenantId);
+
     Optional<CategoryEntity> findByIdAndTenantId(UUID id, UUID tenantId);
 
     List<CategoryEntity> findAllByTenantIdAndParentIsNull(UUID tenantId);

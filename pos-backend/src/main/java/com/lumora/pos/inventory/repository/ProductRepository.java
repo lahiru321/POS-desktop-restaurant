@@ -19,6 +19,10 @@ public interface ProductRepository extends JpaRepository<ProductEntity, UUID>, J
 
     Page<ProductEntity> findAllByTenantId(UUID tenantId, Pageable pageable);
 
+    /** Every station a product names, for the till's station → printer settings. */
+    @Query("SELECT DISTINCT p.kitchenStation FROM ProductEntity p WHERE p.tenantId = :tenantId AND p.kitchenStation IS NOT NULL")
+    List<String> findDistinctKitchenStations(@Param("tenantId") UUID tenantId);
+
     List<ProductEntity> findAllByTenantId(UUID tenantId);
 
     Optional<ProductEntity> findByIdAndTenantId(UUID id, UUID tenantId);
