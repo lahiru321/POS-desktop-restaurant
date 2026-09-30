@@ -10,6 +10,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Date;
+
 /**
  * Second, independent license enforcement layer for the desktop build.
  *
@@ -30,6 +34,11 @@ public class LicenseGuard {
     private final LicenseVerifier verifier;
     private final MachineFingerprint machineFingerprint;
 
+    /** What was verified at startup, for {@link #status()}. */
+    private volatile Instant expiresAt;
+    private volatile String customer;
+    private volatile String edition;
+
     @PostConstruct
     void enforce() {
         String token = properties.getToken();
@@ -37,18 +46,26 @@ public class LicenseGuard {
             fail("no license token was provided to the backend");
         }
 
-        Jws<Claims> jws;
+        Claims claims;
         try {
-            jws = verifier.verify(token);
+            Jws<Claims> jws = verifier.verify(token);
+            claims = jws.getPayload();
         } catch (ExpiredJwtException e) {
-            fail("the license has expired");
-            return; // unreachable — fail() always throws
+            // jjwt checks the signature before the expiry, so these claims are genuine.
+            // Past its date but inside the grace period: start, and let the till warn.
+            claims = e.getClaims();
+            Instant expired = claims.getExpiration().toInstant();
+            if (LicensePolicy.state(expired, Instant.now()) == LicensePolicy.State.EXPIRED) {
+                fail("the license expired on " + expired.atZone(ZoneId.systemDefault()).toLocalDate()
+                        + " and its " + LicensePolicy.GRACE.toDays() + "-day grace period has ended");
+            }
+            log.warn("License expired on {} — running in its grace period until {}.",
+                    expired, LicensePolicy.graceEnds(expired));
         } catch (Exception e) {
             fail("the license signature is invalid");
             return; // unreachable
         }
 
-        Claims claims = jws.getPayload();
         String licensedFingerprint = claims.get("fp", String.class);
         if (licensedFingerprint == null || licensedFingerprint.isBlank()) {
             fail("the license is missing its machine binding");
@@ -69,8 +86,16 @@ public class LicenseGuard {
             }
         }
 
-        log.info("Desktop license verified for '{}' (edition {}).",
-                claims.get("customer", String.class), claims.get("edition", String.class));
+        Date exp = claims.getExpiration();
+        this.expiresAt = exp == null ? null : exp.toInstant();
+        this.customer = claims.get("customer", String.class);
+        this.edition = claims.get("edition", String.class);
+        log.info("Desktop license verified for '{}' (edition {}).", customer, edition);
+    }
+
+    /** The license as of now — days left keep counting while the till stays open. */
+    public LicensePolicy.Status status() {
+        return LicensePolicy.status(expiresAt, Instant.now(), customer, edition);
     }
 
     private void fail(String reason) {

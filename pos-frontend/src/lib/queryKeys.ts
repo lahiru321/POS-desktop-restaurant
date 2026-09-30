@@ -26,6 +26,8 @@ export const QK = {
   kitchenStations: ['kitchen-stations'] as const,
   /** Settings → Backups: the till's local database backups. */
   backups: ['system-backups'] as const,
+  /** Desktop license expiry, for the warning banner. */
+  licenseStatus: ['license-status'] as const,
   brands: ['brands'] as const,
   expenses: ['expenses'] as const,
   expenseCategories: ['expense-categories'] as const,

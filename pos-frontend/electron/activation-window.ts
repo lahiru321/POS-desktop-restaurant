@@ -24,7 +24,7 @@ function reasonMessage(reason: VerifyFailureReason): string {
     case "MACHINE_MISMATCH":
       return "This license belongs to a different computer. To move it here, contact StoreX Restaurant support to release it, then re-activate.";
     case "EXPIRED":
-      return "Your license has expired. Contact StoreX Restaurant support to renew, then enter your key again.";
+      return "Your license has expired and its 7-day grace period is over. Contact StoreX Restaurant support to renew, then enter your key again. Your sales and settings are safe.";
     case "SEAL_UNREADABLE":
       return "Your saved license couldn't be read. Please re-enter your license key.";
     case "SIGNATURE_INVALID":

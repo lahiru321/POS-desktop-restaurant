@@ -47,6 +47,7 @@ import { toppingService } from '@/services/toppingService';
 import { CartItemCard } from '@/components/pos/CartItemCard';
 import { ReceiptPrintFailedDialog, type ReceiptPrintFailure } from '@/components/pos/ReceiptPrintFailedDialog';
 import { hardwareService } from '@/services/hardwareService';
+import { LicenseBanner } from '@/components/LicenseBanner';
 import { ManagerPinDialog, type ManagerPinRequest } from '@/components/pos/ManagerPinDialog';
 import { CartSummary } from '@/components/pos/CartSummary';
 import { TenderOverlay } from '@/components/pos/TenderOverlay';
@@ -1319,6 +1320,7 @@ function Terminal() {
           // (at-the-register) login has no dashboard access, so the button hides.
           onBackToDashboard={loginMethod === 'PASSWORD' ? () => router.push('/overview') : undefined}
         />
+        <LicenseBanner className="shrink-0" />
         {/* Restaurant strip: the open tab, or the prompt to seat a table. Wraps
             onto a second row rather than squeezing the tab's name to nothing
             or pushing "Leave tab" off the screen on a narrow till. */}

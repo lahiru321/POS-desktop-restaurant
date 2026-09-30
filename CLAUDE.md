@@ -43,9 +43,24 @@ everything and should not be relitigated without reading it:
   Adding a value to the enum alone does nothing.
 - **CSP `connect-src` must keep the loopback WebSocket entries** (`ws(s)://localhost:*`, `127.0.0.1:*`) in
   `src/middleware.ts` — `connect-src` governs WebSocket and QZ Tray lives there. Drop them and every QZ print dies.
-- **`processHardwareCheckoutActions` swallows QZ errors and falls back to browser print**, which
-  `electron/main.ts:274-277` makes impossible (it denies `window.open`). Kitchen printing never does this:
-  `kitchenPrinterService` never throws or falls back, and every ticket is acked PRINTED/FAILED/HANDLED.
+- **Receipt printing returns a result; never ignore it.** `processHardwareCheckoutActions` →
+  `ReceiptPrintResult`. In the desktop app (`window.lumora.isDesktop`) a QZ failure is reported, never
+  browser-printed (the window denies `window.open`; the old fallback opened the customer's web browser),
+  and `browser_print` means "no receipt printer set up". The terminal's `printReceipt()` turns a failure
+  into `ReceiptPrintFailedDialog` (Retry/Skip). Kitchen printing is stricter still: `kitchenPrinterService`
+  never throws or falls back, and every ticket is acked PRINTED/FAILED/HANDLED.
+- **The windows only open `https:` links, and never navigate off the app** (`electron/navigation.ts`,
+  applied to all three windows). Don't add a `shell.openExternal` or `setWindowOpenHandler` elsewhere.
+- **The launcher supervises backend + web server once the till is up** (`electron/supervisor.ts`):
+  unexpected exit → `reconnecting.html` → restart after 2/4/8 s → reload; >3 deaths in 10 min → stop and
+  say so. Packaged app only. Startup failures keep their own path.
+- **Licence: 7-day grace after expiry, on BOTH sides** — `LicensePolicy.GRACE` (backend, also serves
+  `GET /license/status` for `LicenseBanner`) and `LICENSE_GRACE_DAYS` (launcher). Change one, change both.
+  A forged token gets no grace: jjwt checks the signature before the expiry.
+- **Backups:** `DatabaseBackupService` runs the bundled `postgres-bin/tools/pg_dump.exe` (staged from a local
+  PostgreSQL 16 by `build/stage-pg-tools.ps1` on every installer build) into
+  `%ProgramData%\StoreX Restaurant\backups` — daily catch-up, keeps 14, Settings → Backups, ADMIN only.
+  Restore is `restore-backup.ps1` with the app closed (saves a `storex-pre-restore-*` copy first).
 - **Kitchen stations are free-text codes matched by string equality** — once when a round is split into one
   ticket per station (`product → category → KITCHEN`), once on the till's `kitchenStationTargets` map
   (localStorage, per machine). Both sides normalize the same way (`KitchenStations.normalize` /
@@ -189,8 +204,9 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
   `sha256("guid:"+MachineGuid)` — delete it to force the activation screen again.
 - **`license-signing-key.PRIVATE.txt` must never be added to this repo** — the issuing secret belongs only on
   the license server. It is gitignored; keep it that way.
-- **Desktop DB credentials:** super-admin (Flyway V25/V38 default) `superadmin@lumora.com` /
-  `SuperAdmin@2024`, single-use, forces a change. Normal entry is the first-run wizard's tenant login.
+- **No super-admin on desktop.** Flyway V25/V38 still seed `superadmin@lumora.com` / `SuperAdmin@2024` (the
+  hosted product needs it), but `DesktopSuperAdminLockdown` deactivates and scrambles every super-admin on
+  each desktop start and 404s `/api/v1/super-admin/**`. Normal entry is the first-run wizard's tenant login.
 
 ## Flyway version reservation
 

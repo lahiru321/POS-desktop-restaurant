@@ -73,6 +73,19 @@ function readSealedLicense(): string {
  * Verify the locally-stored license. Pure/offline — no network. Run this before
  * spawning the backend/frontend; block the app on any non-ok result.
  */
+/**
+ * Days a license keeps working past its expiry date, while the till warns in
+ * red. Must equal the backend's LicensePolicy.GRACE, or one side would start and
+ * the other refuse.
+ */
+export const LICENSE_GRACE_DAYS = 7;
+const GRACE_MS = LICENSE_GRACE_DAYS * 24 * 60 * 60 * 1000;
+
+/** Past its date AND past the grace period — the only expiry that stops the till. */
+export function isPastGrace(expSeconds: number | undefined, now: number = Date.now()): boolean {
+  return !!expSeconds && expSeconds * 1000 + GRACE_MS < now;
+}
+
 export function verifyLocalLicense(): VerifyResult {
   if (!isPublicKeyConfigured()) {
     // Misconfigured build — fail closed rather than accept unverifiable licenses.
@@ -99,7 +112,7 @@ export function verifyLocalLicense(): VerifyResult {
   if (claims.fp !== computeFingerprint()) {
     return { ok: false, reason: "MACHINE_MISMATCH" };
   }
-  if (claims.exp && claims.exp * 1000 < Date.now()) {
+  if (isPastGrace(claims.exp)) {
     return { ok: false, reason: "EXPIRED" };
   }
 

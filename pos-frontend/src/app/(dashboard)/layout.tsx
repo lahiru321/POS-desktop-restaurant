@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
+import { LicenseBanner } from "@/components/LicenseBanner";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -140,6 +141,7 @@ export default function DashboardLayout({
                 </Button>
                 <ThemeToggle />
               </header>
+              <LicenseBanner />
               <div className="flex-1">{children}</div>
             </main>
           </div>
