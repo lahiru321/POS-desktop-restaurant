@@ -24,9 +24,22 @@
   ${ElseIf} $0 != 0
     DetailPrint "QZ Tray signing was not set up (exit code $0). Printing will ask for permission. See C:\ProgramData\StoreX Restaurant\logs\qz-setup.log"
   ${EndIf}
+
+  ; Start menu: re-trust QZ Tray without a command line — after QZ Tray is
+  ; installed later, or reinstalled/upgraded and loses the certificate.
+  ; perMachine, so $SMPROGRAMS is the all-users Start menu, beside the app.
+  CreateShortCut "$SMPROGRAMS\StoreX Restaurant - Repair printing.lnk" \
+    "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" \
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\resources\repair-printing.ps1"' \
+    "$INSTDIR\StoreX Restaurant.exe" 0 SW_SHOWMINIMIZED "" "Set up silent receipt and kitchen printing again"
 !macroend
 
 !macro customUnInstall
+  ; Our own Start menu entry; electron-builder removes only the shortcuts it made.
+  ${ifNot} ${isUpdated}
+    SetShellVarContext all
+    Delete "$SMPROGRAMS\StoreX Restaurant - Repair printing.lnk"
+  ${endIf}
   ; NOTE: by the time this macro runs, electron-builder's uninstaller has ALREADY
   ; done `RMDir /r $INSTDIR`, so the bundled uninstall-postgres.ps1 and pg_ctl.exe
   ; are gone — we cannot call them here. Do the teardown self-contained with sc.exe

@@ -66,8 +66,8 @@ everything and should not be relitigated without reading it:
   48 cols) carry a Chinese GB18030 font and no Sinhala/Tamil, so UTF-8 or a stray byte prints as garbage.
   Bytes that must not be touched (the drawer kick, ending 0xFA) go as `rawBytes()` hex elements, never
   strings; jobs start `INIT, SINGLE_BYTE` (FS . cancels Chinese mode). `kickBytes` is the one kick parser.
-- **Silent QZ printing is per machine.** `build/setup-qz-signing.ps1` (installer hook, non-fatal; re-run as
-  admin if QZ Tray is installed later) makes a keytool PKCS12 key in `%ProgramData%\StoreX Restaurant\qz\`,
+- **Silent QZ printing is per machine.** `build/setup-qz-signing.ps1` (installer hook, non-fatal; the Start-menu
+  shortcut "StoreX Restaurant - Repair printing" re-runs it elevated via `build/repair-printing.ps1`) makes a keytool PKCS12 key in `%ProgramData%\StoreX Restaurant\qz\`,
   copies its cert into QZ Tray as `override.crt` and restarts QZ; the launcher passes `QZ_KEYSTORE`/
   `QZ_KEYSTORE_PASSWORD`; `QzSigningService` signs. Never ship one shared key — whoever unpacked the
   installer could sign print jobs for every customer's QZ. The till asks once; "Remember" makes it silent.
