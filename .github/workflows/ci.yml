@@ -1,0 +1,90 @@
+# StoreX Restaurant — every check that used to run only when someone remembered.
+#
+# frontend  typecheck, lint, unit tests (src + electron), Next build, Electron compile
+# backend   mvn verify: every unit test plus FlywayMigrationIntegrationTest, which runs
+#           all migrations on a real embedded PostgreSQL and boots with ddl-auto=validate
+# flyway    no two migrations may share a V<n> — the bug CI is cheapest at catching
+#
+# Runs on Linux, so it also catches what Windows forgives: an import whose case does
+# not match the file name builds here and breaks there. The installer itself is built
+# on Windows with build-installer.ps1 (it needs the staged JRE and PostgreSQL).
+
+name: CI
+
+on:
+  push:
+    branches: [development, main]
+  pull_request:
+    branches: [development, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: pos-frontend
+    env:
+      # The Electron binary is only needed to package, not to test or compile.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: pos-frontend/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npx vitest run
+      - name: Next build
+        run: npm run build
+      - name: Electron main/preload compile
+        run: npx tsc -p electron --noEmit
+
+  backend:
+    name: Backend (mvn verify)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: pos-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Verify (unit tests + migrations on real PostgreSQL)
+        run: ./mvnw -B -ntp verify
+
+  flyway:
+    name: Flyway version numbers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: No duplicate V<n>
+        run: |
+          dupes=$(ls pos-backend/src/main/resources/db/migration \
+            | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate Flyway versions: $dupes"
+            exit 1
+          fi
+          echo "Highest migration: V$(ls pos-backend/src/main/resources/db/migration | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | tail -1)"
