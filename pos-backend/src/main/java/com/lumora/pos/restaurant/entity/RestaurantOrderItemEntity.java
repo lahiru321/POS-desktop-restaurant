@@ -98,17 +98,9 @@ public class RestaurantOrderItemEntity extends BaseEntity {
         return quantity.subtract(firedQuantity).subtract(voidedQuantity).max(BigDecimal.ZERO);
     }
 
-    /**
-     * Unsent, and waiting for its course to be fired: a main while the table is
-     * still on starters. Send skips it; "Fire course N" sends it.
-     */
-    public boolean isHeld() {
-        return pendingQuantity().signum() > 0 && order != null && courseNo > order.getReleasedCourse();
-    }
-
-    /** Unsent and free to go on the next Send. */
+    /** Unsent: goes on the next Send, whatever its (legacy) course number. */
     public boolean isReadyToFire() {
-        return pendingQuantity().signum() > 0 && !isHeld();
+        return pendingQuantity().signum() > 0;
     }
 
     public void addTopping(RestaurantOrderItemToppingEntity topping) {

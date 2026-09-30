@@ -81,18 +81,8 @@ public class RestaurantOrderEntity extends BaseEntity {
     @Column(name = "round_count", nullable = false)
     private int roundCount = 0;
 
-    /**
-     * How far the kitchen has been told to go (V70). Send fires unsent lines at
-     * or below this course; "Fire course N" raises it. It only ever rises.
-     */
-    @Builder.Default
-    @Column(name = "released_course", nullable = false)
-    private int releasedCourse = 1;
-
-    /** The highest course on the tab — what takeaway releases before it fires. */
-    public int highestCourse() {
-        return items.stream().mapToInt(RestaurantOrderItemEntity::getCourseNo).max().orElse(1);
-    }
+    // V70's released_course is left unmapped on purpose: courses were removed,
+    // Send fires every unsent line, and the column's DEFAULT 1 fills new rows.
 
     @Column(name = "opened_at", nullable = false)
     private LocalDateTime openedAt;

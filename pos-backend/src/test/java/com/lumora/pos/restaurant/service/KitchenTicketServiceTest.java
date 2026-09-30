@@ -117,8 +117,8 @@ class KitchenTicketServiceTest {
         }
 
         @Test
-        @DisplayName("Send skips a line held for a later course, and leaves it unsent")
-        void shouldSkipHeldCourse() {
+        @DisplayName("Send fires every unsent line, whatever course number an old tab gave it")
+        void shouldIgnoreLegacyCourseNumbers() {
             RestaurantOrderItemEntity soup = item("Tom yum", "2");
             RestaurantOrderItemEntity kottu = item("Chicken kottu", "2");
             kottu.setCourseNo(2);
@@ -126,42 +126,12 @@ class KitchenTicketServiceTest {
             List<KitchenTicketEntity> tickets = ticketService.fireRound(order);
 
             assertThat(tickets).singleElement().satisfies(t -> {
-                assertThat(t.getItems()).extracting(KitchenTicketItemEntity::getItemName).containsExactly("Tom yum");
+                assertThat(t.getItems()).extracting(KitchenTicketItemEntity::getItemName)
+                        .containsExactlyInAnyOrder("Tom yum", "Chicken kottu");
                 assertThat(t.getNotice()).isNull();
             });
             assertThat(soup.getFiredQuantity()).isEqualByComparingTo("2");
-            assertThat(kottu.getFiredQuantity()).isEqualByComparingTo("0");
-            assertThat(kottu.isHeld()).isTrue();
-        }
-
-        @Test
-        @DisplayName("With only a held course left, Send says which course is waiting")
-        void shouldExplainHeldCourse() {
-            item("Chicken kottu", "1").setCourseNo(2);
-
-            assertThatThrownBy(() -> ticketService.fireRound(order))
-                    .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("Course 2 is held");
-            assertThat(order.getRoundCount()).isZero();
-        }
-
-        @Test
-        @DisplayName("Once course 2 is released it fires with the banner on every station's sheet")
-        void shouldFireReleasedCourseWithNotice() {
-            RestaurantOrderItemEntity kottu = item("Chicken kottu", "2");
-            kottu.setCourseNo(2);
-            RestaurantOrderItemEntity dessert = item("Watalappan", "2");
-            dessert.setCourseNo(3);
-            order.setReleasedCourse(2);
-
-            List<KitchenTicketEntity> tickets = ticketService.fireRound(order, "FIRE COURSE 2");
-
-            assertThat(tickets).singleElement().satisfies(t -> {
-                assertThat(t.getNotice()).isEqualTo("FIRE COURSE 2");
-                assertThat(t.getItems()).extracting(KitchenTicketItemEntity::getItemName)
-                        .containsExactly("Chicken kottu");
-            });
-            assertThat(dessert.isHeld()).isTrue();
+            assertThat(kottu.getFiredQuantity()).isEqualByComparingTo("2");
         }
 
         @Test

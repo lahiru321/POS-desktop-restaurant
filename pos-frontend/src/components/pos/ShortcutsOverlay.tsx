@@ -54,7 +54,7 @@ const GROUPS: ShortcutGroup[] = [
   {
     title: 'Restaurant',
     rows: [
-      ['F5', 'Send to kitchen (tab) · Park (counter)'],
+      ['F5', 'Send to kitchen (tab) · Park (no tab open)'],
       ['F11', 'Floor / switch table'],
       ['F9', 'Settle the tab'],
     ],

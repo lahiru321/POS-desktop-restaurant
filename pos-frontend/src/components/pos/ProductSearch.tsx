@@ -11,17 +11,17 @@ interface ProductSearchProps {
 
 export function ProductSearch({ search, onSearchChange }: ProductSearchProps) {
   return (
-    <div className="p-4 bg-black">
+    <div className="px-4 pt-3 pb-2 bg-black">
       <div className="relative group">
         <Search
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-primary transition-colors"
-          size={20}
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-primary transition-colors"
+          size={18}
         />
         <Input
           id={POS_SEARCH_INPUT_ID}
           type="text"
-          placeholder="Search by product name, SKU, or scan barcode... (F2)"
-          className="w-full pl-12 pr-4 py-6 bg-gray-900/50 border-gray-800 focus:border-primary/50 focus:ring-primary/20 text-lg rounded-2xl"
+          placeholder="Search the menu or scan a barcode (F2)"
+          className="w-full h-11 pl-11 pr-4 bg-gray-900/50 border-gray-800 focus:border-primary/50 focus:ring-primary/20 text-base rounded-xl"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           autoFocus

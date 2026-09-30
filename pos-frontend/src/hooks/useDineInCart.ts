@@ -25,7 +25,7 @@ import {
   type CartView,
   type TaxContext,
 } from './useCart';
-import { kitchenStateOf } from '@/lib/courses';
+import { kitchenStateOf } from '@/lib/kitchenState';
 
 /**
  * The cart, when the cart is a tab.
@@ -42,10 +42,10 @@ import { kitchenStateOf } from '@/lib/courses';
  *
  * Two things this deliberately does NOT do:
  *
- *  - **No kitchen firing.** Send and "Fire course N" live on the terminal,
+ *  - **No kitchen firing.** Send lives on the terminal,
  *    which owns printing and the failure dialog; this hook only edits the tab.
- *  - **No per-line discount.** `UpdateItemRequest` carries `quantity`, `notes`
- *    and `courseNo` and nothing else, so a discount typed here could not be
+ *  - **No per-line discount.** `UpdateItemRequest` carries `quantity` and
+ *    `notes` and nothing else, so a discount typed here could not be
  *    stored and would vanish at settle. The terminal hides the control rather
  *    than offering one that lies.
  */
@@ -71,8 +71,6 @@ export interface UseDineInCartOptions {
   taxInclusive: boolean;
   /** The drawer's branch, for the stock ceiling. */
   branchId?: string;
-  /** The course new lines go into — the "Course 1 / 2 / 3" picker on the tab. */
-  course?: number;
   /**
    * The tenant requires a manager's PIN to void food the kitchen already has,
    * and whoever is at the till is not a manager. The server enforces this
@@ -105,8 +103,6 @@ export interface DineInCart extends CartView {
   repricedPreview: RepricedLine[];
   /** The tab was loaded but is no longer OPEN (settled or voided elsewhere). */
   isClosed: boolean;
-  /** Moves a line to another course. Only meaningful while some of it is unsent. */
-  setLineCourse: (lineId: string, courseNo: number) => void;
 }
 
 /**
@@ -170,7 +166,6 @@ function toCartItem(item: OrderItemResponse, menu: Map<string, Product>): CartIt
     isCustom: !item.productId,
     toppings: item.toppings.length > 0 ? item.toppings.map(toCartTopping) : undefined,
     notes: item.notes ?? undefined,
-    courseNo: item.courseNo,
     kitchenState: kitchenStateOf(item),
   };
 }
@@ -180,7 +175,6 @@ export function useDineInCart({
   taxContext,
   taxInclusive,
   branchId,
-  course = 1,
   voidNeedsPin = false,
   requestManagerPin,
   onKitchenTickets,
@@ -260,8 +254,8 @@ export function useDineInCart({
   });
 
   const updateItem = useMutation({
-    mutationFn: ({ id, itemId, quantity, courseNo }: { id: string; itemId: string; quantity?: number; courseNo?: number }) =>
-      restaurantOrderService.updateItem(id, itemId, { quantity, courseNo }),
+    mutationFn: ({ id, itemId, quantity }: { id: string; itemId: string; quantity?: number }) =>
+      restaurantOrderService.updateItem(id, itemId, { quantity }),
     onSuccess: applyOrder,
     onError: (err) => toast.error(getApiErrorMessage(err, 'Could not change that line')),
   });
@@ -339,12 +333,9 @@ export function useDineInCart({
 
       // `addItems` appends unconditionally server-side, so merging is decided
       // here — otherwise a second tap of the same dish grows a duplicate row and
-      // the tab reads nothing like the cart it replaces. Only within a course: a
-      // soup ordered as a main is a second line, not a third starter.
+      // the tab reads nothing like the cart it replaces.
       const key = lineKey(product.id, toppings, notes);
-      const existing = order.items.find(
-        (i) => i.billableQuantity > 0 && i.courseNo === course && orderLineKey(i) === key,
-      );
+      const existing = order.items.find((i) => i.billableQuantity > 0 && orderLineKey(i) === key);
       if (existing) {
         updateItem.mutate({
           id: order.id,
@@ -361,7 +352,6 @@ export function useDineInCart({
             productId: product.id,
             quantity: 1,
             notes: notes.trim() || undefined,
-            courseNo: course,
             // The server re-resolves every add-on price from its own row; a
             // FIXED topping's figure here is discarded, exactly as at checkout.
             toppings: toppings.length
@@ -375,7 +365,7 @@ export function useDineInCart({
         ],
       });
     },
-    [order, isBusy, branchId, course, orderedQuantityOf, addItems, updateItem],
+    [order, isBusy, branchId, orderedQuantityOf, addItems, updateItem],
   );
 
   const addCustomItem = useCallback(
@@ -383,18 +373,10 @@ export function useDineInCart({
       if (!order || isBusy) return;
       addItems.mutate({
         id: order.id,
-        lines: [{ itemName: name.trim(), quantity, unitPrice: price, courseNo: course }],
+        lines: [{ itemName: name.trim(), quantity, unitPrice: price }],
       });
     },
-    [order, isBusy, course, addItems],
-  );
-
-  const setLineCourse = useCallback(
-    (lineId: string, courseNo: number) => {
-      if (!order || isBusy) return;
-      updateItem.mutate({ id: order.id, itemId: lineId, courseNo });
-    },
-    [order, isBusy, updateItem],
+    [order, isBusy, addItems],
   );
 
   const removeFromCart = useCallback(
@@ -463,7 +445,6 @@ export function useDineInCart({
     isBusy,
     isClosed,
     repricedPreview,
-    setLineCourse,
     items,
     addToCart,
     addCustomItem,

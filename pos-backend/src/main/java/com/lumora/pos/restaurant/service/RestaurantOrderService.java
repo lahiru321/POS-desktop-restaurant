@@ -184,7 +184,7 @@ public class RestaurantOrderService {
     }
 
     /**
-     * Quantity, notes and course only.
+     * Quantity and notes only.
      *
      * <p>Reducing below what the kitchen was already told to cook is refused:
      * that is a void, and a void has to reach the kitchen as a void ticket
@@ -210,9 +210,6 @@ public class RestaurantOrderService {
         }
         if (request.getNotes() != null) {
             item.setNotes(request.getNotes().isBlank() ? null : request.getNotes().trim());
-        }
-        if (request.getCourseNo() != null) {
-            item.setCourseNo(request.getCourseNo());
         }
 
         RestaurantOrderEntity saved = orderRepository.save(order);
@@ -312,38 +309,6 @@ public class RestaurantOrderService {
         return withTickets(saved, tickets);
     }
 
-    /**
-     * "Fire course 2": the table is ready for the next course.
-     *
-     * <p>Raises the tab's released course to {@code courseNo} and fires, so the
-     * held lines of that course — and any earlier-course line not sent yet — go
-     * out as one round with a FIRE COURSE banner. Jumping ahead (firing course 3
-     * with course 2 still held) takes course 2 with it: the kitchen is never
-     * asked for dessert while the mains it has not seen are still on the tab.
-     *
-     * <p>Locked like Send, so two servers firing the same course queue and the
-     * second is told there is nothing held, rather than printing it twice.
-     */
-    @Transactional
-    public OrderDtos.OrderKitchenResponse fireCourse(UUID orderId, OrderDtos.FireCourseRequest request) {
-        RestaurantOrderEntity order = requireOpenForUpdate(orderId);
-        int course = request.getCourseNo();
-        if (course <= order.getReleasedCourse()) {
-            throw new BusinessException("Course " + course + " is already with the kitchen — use Send for anything new.");
-        }
-        boolean anythingHeld = order.getItems().stream()
-                .anyMatch(i -> i.isHeld() && i.getCourseNo() <= course);
-        if (!anythingHeld) {
-            throw new BusinessException("Nothing is held for course " + course);
-        }
-
-        order.setReleasedCourse(course);
-        List<KitchenTicketEntity> tickets = kitchenTicketService.fireRound(order, "FIRE COURSE " + course);
-        RestaurantOrderEntity saved = orderRepository.save(order);
-        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", orderId, null, Map.of("releasedCourse", course));
-        return withTickets(saved, tickets);
-    }
-
     // ------------------------------------------------------------------
     // Moving and merging tabs
     // ------------------------------------------------------------------
@@ -434,10 +399,6 @@ public class RestaurantOrderService {
         boolean sourceCooking = source.getItems().stream().anyMatch(i -> i.getFiredQuantity().signum() > 0);
         String sourceWhere = source.getTable() != null ? source.getTable().getName() : "takeaway";
         int sourceNumber = source.getOrderNumber();
-        // The joined tab is as far along as the further of the two: a table on its
-        // mains does not go back to waiting for starters because another sat down.
-        int releasedCourse = Math.max(target.getReleasedCourse(), source.getReleasedCourse());
-
         target.setCovers(target.getCovers() + source.getCovers());
         if (target.getCustomerId() == null) {
             target.setCustomerId(source.getCustomerId());
@@ -449,7 +410,6 @@ public class RestaurantOrderService {
         int moved = itemRepository.reassignLines(source, target, tenantId);
 
         RestaurantOrderEntity merged = require(targetId);
-        merged.setReleasedCourse(releasedCourse);
         List<KitchenTicketEntity> tickets = sourceCooking
                 ? kitchenTicketService.moveNotice(merged, "ORDER " + sourceNumber + " FROM " + sourceWhere + " JOINS")
                 : List.of();
@@ -508,11 +468,7 @@ public class RestaurantOrderService {
         // goes now, in the same transaction as the sale, so a paid order can never
         // be missing its ticket. Dine-in never fires here — its rounds were sent
         // while the guests were eating, and a leftover is the cashier's call.
-        // Courses mean nothing for a bag at the counter, so everything is released.
         boolean takeaway = order.getOrderType() == RestaurantOrderEntity.OrderType.TAKEAWAY;
-        if (takeaway) {
-            order.setReleasedCourse(Math.max(order.getReleasedCourse(), order.highestCourse()));
-        }
         List<KitchenTicketEntity> tickets = takeaway
                 && order.getItems().stream().anyMatch(i -> i.pendingQuantity().signum() > 0)
                 ? kitchenTicketService.fireRound(order)
@@ -700,7 +656,6 @@ public class RestaurantOrderService {
                 .discountAmount(request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO)
                 .notes(request.getNotes() != null && !request.getNotes().isBlank()
                         ? request.getNotes().trim() : null)
-                .courseNo(request.getCourseNo() != null ? request.getCourseNo() : 1)
                 .sortOrder(sortOrder)
                 .build();
         item.setTenantId(tenantId);
@@ -1058,7 +1013,6 @@ public class RestaurantOrderService {
                 .servedBy(order.getServedBy())
                 .saleId(order.getSaleId())
                 .roundCount(order.getRoundCount())
-                .releasedCourse(order.getReleasedCourse())
                 .openedAt(order.getOpenedAt())
                 .settledAt(order.getSettledAt())
                 .splitFromId(order.getSplitFromId())
@@ -1077,11 +1031,9 @@ public class RestaurantOrderService {
                 .voidedQuantity(item.getVoidedQuantity())
                 .billableQuantity(item.billableQuantity())
                 .pendingQuantity(item.pendingQuantity())
-                .held(item.isHeld())
                 .unitPriceSnapshot(item.getUnitPriceSnapshot())
                 .discountAmount(item.getDiscountAmount())
                 .notes(item.getNotes())
-                .courseNo(item.getCourseNo())
                 .sortOrder(item.getSortOrder())
                 .toppings(item.getToppings().stream()
                         .map(t -> OrderDtos.OrderItemToppingResponse.builder()

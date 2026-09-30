@@ -64,11 +64,9 @@ function makeLine(overrides: Partial<OrderItemResponse> = {}): OrderItemResponse
     voidedQuantity: 0,
     billableQuantity: 2,
     pendingQuantity: 2,
-    held: false,
     unitPriceSnapshot: 500,
     discountAmount: 0,
     notes: null,
-    courseNo: 1,
     sortOrder: 0,
     toppings: [],
     ...overrides,
@@ -92,7 +90,6 @@ function makeOrder(overrides: Partial<RestaurantOrder> = {}): RestaurantOrder {
     servedBy: "u1",
     saleId: null,
     roundCount: 0,
-    releasedCourse: 1,
     openedAt: "2026-09-21T13:00:00+05:30",
     settledAt: null,
     runningTotal: 1000,
@@ -195,40 +192,19 @@ describe("useDineInCart", () => {
     expect(addItems).not.toHaveBeenCalled();
   });
 
-  it("a dish tapped into course 2 is its own line, not a third starter", async () => {
-    getOrder.mockResolvedValue(makeOrder());
-    addItems.mockResolvedValue(makeOrder());
-    const { result } = mount({ course: 2 });
-    await waitFor(() => expect(result.current.items).toHaveLength(1));
-
-    act(() => result.current.addToCart(makeProduct()));
-
-    await waitFor(() => expect(addItems).toHaveBeenCalledTimes(1));
-    expect(updateItem).not.toHaveBeenCalled();
-    expect(addItems.mock.calls[0][1].items[0].courseNo).toBe(2);
-  });
-
-  it("shows each line's course and whether it is sent, new or held", async () => {
+  it("shows whether each line is already with the kitchen or waiting for Send", async () => {
     getOrder.mockResolvedValue(
       makeOrder({
-        releasedCourse: 1,
         items: [
           makeLine({ id: "i1", pendingQuantity: 0, firedQuantity: 2 }),
-          makeLine({ id: "i2", courseNo: 2, held: true }),
+          makeLine({ id: "i2", productId: "p2" }),
         ],
       })
     );
-    updateItem.mockResolvedValue(makeOrder());
     const { result } = mount();
     await waitFor(() => expect(result.current.items).toHaveLength(2));
 
-    expect(result.current.items.map((i) => [i.courseNo, i.kitchenState])).toEqual([
-      [1, "sent"],
-      [2, "held"],
-    ]);
-
-    act(() => result.current.setLineCourse("i2", 3));
-    await waitFor(() => expect(updateItem).toHaveBeenCalledWith("o1", "i2", { courseNo: 3 }));
+    expect(result.current.items.map((i) => i.kitchenState)).toEqual(["sent", "new"]);
   });
 
   it("posts a new line when the add-ons differ, exactly as the cart key does", async () => {
@@ -462,8 +438,6 @@ describe("useDineInCart", () => {
       itemName: "Birthday cake slice",
       quantity: 2,
       unitPrice: 450,
-      // Into whichever course the tab is on, like any other line.
-      courseNo: 1,
     });
   });
 });

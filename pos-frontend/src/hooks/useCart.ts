@@ -31,10 +31,8 @@ export interface CartItem extends Product {
   toppings?: CartItemTopping[];
   /** Free text for the kitchen and the bill: "no chilli". */
   notes?: string;
-  /** Dine-in only: the line's course. Absent on a retail cart line. */
-  courseNo?: number;
-  /** Dine-in only: all sent, some to send now, or held for its course. */
-  kitchenState?: 'sent' | 'new' | 'held';
+  /** Dine-in only: all sent, or some still to go on the next Send. */
+  kitchenState?: 'sent' | 'new';
 }
 
 /**

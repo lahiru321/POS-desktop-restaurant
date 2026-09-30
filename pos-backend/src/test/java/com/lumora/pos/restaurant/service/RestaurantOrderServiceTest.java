@@ -509,46 +509,6 @@ class RestaurantOrderServiceTest {
         }
 
         @Test
-        @DisplayName("Fire course 2 releases the tab to course 2 and fires with the banner")
-        void shouldFireCourse() {
-            RestaurantOrderEntity order = order();
-            item(order, "Chicken kottu", "2", "950.00").setCourseNo(2);
-            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
-                    .thenReturn(Optional.of(order));
-            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(kitchenTicketService.fireRound(order, "FIRE COURSE 2")).thenReturn(List.of());
-
-            var response = orderService.fireCourse(order.getId(),
-                    OrderDtos.FireCourseRequest.builder().courseNo(2).build());
-
-            assertThat(order.getReleasedCourse()).isEqualTo(2);
-            assertThat(response.getOrder().getReleasedCourse()).isEqualTo(2);
-            verify(kitchenTicketService).fireRound(order, "FIRE COURSE 2");
-        }
-
-        @Test
-        @DisplayName("Firing a course already released, or one with nothing held, is refused")
-        void shouldRefusePointlessFireCourse() {
-            RestaurantOrderEntity order = order();
-            item(order, "Chicken kottu", "2", "950.00").setCourseNo(2);
-            order.setReleasedCourse(2);
-            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
-                    .thenReturn(Optional.of(order));
-
-            assertThatThrownBy(() -> orderService.fireCourse(order.getId(),
-                    OrderDtos.FireCourseRequest.builder().courseNo(2).build()))
-                    .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("already with the kitchen");
-            assertThatThrownBy(() -> orderService.fireCourse(order.getId(),
-                    OrderDtos.FireCourseRequest.builder().courseNo(3).build()))
-                    .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("Nothing is held for course 3");
-
-            assertThat(order.getReleasedCourse()).isEqualTo(2);
-            verify(kitchenTicketService, never()).fireRound(any(), any());
-        }
-
-        @Test
         @DisplayName("Reducing below what the kitchen already has is refused — that is a void")
         void shouldRefuseShrinkingBelowFired() {
             RestaurantOrderEntity order = order();
@@ -713,31 +673,6 @@ class RestaurantOrderServiceTest {
             var inOrder = inOrder(saleService, kitchenTicketService);
             inOrder.verify(saleService).createSale(any());
             inOrder.verify(kitchenTicketService).fireRound(order);
-        }
-
-        @Test
-        @DisplayName("A takeaway holds no course: every course is released before it fires")
-        void shouldReleaseEveryCourseOnTakeaway() {
-            RestaurantOrderEntity order = order();
-            order.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
-            order.setTable(null);
-            item(order, "Kottu", "1", "950.00");
-            item(order, "Watalappan", "1", "400.00").setCourseNo(3);
-
-            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId))
-                    .thenReturn(Optional.of(order));
-            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("1350.00")));
-            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(kitchenTicketService.fireRound(order)).thenAnswer(inv -> {
-                // What the ticket service will see when it filters for ready lines.
-                assertThat(order.getItems()).noneMatch(RestaurantOrderItemEntity::isHeld);
-                return List.of();
-            });
-
-            orderService.settle(order.getId(), OrderDtos.SettleRequest.builder().paymentMethod("CASH").build());
-
-            assertThat(order.getReleasedCourse()).isEqualTo(3);
-            verify(kitchenTicketService).fireRound(order);
         }
 
         @Test
@@ -1172,7 +1107,6 @@ class RestaurantOrderServiceTest {
             source.setOrderNumber(9);
             source.setTable(t7);
             source.setCovers(3);
-            source.setReleasedCourse(2);
             t7.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
             item(source, "Lime juice", "1", "300.00").setFiredQuantity(BigDecimal.ONE);
 
@@ -1190,8 +1124,6 @@ class RestaurantOrderServiceTest {
             assertThat(t7.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
             assertThat(target.getCovers()).isEqualTo(5);
             verify(itemRepository).reassignLines(source, target, tenantId);
-            // The joined tab is as far along as the further of the two.
-            assertThat(target.getReleasedCourse()).isEqualTo(2);
             // The source's food was cooking, so the runner is told where it now goes.
             verify(kitchenTicketService).moveNotice(target, "ORDER 9 FROM T7 JOINS");
         }

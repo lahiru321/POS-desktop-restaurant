@@ -21,22 +21,16 @@ interface CartItemCardProps {
    * Whether the line can be discounted. True on a retail sale.
    *
    * A dine-in tab passes false: `PATCH /restaurant/orders/{id}/items/{itemId}`
-   * carries quantity, notes and course and nothing else, so a discount typed on
+   * carries quantity and notes and nothing else, so a discount typed on
    * a tab could not be stored and would be gone by settle. F6 finds no
    * `[data-discount-trigger]` and does nothing, which is the honest outcome.
    */
   showDiscount?: boolean;
-  /**
-   * Dine-in only: moves the line to the next course (1 → 2 → 3 → 1). Absent on
-   * a retail sale and on takeaway, where there are no courses. Only offered
-   * while some of the line is unsent — the kitchen already has the rest.
-   */
-  onCycleCourse?: (lineId: string) => void;
 }
 
-const KITCHEN_STATE_LABEL = { sent: 'Sent', new: 'New', held: 'Held' } as const;
+const KITCHEN_STATE_LABEL = { sent: 'Sent', new: 'New' } as const;
 
-export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, isFocused = false, index, showDiscount = true, onCycleCourse }: CartItemCardProps) {
+export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, isFocused = false, index, showDiscount = true }: CartItemCardProps) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -69,7 +63,6 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
   const addonsPerUnit = (item.toppings ?? []).reduce((sum, t) => sum + t.unitPrice * t.quantity, 0);
   const grossLine = (item.basePrice + addonsPerUnit) * item.cartQuantity;
   const netLine = grossLine - item.discountAmount;
-  const identifier = item.sku || item.barcode;
   const hasDiscount = item.discountAmount > 0;
 
   return (
@@ -104,13 +97,11 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
             <h4 className="text-sm font-medium text-foreground truncate" title={item.name}>
               {item.name}
             </h4>
-            {item.isCustom ? (
+            {item.isCustom && (
               <span className="inline-block text-[10px] font-semibold rounded px-1.5 py-0.5 bg-primary/15 text-primary uppercase tracking-wide">
                 Custom
               </span>
-            ) : identifier ? (
-              <p className="text-[11px] text-muted-foreground font-mono truncate">{identifier}</p>
-            ) : null}
+            )}
 
             {item.toppings?.map((topping) => (
               <div
@@ -133,30 +124,16 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
               </p>
             )}
 
-            {onCycleCourse && item.courseNo !== undefined && item.kitchenState && (
-              <div className="mt-1 flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => onCycleCourse(item.lineId)}
-                  disabled={item.kitchenState === 'sent'}
-                  aria-label={`${item.name}: course ${item.courseNo}${
-                    item.kitchenState === 'sent' ? '' : '. Tap to move to the next course'
-                  }`}
-                  className="rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-default disabled:hover:border-border disabled:hover:text-muted-foreground"
-                >
-                  Course {item.courseNo}
-                </button>
-                <span
-                  className={cn(
-                    'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                    item.kitchenState === 'sent' && 'text-muted-foreground',
-                    item.kitchenState === 'new' && 'bg-primary/15 text-primary',
-                    item.kitchenState === 'held' && 'bg-amber-500/15 text-amber-300',
-                  )}
-                >
-                  {KITCHEN_STATE_LABEL[item.kitchenState]}
-                </span>
-              </div>
+            {item.kitchenState && (
+              <span
+                className={cn(
+                  'mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                  item.kitchenState === 'sent' && 'text-muted-foreground',
+                  item.kitchenState === 'new' && 'bg-primary/15 text-primary',
+                )}
+              >
+                {KITCHEN_STATE_LABEL[item.kitchenState]}
+              </span>
             )}
           </div>
 

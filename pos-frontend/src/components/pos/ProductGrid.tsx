@@ -48,14 +48,14 @@ export function ProductGrid({
     return (
       <div className="flex-1 p-4 pt-0 flex flex-col items-center justify-center text-gray-500 gap-3">
         <Package size={48} className="opacity-20" />
-        <p>No products found matching &quot;{searchTerm}&quot;</p>
+        <p>{searchTerm ? <>Nothing on the menu matches &quot;{searchTerm}&quot;</> : 'No items in this category'}</p>
       </div>
     );
   }
 
   return (
     <div className="flex-1 p-4 pt-0 overflow-y-auto custom-scrollbar">
-      <div ref={containerRef} data-product-grid className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <div ref={containerRef} data-product-grid className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
         {products.map((product, index) => {
           // Made to order (V59): no stock_levels row, so the server's derived
           // stockQuantity is 0 and the tile would render as permanently out of
@@ -87,35 +87,31 @@ export function ProductGrid({
             )}
             onClick={outOfStock || atLimit ? undefined : () => onProductClick(product)}
           >
-            <CardContent className="p-0">
-              <div className="aspect-square bg-gray-950 relative overflow-hidden flex items-center justify-center">
-                {product.imageUrl ? (
+            <CardContent className="p-0 flex h-full flex-col">
+              {/* A photo helps find a dish; without one the tile is text only,
+                  so a menu with no photos fits twice as many items on screen. */}
+              {product.imageUrl && (
+                <div className="aspect-[4/3] bg-gray-950 relative overflow-hidden">
                   <Image src={product.imageUrl} fill className="object-cover" alt={product.name} />
-                ) : (
-                  <Package className="text-gray-800" size={40} />
-                )}
-                {!outOfStock && !atLimit && (
-                  <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/10 transition-colors" />
-                )}
-              </div>
-              <div className="p-3">
+                  {!outOfStock && !atLimit && (
+                    <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/10 transition-colors" />
+                  )}
+                </div>
+              )}
+              <div className={cn('p-3 flex flex-1 flex-col justify-between gap-2', !product.imageUrl && 'min-h-[5.5rem]')}>
                 <h3 className={
                   outOfStock
-                    ? 'font-medium text-gray-500 text-sm line-clamp-1'
-                    : 'font-medium text-white text-sm line-clamp-1 group-hover:text-primary transition-colors'
+                    ? 'font-semibold text-gray-500 text-sm leading-snug line-clamp-2'
+                    : 'font-semibold text-white text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors'
                 }>
                   {product.name}
                 </h3>
-                <p className="text-xs text-gray-400 mb-2">{product.sku}</p>
-                <div className="flex justify-between items-center">
-                  <span className={outOfStock ? 'text-gray-500 font-bold' : 'text-primary font-bold'}>
+                <div className="flex flex-wrap justify-between items-center gap-1">
+                  <span className={cn('text-base font-bold tabular-nums', outOfStock ? 'text-gray-500' : 'text-primary')}>
                     {CURRENCY.symbol} {product.basePrice.toFixed(2)}
                   </span>
-                  {untracked ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                      Made to order
-                    </span>
-                  ) : outOfStock ? (
+                  {/* Stock is shown only for packaged items; a dish is cooked to order. */}
+                  {untracked ? null : outOfStock ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-500">
                       Out of stock
                     </span>
