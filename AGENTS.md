@@ -5,7 +5,7 @@ Guidance for Codex working in **`D:\Lumora\POS-desktop-restaurant`**.
 ## What this project is
 
 The **restaurant fork** of Lumora POS (StoreX) — a single-machine **Electron** app bundling its own backend,
-database and web UI into one NSIS installer (`pos-frontend/dist/StoreX-Restaurant-Setup-0.1.0.exe`). Forked from
+database and web UI into one NSIS installer (`pos-frontend/dist/StoreX-Restaurant-Setup-<version>.exe`, version from `pos-frontend/package.json` — bump it for every build handed to a client). Forked from
 `LumoraTechSolution/POS-desktop` (the retail product) and identical to it at the fork point. Table dining,
 kitchen tickets and per-item toppings are added **here only** and never flow back upstream. It ships as its own
 product — appId `com.lumora.restaurant`, **StoreX Restaurant**, with its own install dir, service, data dir,
