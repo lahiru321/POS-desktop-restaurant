@@ -71,6 +71,12 @@ everything and should not be relitigated without reading it:
   copies its cert into QZ Tray as `override.crt` and restarts QZ; the launcher passes `QZ_KEYSTORE`/
   `QZ_KEYSTORE_PASSWORD`; `QzSigningService` signs. Never ship one shared key — whoever unpacked the
   installer could sign print jobs for every customer's QZ. The till asks once; "Remember" makes it silent.
+- **Voiding food the kitchen already has can need a manager's PIN** (tenant setting
+  `restaurantVoidRequiresPin`, off by default; Settings → Restaurant). Enforced in
+  `RestaurantOrderService.voidItem` — only the *fired* portion counts, managers/admins approve their own —
+  and asked for up front by `useDineInCart.voidLine` via `ManagerPinDialog`. The PIN check itself is
+  `auth/service/ManagerPinService` (constant-time, returns the approver for the audit); `SaleService`'s
+  payment correction uses the same loop. Whole-tab void is ADMIN/MANAGER-only and needs no PIN.
 - **The tax chain is implemented twice** — backend `TaxRateService` + `SaleService`, frontend
   `getProductTaxRate` + the `taxInfo` memo in `useCart.ts`. Change both in one commit or the cart and server
   totals silently disagree. The backend rounds **per `sale_items` row**, so the client rounds per sub-line too.
@@ -128,12 +134,15 @@ CI gates, in order — and what to run locally: `npm run typecheck && npm run li
 in `pos-frontend` (never `@ts-ignore` to ship), then a duplicate-Flyway-version check and `./mvnw -o clean
 verify` in `pos-backend`.
 
-### Migration drift — the check the test suite cannot give you
+### Migration drift
 
-`application-test.yml` uses H2 with `ddl-auto: create-drop` and **`flyway.enabled: false`**, so **no migration
-is ever exercised by `mvn verify`** and entity/DDL drift stays invisible until a real install runs. After
-adding any migration, boot once against a real Postgres with validation on: Flyway builds the schema, then
-Hibernate refuses to start on any mismatch. `/actuator/health` → `UP` means it passed.
+`application-test.yml` uses H2 with `ddl-auto: create-drop` and `flyway.enabled: false`, so every other test
+is blind to migrations. **`FlywayMigrationIntegrationTest` is the one that isn't:** it starts a real embedded
+PostgreSQL (zonky `embedded-postgres`, PG 14, no Docker; UTF-8/C locale), applies every migration in
+`db/migration`, boots the app with `ddl-auto=validate`, and checks the DB is at the highest `V<n>` on disk —
+so a failing migration or an entity field with no column now fails `mvn verify`. The first run downloads the
+Postgres binaries (run once without `-o`). The installed product runs PG 16, so before a release still boot
+once against the real 16 as below — that also exercises the demo seeds and the desktop profile.
 
 ```powershell
 $env:DATABASE_URL="jdbc:postgresql://127.0.0.1:5440/postgres"; $env:DB_USERNAME="postgres"; $env:DB_PASSWORD="<db.properties>"; $env:JWT_SECRET="<any 64+ chars>"
