@@ -15,7 +15,7 @@ export function runFirstRunWizard(): Promise<FirstRunInput> {
   return new Promise<FirstRunInput>((resolve, reject) => {
     const win = new BrowserWindow({
       width: 520,
-      height: 660,
+      height: 820,
       resizable: false,
       fullscreenable: false,
       title: "Set up StoreX Restaurant",
@@ -41,6 +41,15 @@ export function runFirstRunWizard(): Promise<FirstRunInput> {
       if (!input.adminPassword || input.adminPassword.length < 8) {
         throw new Error("Password must be at least 8 characters.");
       }
+      // The Lumora support login is optional; when given, the same rules as the
+      // "Set super-admin password" tool (SetSuperAdminPassword.check).
+      const saPassword = input.superAdminPassword ?? "";
+      const saEmail = (input.superAdminEmail ?? "").trim();
+      if (saPassword) {
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(saEmail)) throw new Error("Please enter a valid super-admin email.");
+        if (saPassword.length < 8) throw new Error("The super-admin password must be at least 8 characters.");
+        if (saPassword === "SuperAdmin@2024") throw new Error("That is the published default password - choose your own.");
+      }
       submitted = true;
       cleanup();
       win.close();
@@ -48,6 +57,8 @@ export function runFirstRunWizard(): Promise<FirstRunInput> {
         tenantName: input.tenantName.trim(),
         adminEmail: input.adminEmail.trim(),
         adminPassword: input.adminPassword,
+        superAdminEmail: saPassword ? saEmail : undefined,
+        superAdminPassword: saPassword || undefined,
       });
     };
 

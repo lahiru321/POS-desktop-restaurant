@@ -15,50 +15,82 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-@DisplayName("Desktop super-admin lockdown")
+@DisplayName("Desktop super-admin: only with a password the installer chose")
 class DesktopSuperAdminLockdownTest {
 
-    @Test
-    @DisplayName("Disables every active super-admin and makes the default password useless")
-    void shouldDisableAndScrambleActiveAccounts() {
-        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
-        SuperAdminEntity seeded = new SuperAdminEntity();
-        seeded.setEmail("superadmin@lumora.com");
-        seeded.setActive(true);
-        seeded.setPasswordHash(encoder.encode("SuperAdmin@2024"));
-        SuperAdminEntity alreadyOff = new SuperAdminEntity();
-        alreadyOff.setActive(false);
-        alreadyOff.setPasswordHash("untouched");
-        SuperAdminRepository repo = mock(SuperAdminRepository.class);
-        when(repo.findAll()).thenReturn(List.of(seeded, alreadyOff));
+    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
 
-        new DesktopSuperAdminLockdown.Accounts(repo, encoder).run(null);
-
-        assertThat(seeded.isActive()).isFalse();
-        assertThat(encoder.matches("SuperAdmin@2024", seeded.getPasswordHash())).isFalse();
-        assertThat(seeded.isPasswordChangeRequired()).isTrue();
-        assertThat(alreadyOff.getPasswordHash()).isEqualTo("untouched");
-        verify(repo, times(1)).save(any());
+    private SuperAdminEntity admin(String password, boolean active) {
+        SuperAdminEntity a = new SuperAdminEntity();
+        a.setEmail("superadmin@lumora.com");
+        a.setActive(active);
+        a.setPasswordHash(encoder.encode(password));
+        return a;
     }
 
     @Test
-    @DisplayName("Answers 404 for every super-admin route, login included, and leaves the rest alone")
-    void shouldCloseOnlySuperAdminRoutes() throws Exception {
-        DesktopSuperAdminLockdown.Routes filter = new DesktopSuperAdminLockdown.Routes();
+    @DisplayName("An account still on the published default is disabled and scrambled")
+    void shouldDisableTheDefault() {
+        SuperAdminEntity seeded = admin(DesktopSuperAdminLockdown.PUBLISHED_DEFAULT_PASSWORD, true);
+        SuperAdminRepository repo = mock(SuperAdminRepository.class);
+        when(repo.findAll()).thenReturn(List.of(seeded));
+        DesktopSuperAdminLockdown.State state = new DesktopSuperAdminLockdown.State();
 
-        for (String path : List.of("/api/v1/super-admin/auth/login", "/api/v1/super-admin/tenants/x/suspend",
-                "/api/v1/super-admin")) {
-            MockHttpServletResponse res = new MockHttpServletResponse();
-            MockFilterChain chain = new MockFilterChain();
-            filter.doFilter(new MockHttpServletRequest("POST", path), res, chain);
-            assertThat(res.getStatus()).as(path).isEqualTo(404);
-            assertThat(chain.getRequest()).as(path + " never reaches the app").isNull();
-        }
+        new DesktopSuperAdminLockdown.Accounts(repo, encoder, state).run(null);
 
+        assertThat(seeded.isActive()).isFalse();
+        assertThat(encoder.matches(DesktopSuperAdminLockdown.PUBLISHED_DEFAULT_PASSWORD, seeded.getPasswordHash())).isFalse();
+        assertThat(state.isChecked()).isTrue();
+    }
+
+    @Test
+    @DisplayName("A password the installer chose is left alone")
+    void shouldKeepAChosenPassword() {
+        SuperAdminEntity chosen = admin("Lumora-support-7731", true);
+        String hash = chosen.getPasswordHash();
+        SuperAdminRepository repo = mock(SuperAdminRepository.class);
+        when(repo.findAll()).thenReturn(List.of(chosen));
+
+        new DesktopSuperAdminLockdown.Accounts(repo, encoder, new DesktopSuperAdminLockdown.State()).run(null);
+
+        assertThat(chosen.isActive()).isTrue();
+        assertThat(chosen.getPasswordHash()).isEqualTo(hash);
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("The console is closed until the startup check has run, and while nobody can log in")
+    void shouldOpenOnlyWhenCheckedAndActive() throws Exception {
+        DesktopSuperAdminLockdown.State state = new DesktopSuperAdminLockdown.State();
+        SuperAdminRepository repo = mock(SuperAdminRepository.class);
+        DesktopSuperAdminLockdown.Routes filter = new DesktopSuperAdminLockdown.Routes(state, repo);
+
+        when(repo.existsByIsActiveTrue()).thenReturn(true);
+        assertThat(status(filter, "/api/v1/super-admin/auth/login")).as("before the check").isEqualTo(404);
+
+        state.markChecked();
+        when(repo.existsByIsActiveTrue()).thenReturn(false);
+        assertThat(status(filter, "/api/v1/super-admin/auth/login")).as("no super-admin set").isEqualTo(404);
+
+        when(repo.existsByIsActiveTrue()).thenReturn(true);
+        assertThat(status(filter, "/api/v1/super-admin/auth/login")).as("set by the installer").isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("Other routes are never touched")
+    void shouldLeaveOtherRoutesAlone() throws Exception {
+        DesktopSuperAdminLockdown.Routes filter =
+                new DesktopSuperAdminLockdown.Routes(new DesktopSuperAdminLockdown.State(), mock(SuperAdminRepository.class));
         for (String path : List.of("/api/v1/auth/login", "/api/v1/super-administrators")) {
             MockFilterChain chain = new MockFilterChain();
             filter.doFilter(new MockHttpServletRequest("POST", path), new MockHttpServletResponse(), chain);
-            assertThat(chain.getRequest()).as(path + " passes through").isNotNull();
+            assertThat(chain.getRequest()).as(path).isNotNull();
         }
+    }
+
+    private static int status(DesktopSuperAdminLockdown.Routes filter, String path) throws Exception {
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", path), res, new MockFilterChain());
+        return res.getStatus();
     }
 }

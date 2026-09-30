@@ -12,5 +12,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public record TenantSeed(
         String tenantName,
         String adminEmail,
-        String adminPasswordBcrypt
+        String adminPasswordBcrypt,
+        /* Lumora support login set by whoever installs the till; both null = none. */
+        String superAdminEmail,
+        String superAdminPasswordBcrypt
 ) {}

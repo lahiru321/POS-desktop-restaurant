@@ -211,9 +211,14 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
   `sha256("guid:"+MachineGuid)` — delete it to force the activation screen again.
 - **`license-signing-key.PRIVATE.txt` must never be added to this repo** — the issuing secret belongs only on
   the license server. It is gitignored; keep it that way.
-- **No super-admin on desktop.** Flyway V25/V38 still seed `superadmin@lumora.com` / `SuperAdmin@2024` (the
-  hosted product needs it), but `DesktopSuperAdminLockdown` deactivates and scrambles every super-admin on
-  each desktop start and 404s `/api/v1/super-admin/**`. Normal entry is the first-run wizard's tenant login.
+- **Super-admin on desktop: only with a password the installer chose.** Flyway V25/V38 seed
+  `superadmin@lumora.com` / `SuperAdmin@2024` (the hosted product needs it), but on desktop that default never
+  works: `DesktopSuperAdminLockdown` disables any active super-admin still on it at every start, and 404s
+  `/api/v1/super-admin/**` until that check ran and while none is active. The installer sets the real one in
+  the first-run wizard ("Lumora support login", optional; `DesktopBootstrapRunner` applies it once) or later
+  with Start menu → "StoreX Restaurant - Set super-admin password" (`set-superadmin-password.ps1`, Windows
+  admin; runs `superadmin/tools/SetSuperAdminPassword` from the jar via `PropertiesLauncher`). Normal entry is
+  the first-run wizard's tenant login.
 
 ## Flyway version reservation
 

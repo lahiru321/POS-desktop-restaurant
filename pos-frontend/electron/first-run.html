@@ -13,9 +13,10 @@
         background: #0f172a;
         color: #e2e8f0;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         min-height: 100vh;
+        overflow-y: auto;
       }
       .card { width: 460px; padding: 32px; }
       h1 { font-size: 22px; margin: 0 0 4px; }
@@ -48,6 +49,9 @@
       button.link { background: none; color: #64748b; font-weight: 400; font-size: 13px; margin-top: 10px; }
       .error { margin-top: 16px; color: #f87171; font-size: 13px; min-height: 18px; }
       .ok { color: #4ade80; }
+      .section { margin-top: 26px; padding-top: 16px; border-top: 1px solid #334155; }
+      .section h2 { font-size: 14px; margin: 0 0 4px; color: #e2e8f0; }
+      .hint { color: #64748b; font-size: 12px; line-height: 1.5; margin: 0; }
     </style>
   </head>
   <body>
@@ -66,6 +70,20 @@
 
       <label for="confirm">Confirm password</label>
       <input id="confirm" type="password" placeholder="Re-enter password" autocomplete="off" />
+
+      <div class="section">
+        <h2>Lumora support login</h2>
+        <p class="hint">
+          For whoever installs and supports this till. Leave the password empty to skip it &mdash;
+          it can be set later from the Start menu (StoreX Restaurant - Set super-admin password).
+        </p>
+        <label for="saEmail">Super-admin email</label>
+        <input id="saEmail" type="email" value="superadmin@lumora.com" autocomplete="off" spellcheck="false" />
+        <label for="saPassword">Super-admin password</label>
+        <input id="saPassword" type="password" placeholder="At least 8 characters, or empty to skip" autocomplete="off" />
+        <label for="saConfirm">Confirm super-admin password</label>
+        <input id="saConfirm" type="password" placeholder="Re-enter password" autocomplete="off" />
+      </div>
 
       <button id="submit">Create my store</button>
       <button id="quit" class="link">Quit</button>
@@ -91,10 +109,22 @@
         if (adminPassword.length < 8) { errorEl.textContent = "Password must be at least 8 characters."; return; }
         if (adminPassword !== confirm) { errorEl.textContent = "Passwords do not match."; return; }
 
+        const superAdminEmail = $("saEmail").value.trim();
+        const superAdminPassword = $("saPassword").value;
+        if (superAdminPassword) {
+          if (superAdminPassword.length < 8) { errorEl.textContent = "The super-admin password must be at least 8 characters."; return; }
+          if (superAdminPassword !== $("saConfirm").value) { errorEl.textContent = "The super-admin passwords do not match."; return; }
+          if (superAdminPassword === "SuperAdmin@2024") { errorEl.textContent = "That is the published default password - choose your own."; return; }
+        }
+
         submitBtn.disabled = true;
         submitBtn.textContent = "Setting up…";
         try {
-          await window.firstRun.submit({ tenantName, adminEmail, adminPassword });
+          await window.firstRun.submit({
+            tenantName, adminEmail, adminPassword,
+            superAdminEmail: superAdminPassword ? superAdminEmail : "",
+            superAdminPassword,
+          });
           errorEl.textContent = "All set! Starting StoreX…";
           errorEl.classList.add("ok");
           // The main process closes this window once the seed is written.
@@ -107,9 +137,11 @@
 
       $("quit").addEventListener("click", () => window.firstRun.quit());
 
-      $("confirm").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") submitBtn.click();
-      });
+      for (const id of ["confirm", "saConfirm"]) {
+        $(id).addEventListener("keydown", (e) => {
+          if (e.key === "Enter") submitBtn.click();
+        });
+      }
     </script>
   </body>
 </html>

@@ -154,6 +154,10 @@
       {
         "from": "build/restore-backup.ps1",
         "to": "restore-backup.ps1"
+      },
+      {
+        "from": "build/set-superadmin-password.ps1",
+        "to": "set-superadmin-password.ps1"
       }
     ],
     "win": {

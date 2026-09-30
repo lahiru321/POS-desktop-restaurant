@@ -2,6 +2,8 @@ package com.lumora.pos.superadmin.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumora.pos.superadmin.dto.TenantSeed;
+import com.lumora.pos.superadmin.entity.SuperAdminEntity;
+import com.lumora.pos.superadmin.repository.SuperAdminRepository;
 import com.lumora.pos.superadmin.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
@@ -24,10 +27,12 @@ import java.nio.file.Path;
 @Slf4j
 @Component
 @Profile("desktop")
+@Order(0) // before DesktopSuperAdminLockdown.Accounts, which checks what this set
 @RequiredArgsConstructor
 public class DesktopBootstrapRunner implements ApplicationRunner {
 
     private final TenantRepository tenantRepository;
+    private final SuperAdminRepository superAdminRepository;
     private final SuperAdminTenantService tenantService;
     private final ObjectMapper objectMapper;
 
@@ -59,5 +64,37 @@ public class DesktopBootstrapRunner implements ApplicationRunner {
 
         tenantService.provisionFromSeed(seed);
         log.info("Desktop bootstrap: seeded tenant '{}'.", seed.tenantName());
+        applySuperAdmin(seed);
+    }
+
+    /**
+     * The Lumora support login the installer chose in the setup wizard. Replaces
+     * the migration-seeded account (and its published default password) rather
+     * than adding a second one. Already hashed by the wizard; active at once, with
+     * no forced change — the person who set it just chose it.
+     */
+    private void applySuperAdmin(TenantSeed seed) {
+        String email = seed.superAdminEmail() == null ? "" : seed.superAdminEmail().trim().toLowerCase();
+        String hash = seed.superAdminPasswordBcrypt();
+        if (email.isEmpty() || hash == null || hash.isBlank()) {
+            log.info("Desktop bootstrap: no super-admin chosen at setup; the console stays closed.");
+            return;
+        }
+        SuperAdminEntity admin = superAdminRepository.findByEmail(email)
+                .or(() -> superAdminRepository.findByEmail(DesktopSuperAdminLockdown.SEEDED_EMAIL))
+                .orElseGet(() -> {
+                    SuperAdminEntity created = new SuperAdminEntity();
+                    created.setFirstName("Lumora");
+                    created.setLastName("Support");
+                    return created;
+                });
+        admin.setEmail(email);
+        admin.setPasswordHash(hash);
+        admin.setActive(true);
+        admin.setPasswordChangeRequired(false);
+        admin.setFailedLoginAttempts(0);
+        admin.setLockedUntil(null);
+        superAdminRepository.save(admin);
+        log.info("Desktop bootstrap: super-admin '{}' set from setup.", email);
     }
 }

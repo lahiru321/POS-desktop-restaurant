@@ -20,4 +20,7 @@ public interface SuperAdminRepository extends JpaRepository<SuperAdminEntity, UU
     Optional<SuperAdminEntity> findByEmailAndIsActive(String email, boolean isActive);
 
     boolean existsByEmail(String email);
+
+    /** True when some super-admin can log in — the desktop console opens only then. */
+    boolean existsByIsActiveTrue();
 }

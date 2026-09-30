@@ -32,6 +32,13 @@
     "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" \
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\resources\repair-printing.ps1"' \
     "$INSTDIR\StoreX Restaurant.exe" 0 SW_SHOWMINIMIZED "" "Set up silent receipt and kitchen printing again"
+
+  ; Start menu: set the Lumora support (super-admin) login on this till. Runs as a
+  ; Windows administrator; the published default password never works on a till.
+  CreateShortCut "$SMPROGRAMS\StoreX Restaurant - Set super-admin password.lnk" \
+    "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" \
+    '-NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\set-superadmin-password.ps1"' \
+    "$INSTDIR\StoreX Restaurant.exe" 0 SW_SHOWNORMAL "" "Set the Lumora support login for this till"
 !macroend
 
 !macro customUnInit
@@ -53,6 +60,7 @@
   ${ifNot} ${isUpdated}
     SetShellVarContext all
     Delete "$SMPROGRAMS\StoreX Restaurant - Repair printing.lnk"
+    Delete "$SMPROGRAMS\StoreX Restaurant - Set super-admin password.lnk"
   ${endIf}
   ; NOTE: by the time this macro runs, electron-builder's uninstaller has ALREADY
   ; done `RMDir /r $INSTDIR`, so the bundled uninstall-postgres.ps1 and pg_ctl.exe

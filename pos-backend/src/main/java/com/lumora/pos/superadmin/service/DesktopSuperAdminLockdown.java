@@ -23,59 +23,81 @@ import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
- * The super-admin console does not exist on a desktop install.
+ * The super-admin console on a desktop install: only with a password the
+ * installer chose, never with the published default.
  *
- * <p>It is the hosted product's control panel — create tenants, reset any
- * user's password, suspend a business. Migrations V25/V38 seed its account with
- * a documented default password, which is fine on a server we run and a hole on
- * a till: anyone at the PC could open the login page in a browser, sign in first,
- * reset the owner's password and suspend the restaurant. A desktop install needs
- * none of it (first-run provisioning calls the service directly, not the API).
- *
- * <p>So, desktop profile only, two independent locks:
+ * <p>Migrations V25/V38 seed {@code superadmin@lumora.com} with a documented
+ * default password — right for the hosted product, where we log in first; wrong
+ * on a till, where anyone at the PC could sign in with it, reset the owner's
+ * password or suspend the restaurant ("change it on first login" only means
+ * whoever gets there first chooses). So on desktop:
  * <ul>
- *   <li>{@link Accounts} — on every start, any active super-admin is deactivated
- *       and its password replaced with random bytes nobody knows. Idempotent, and
- *       it fixes installs that shipped before this existed on their next launch.</li>
- *   <li>{@link Routes} — every {@code /api/v1/super-admin/**} request is answered
- *       404 before authentication runs, so re-enabling a row in the database still
- *       opens nothing.</li>
+ *   <li>The installer sets the super-admin in the setup wizard
+ *       ({@code DesktopBootstrapRunner}), or later with the "Set super-admin
+ *       password" tool ({@code SetSuperAdminPassword}), run as a Windows admin.</li>
+ *   <li>{@link Accounts}, on every start: any active super-admin whose password
+ *       is still the published default is disabled and scrambled.</li>
+ *   <li>{@link Routes}: {@code /api/v1/super-admin/**} answers 404 until that
+ *       check has run and while no super-admin is active — so the default works
+ *       for not one request, and a till with no support login shows no console.</li>
  * </ul>
  */
 public final class DesktopSuperAdminLockdown {
 
     static final String ROUTE_PREFIX = "/api/v1/super-admin";
+    /** The account V25 seeds; the wizard and the tool take it over rather than add another. */
+    public static final String SEEDED_EMAIL = "superadmin@lumora.com";
+    /** Published in V38's comment and the docs — never a working password on a till. */
+    public static final String PUBLISHED_DEFAULT_PASSWORD = "SuperAdmin@2024";
 
     private DesktopSuperAdminLockdown() {
+    }
+
+    /** Set once the startup check has run; the console stays closed until then. */
+    @Component
+    @Profile("desktop")
+    public static class State {
+        private volatile boolean checked;
+
+        public boolean isChecked() {
+            return checked;
+        }
+
+        void markChecked() {
+            checked = true;
+        }
     }
 
     @Slf4j
     @Component
     @Profile("desktop")
+    @Order(100) // after DesktopBootstrapRunner (0), which may have just set a super-admin
     @RequiredArgsConstructor
     public static class Accounts implements ApplicationRunner {
 
         private final SuperAdminRepository superAdminRepository;
         private final PasswordEncoder passwordEncoder;
+        private final State state;
 
         @Override
         @Transactional
         public void run(ApplicationArguments args) {
-            int locked = 0;
+            int disabled = 0;
             for (SuperAdminEntity admin : superAdminRepository.findAll()) {
-                if (!admin.isActive()) {
+                if (!admin.isActive() || !passwordEncoder.matches(PUBLISHED_DEFAULT_PASSWORD, admin.getPasswordHash())) {
                     continue;
                 }
                 admin.setActive(false);
                 admin.setPasswordHash(passwordEncoder.encode(randomSecret()));
                 admin.setPasswordChangeRequired(true);
                 superAdminRepository.save(admin);
-                locked++;
+                disabled++;
             }
-            if (locked > 0) {
-                log.warn("Desktop install: disabled {} super-admin account(s); the super-admin console is not "
-                        + "available on a till.", locked);
+            if (disabled > 0) {
+                log.warn("Desktop install: disabled {} super-admin account(s) still on the published default "
+                        + "password. Set one with Start menu > StoreX Restaurant - Set super-admin password.", disabled);
             }
+            state.markChecked();
         }
 
         private static String randomSecret() {
@@ -88,7 +110,11 @@ public final class DesktopSuperAdminLockdown {
     @Component
     @Profile("desktop")
     @Order(Ordered.HIGHEST_PRECEDENCE)
+    @RequiredArgsConstructor
     public static class Routes extends OncePerRequestFilter {
+
+        private final State state;
+        private final SuperAdminRepository superAdminRepository;
 
         @Override
         protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -99,6 +125,10 @@ public final class DesktopSuperAdminLockdown {
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
                 throws ServletException, IOException {
+            if (state.isChecked() && superAdminRepository.existsByIsActiveTrue()) {
+                chain.doFilter(request, response);
+                return;
+            }
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
     }
