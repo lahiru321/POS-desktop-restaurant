@@ -70,6 +70,8 @@ function sheet(ticket: KitchenTicket, opts: KitchenTicketOptions): PrintData[] {
 
   if (isVoid) cmds.push(...banner('** VOID **'));
   if (isMove) cmds.push(...banner('** MOVED **'));
+  // A round with a notice is the next course being called: "FIRE COURSE 2".
+  if (ticket.ticketType === 'ROUND' && ticket.notice) cmds.push(...banner(truncate(ticket.notice, width / 2 - 2)));
   if (opts.reprint) cmds.push(ALIGN_CENTER, BOLD_ON, DOUBLE, '** REPRINT **\n', NORMAL, BOLD_OFF);
 
   // ── Header ────────────────────────────────────────────────────────────

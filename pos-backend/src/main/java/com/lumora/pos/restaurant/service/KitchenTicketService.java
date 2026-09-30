@@ -64,11 +64,28 @@ public class KitchenTicketService {
      */
     @Transactional
     public List<KitchenTicketEntity> fireRound(RestaurantOrderEntity order) {
+        return fireRound(order, null);
+    }
+
+    /**
+     * As {@link #fireRound(RestaurantOrderEntity)}, skipping lines held for a
+     * later course, with {@code notice} printed as a banner on every sheet —
+     * "FIRE COURSE 2", so the pass knows this round is the next course, not a
+     * late addition.
+     */
+    @Transactional
+    public List<KitchenTicketEntity> fireRound(RestaurantOrderEntity order, String notice) {
         List<RestaurantOrderItemEntity> pending = order.getItems().stream()
-                .filter(i -> i.pendingQuantity().signum() > 0)
+                .filter(RestaurantOrderItemEntity::isReadyToFire)
                 .toList();
         if (pending.isEmpty()) {
-            throw new BusinessException("Nothing new to send to the kitchen");
+            int nextHeld = order.getItems().stream()
+                    .filter(RestaurantOrderItemEntity::isHeld)
+                    .mapToInt(RestaurantOrderItemEntity::getCourseNo)
+                    .min().orElse(0);
+            throw new BusinessException(nextHeld > 0
+                    ? "Nothing new to send. Course " + nextHeld + " is held — fire it when the table is ready."
+                    : "Nothing new to send to the kitchen");
         }
 
         int round = nextRound(order);
@@ -76,8 +93,11 @@ public class KitchenTicketService {
         Map<String, KitchenTicketEntity> byStation = new LinkedHashMap<>();
         for (RestaurantOrderItemEntity item : pending) {
             BigDecimal delta = item.pendingQuantity();
-            KitchenTicketEntity ticket = byStation.computeIfAbsent(stationOf(item, stations),
-                    station -> newTicket(order, KitchenTicketEntity.TicketType.ROUND, round, station));
+            KitchenTicketEntity ticket = byStation.computeIfAbsent(stationOf(item, stations), station -> {
+                KitchenTicketEntity t = newTicket(order, KitchenTicketEntity.TicketType.ROUND, round, station);
+                t.setNotice(notice);
+                return t;
+            });
             ticket.addItem(snapshot(item, delta, ticket.getItems().size()));
             item.setFiredQuantity(item.getFiredQuantity().add(delta));
         }

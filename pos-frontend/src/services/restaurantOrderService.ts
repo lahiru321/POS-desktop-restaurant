@@ -146,8 +146,13 @@ export interface OrderItemResponse {
   voidedQuantity: number;
   /** quantity − voidedQuantity. What the bill will charge for. */
   billableQuantity: number;
-  /** Not yet sent to the kitchen — what the next fire will print. */
+  /** Not yet sent to the kitchen. */
   pendingQuantity: number;
+  /**
+   * Unsent, and waiting for its course to be fired — a main while the table is
+   * on starters. Send skips it. The server's verdict; see `lib/courses.ts`.
+   */
+  held: boolean;
   unitPriceSnapshot: number;
   discountAmount: number;
   notes?: string | null;
@@ -171,6 +176,8 @@ export interface RestaurantOrder {
   tableName?: string | null;
   customerId?: string | null;
   covers: number;
+  /** Send fires unsent lines up to this course; later courses are held (V70). */
+  releasedCourse: number;
   openedBy?: string | null;
   servedBy?: string | null;
   /** Set once SETTLED; the sale this order became. */
@@ -282,6 +289,15 @@ export const restaurantOrderService = {
   fire: (id: string) =>
     api
       .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/fire`)
+      .then((res) => res.data.data),
+
+  /**
+   * "Fire course N": releases the tab up to `courseNo` and sends what was held,
+   * each sheet bannered FIRE COURSE N.
+   */
+  fireCourse: (id: string, courseNo: number) =>
+    api
+      .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/fire-course`, { courseNo })
       .then((res) => res.data.data),
 
   /** Turns the tab into a sale on the *paying* cashier's drawer. */

@@ -108,6 +108,19 @@ public class RestaurantOrderController {
                         .build());
     }
 
+    /** "Fire course 2": sends the held lines of the next course, with a banner. */
+    @PostMapping("/{id}/fire-course")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.OrderKitchenResponse>> fireCourse(
+            @PathVariable UUID id, @Valid @RequestBody OrderDtos.FireCourseRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.<OrderDtos.OrderKitchenResponse>builder()
+                        .success(true)
+                        .message("Course " + request.getCourseNo() + " sent to the kitchen")
+                        .data(orderService.fireCourse(id, request))
+                        .build());
+    }
+
     /** Pays for part of a tab now; the rest stays open. */
     @PostMapping("/{id}/split-settle")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")

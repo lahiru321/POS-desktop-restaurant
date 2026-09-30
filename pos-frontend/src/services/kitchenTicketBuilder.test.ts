@@ -128,6 +128,13 @@ describe('kitchenTicketBuilder', () => {
     expect(out).not.toMatch(/\d+ x /);
   });
 
+  it('banners a fired course at the top, and prints its items as usual', () => {
+    const out = text(makeTicket({ notice: 'FIRE COURSE 2' }));
+    expect(out).toContain(' FIRE COURSE 2 ');
+    expect(out.indexOf('FIRE COURSE 2')).toBeLessThan(out.indexOf('#0042-R2'));
+    expect(out).toContain('CHICKEN KOTTU');
+  });
+
   it('marks a reprint', () => {
     expect(text(makeTicket(), { reprint: true })).toContain('** REPRINT **');
     expect(text(makeTicket())).not.toContain('REPRINT');

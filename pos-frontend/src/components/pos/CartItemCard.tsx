@@ -26,9 +26,17 @@ interface CartItemCardProps {
    * `[data-discount-trigger]` and does nothing, which is the honest outcome.
    */
   showDiscount?: boolean;
+  /**
+   * Dine-in only: moves the line to the next course (1 → 2 → 3 → 1). Absent on
+   * a retail sale and on takeaway, where there are no courses. Only offered
+   * while some of the line is unsent — the kitchen already has the rest.
+   */
+  onCycleCourse?: (lineId: string) => void;
 }
 
-export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, isFocused = false, index, showDiscount = true }: CartItemCardProps) {
+const KITCHEN_STATE_LABEL = { sent: 'Sent', new: 'New', held: 'Held' } as const;
+
+export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, isFocused = false, index, showDiscount = true, onCycleCourse }: CartItemCardProps) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -123,6 +131,32 @@ export function CartItemCard({ item, onUpdateQuantity, onRemove, onSetDiscount, 
               <p className="pl-1 text-[11px] italic text-warning/90 truncate" title={item.notes}>
                 &ldquo;{item.notes}&rdquo;
               </p>
+            )}
+
+            {onCycleCourse && item.courseNo !== undefined && item.kitchenState && (
+              <div className="mt-1 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onCycleCourse(item.lineId)}
+                  disabled={item.kitchenState === 'sent'}
+                  aria-label={`${item.name}: course ${item.courseNo}${
+                    item.kitchenState === 'sent' ? '' : '. Tap to move to the next course'
+                  }`}
+                  className="rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground hover:border-primary hover:text-foreground disabled:cursor-default disabled:hover:border-border disabled:hover:text-muted-foreground"
+                >
+                  Course {item.courseNo}
+                </button>
+                <span
+                  className={cn(
+                    'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    item.kitchenState === 'sent' && 'text-muted-foreground',
+                    item.kitchenState === 'new' && 'bg-primary/15 text-primary',
+                    item.kitchenState === 'held' && 'bg-amber-500/15 text-amber-300',
+                  )}
+                >
+                  {KITCHEN_STATE_LABEL[item.kitchenState]}
+                </span>
+              </div>
             )}
           </div>
 

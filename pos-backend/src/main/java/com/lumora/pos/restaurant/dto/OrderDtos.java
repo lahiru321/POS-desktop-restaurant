@@ -95,6 +95,7 @@ public final class OrderDtos {
 
         /** Starters 1, mains 2, dessert 3. Defaults to 1. */
         @Positive(message = "courseNo starts at 1")
+        @Max(value = 9, message = "courseNo goes up to 9")
         private Integer courseNo;
 
         @Valid
@@ -136,6 +137,19 @@ public final class OrderDtos {
         private String notes;
 
         @Positive(message = "courseNo starts at 1")
+        @Max(value = 9, message = "courseNo goes up to 9")
+        private Integer courseNo;
+    }
+
+    /** "Fire course 2" — release the tab up to this course and send what was held. */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FireCourseRequest {
+        @NotNull(message = "courseNo is required")
+        @Min(value = 2, message = "Course 1 goes with Send")
+        @Max(value = 9, message = "courseNo goes up to 9")
         private Integer courseNo;
     }
 
@@ -280,6 +294,8 @@ public final class OrderDtos {
         private UUID servedBy;
         private UUID saleId;
         private int roundCount;
+        /** Send fires unsent lines up to this course; later ones are held. */
+        private int releasedCourse;
         private LocalDateTime openedAt;
         private LocalDateTime settledAt;
         /** Set when this order was paid out of another tab. */
@@ -301,8 +317,10 @@ public final class OrderDtos {
         private BigDecimal firedQuantity;
         private BigDecimal voidedQuantity;
         private BigDecimal billableQuantity;
-        /** Not yet sent to the kitchen — what the next fire will print. */
+        /** Not yet sent to the kitchen. */
         private BigDecimal pendingQuantity;
+        /** Unsent and waiting for its course to be fired; Send skips it. */
+        private boolean held;
         private BigDecimal unitPriceSnapshot;
         private BigDecimal discountAmount;
         private String notes;

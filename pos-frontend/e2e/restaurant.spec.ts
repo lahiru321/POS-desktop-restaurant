@@ -535,6 +535,58 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("mains wait for their course: Send takes the starter, Fire course 2 the mains", async ({ page, request }) => {
+    const SOUP = `E2E Soup ${RUN}`;
+    await api(request, "post", "/products", {
+      name: SOUP,
+      basePrice: 450,
+      stockQuantity: 0,
+      lowStockThreshold: 0,
+      trackStock: false,
+      isActive: true,
+    });
+
+    await openShift(page);
+    await page.keyboard.press("F11");
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE}, 2 seats, available`) }).click();
+    await expect(page.getByText(new RegExp(`Order \\d+ · ${TABLE}`)).first()).toBeVisible();
+
+    // Starter into course 1 (the default), then the main into course 2.
+    await page.locator("[data-product-card]", { hasText: SOUP }).first().click();
+    await expect(page.getByRole("button", { name: /^send \(1\)/i })).toBeVisible();
+    await page.getByRole("radio", { name: "Course 2" }).click();
+    await addDishWithAddon(page);
+
+    // The main is held: Send still counts one line, and course 2 waits for its own button.
+    await expect(page.getByRole("button", { name: /^send \(1\)/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /fire course 2 \(1\)/i })).toBeVisible();
+    await expect(page.getByText("Held", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: /^send \(1\)/i }).click();
+    await expect(page.getByText(/-R1 recorded — tell the kitchen$/)).toBeVisible();
+
+    const open = await api<{ id: string; tableName: string; releasedCourse: number }[]>(request, "get", "/restaurant/orders");
+    const order = open.find((o) => o.tableName === TABLE)!;
+    expect(order.releasedCourse).toBe(1);
+    let tickets = await ticketsFor(request, order.id);
+    expect(tickets.map((t) => t.items.map((i) => i.itemName))).toEqual([[SOUP]]);
+
+    // The soup bowls come back: fire the mains.
+    await page.getByRole("button", { name: /fire course 2/i }).click();
+    await expect(page.getByText(/-R2 recorded — tell the kitchen$/)).toBeVisible();
+    await expect(page.getByRole("button", { name: /fire course/i })).toBeHidden();
+
+    tickets = await ticketsFor(request, order.id);
+    expect(tickets).toHaveLength(2);
+    expect(tickets[1].notice).toBe("FIRE COURSE 2");
+    expect(tickets[1].items.map((i) => [i.itemName, i.modifiers])).toEqual([[DISH, [ADDON]]]);
+
+    await page.getByRole("button", { name: /^settle/i }).click();
+    await payExactCash(page);
+    await expect(page.getByText(new RegExp(`${TABLE} paid`))).toBeVisible();
+  });
+
   test("a dine-in bill carries the service charge, and it can be removed", async ({ page, request }) => {
     await openShift(page);
 

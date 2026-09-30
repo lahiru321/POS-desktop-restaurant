@@ -56,6 +56,11 @@ everything and should not be relitigated without reading it:
   **only** by `PUT /restaurant/areas/{id}/layout` (whole-area, collision-checked; the table form never sends
   them), and moving a table to another area clears them. `uk_rest_table_area_pos` is DEFERRABLE so a swap in
   one save cannot trip it mid-flush. Grid arithmetic lives in `src/lib/floorMap.ts`.
+- **Send does not mean "everything unsent" any more.** A tab has a `released_course` (V70); Send fires
+  unsent lines at or below it and skips lines **held** for a later course, and `POST /orders/{id}/fire-course`
+  raises it (bannering the sheets `FIRE COURSE N` via the ticket's `notice`). The server's
+  `OrderItemResponse.held` is the verdict — the till only counts it (`src/lib/courses.ts`). Takeaway releases
+  every course before firing on payment; a merge keeps the higher release; line merging on tap is per course.
 - **The tax chain is implemented twice** — backend `TaxRateService` + `SaleService`, frontend
   `getProductTaxRate` + the `taxInfo` memo in `useCart.ts`. Change both in one commit or the cart and server
   totals silently disagree. The backend rounds **per `sale_items` row**, so the client rounds per sub-line too.
@@ -171,12 +176,12 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
 ## Flyway version reservation
 
 Migrations live in `pos-backend/src/main/resources/db/migration/`. Reserve the next `V<n>__` number
-before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V69`**: V59
+before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V70`**: V59
 `products.track_stock`, V60 toppings, V61 `sale_items.parent_item_id` + `topping_id` + `sort_order` + `notes`, V62 `restaurant_areas`/`restaurant_tables` + the `RESTAURANT` backfill, V63 `restaurant_orders` +
 `restaurant_order_items` + `restaurant_order_item_toppings` + `restaurant_order_counters`. Toppings landed
 before tables — trust disk over the plan. V64 `kitchen_tickets` + `kitchen_ticket_items` + `kitchen_station`
 columns, V65 ticket `notice`, V66 nullable `return_items.product_id`, V67 `split_from_id`,
-V68 `sales.service_charge_*`, V69 `restaurant_tables.pos_x/pos_y` (floor map). Next free: **V70**.
+V68 `sales.service_charge_*`, V69 `restaurant_tables.pos_x/pos_y` (floor map), V70 `restaurant_orders.released_course`. Next free: **V71**.
 
 V63's `uk_rest_order_open_table` (partial unique on `table_id WHERE status = 'OPEN'`) is what makes "one
 table, one tab" true under a race, and `restaurant_order_counters` breaks house style on purpose — no `id`,

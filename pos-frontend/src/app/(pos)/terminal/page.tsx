@@ -11,7 +11,8 @@ import { SaleResponse, salesService, SaleRequest, SaleItemRequest, SalesSummaryR
 import { applyServiceCharge, useCart, useCartTotals, TaxContext, type CartView } from '@/hooks/useCart';
 import { useDineInCart } from '@/hooks/useDineInCart';
 import { useKitchenPrinting } from '@/hooks/useKitchenPrinting';
-import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send, ArrowRightLeft, Split } from 'lucide-react';
+import { ShoppingCart, Loader2, Plus, LayoutGrid, LogOut, Send, ArrowRightLeft, Split, Flame } from 'lucide-react';
+import { COURSE_CHOICES, courseSummary, nextCourse } from '@/lib/courses';
 import { useAuthStore } from '@/stores/authStore';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -215,6 +216,12 @@ function Terminal() {
   // it.
   const initialOrderId = useSearchParams().get('orderId');
   const [dineInOrderId, setDineInOrderId] = useState<string | null>(initialOrderId);
+  // The course new dishes go into — tap "Course 2", then the mains. Starts at 1
+  // on every tab: a table that has only just sat down is on starters.
+  const [course, setCourse] = useState(1);
+  useEffect(() => {
+    setCourse(1);
+  }, [dineInOrderId]);
   const [floorOpen, setFloorOpen] = useState(false);
 
   const selectOrder = useCallback((orderId: string | null) => {
@@ -241,6 +248,7 @@ function Terminal() {
     taxContext,
     taxInclusive: tenantInfo?.taxInclusive ?? true,
     branchId: selectedBranch?.id,
+    course,
     onKitchenTickets: (tickets) => void kitchen.dispatchTickets(tickets),
   });
 
@@ -955,9 +963,10 @@ function Terminal() {
   // so two tills pressing Send on one table queue rather than double-print.
   // Printing happens here, after, and every outcome is acknowledged.
   // ─────────────────────────────────────────────────────────────────────────
-  const unsentCount = dineInActive && dineIn.order
-    ? dineIn.order.items.reduce((sum, i) => sum + (i.pendingQuantity > 0 ? 1 : 0), 0)
-    : 0;
+  // Send fires what is ready; a line held for a later course waits for its own
+  // "Fire course N". The server marks which is which (`held`).
+  const courses = courseSummary(dineInActive ? dineIn.order : undefined);
+  const unsentCount = courses.sendCount;
 
   const fireMutation = useMutation({
     mutationFn: (orderId: string) => restaurantOrderService.fire(orderId),
@@ -968,6 +977,21 @@ function Terminal() {
     },
     onError: (error: unknown) => {
       toast.error(getApiErrorMessage(error, 'Could not send this to the kitchen'));
+    },
+  });
+
+  const fireCourseMutation = useMutation({
+    mutationFn: ({ orderId, courseNo }: { orderId: string; courseNo: number }) =>
+      restaurantOrderService.fireCourse(orderId, courseNo),
+    onSuccess: ({ order, tickets }) => {
+      queryClient.setQueryData(QK.restaurantOrder(order.id), order);
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      // New dishes now belong with the course the table is eating.
+      setCourse((c) => Math.max(c, order.releasedCourse));
+      void kitchen.dispatchTickets(tickets);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not fire that course'));
     },
   });
 
@@ -983,7 +1007,11 @@ function Terminal() {
       return;
     }
     if (unsentCount === 0) {
-      toast.info('Nothing new to send to the kitchen');
+      toast.info(
+        courses.nextHeldCourse !== null
+          ? `Nothing new to send. Course ${courses.nextHeldCourse} is held — fire it when the table is ready.`
+          : 'Nothing new to send to the kitchen',
+      );
       return;
     }
     fireMutation.mutate(dineIn.order.id);
@@ -1220,14 +1248,16 @@ function Terminal() {
           // (at-the-register) login has no dashboard access, so the button hides.
           onBackToDashboard={loginMethod === 'PASSWORD' ? () => router.push('/overview') : undefined}
         />
-        {/* Restaurant strip: the open tab, or the prompt to seat a table. */}
-        <div className="flex items-center gap-2 sm:gap-3 border-b border-gray-800 bg-gray-900/40 px-4 py-2 text-sm shrink-0">
+        {/* Restaurant strip: the open tab, or the prompt to seat a table. Wraps
+            onto a second row rather than squeezing the tab's name to nothing
+            or pushing "Leave tab" off the screen on a narrow till. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3 border-b border-gray-800 bg-gray-900/40 px-4 py-2 text-sm shrink-0">
           {dineInActive && dineIn.order ? (
             <>
               <span className="shrink-0 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-amber-300">
                 {dineIn.order.orderType === 'TAKEAWAY' ? 'Takeaway' : 'Dine-in'}
               </span>
-              <span className="truncate font-semibold text-white">{dineIn.order.label}</span>
+              <span className="min-w-[7rem] max-w-[16rem] truncate font-semibold text-white">{dineIn.order.label}</span>
               {dineIn.order.covers > 0 && (
                 <span className="hidden shrink-0 tabular-nums text-gray-400 sm:inline">
                   {dineIn.order.covers} covers
@@ -1239,7 +1269,34 @@ function Terminal() {
               {dineIn.isBusy && (
                 <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gray-400" aria-hidden="true" />
               )}
-              <div className="ml-auto flex shrink-0 items-center gap-2">
+              {dineIn.order.orderType === 'DINE_IN' && (
+                <div
+                  role="radiogroup"
+                  aria-label="Course for new items"
+                  title="New items go into this course. Later courses wait until you fire them."
+                  className="flex shrink-0 items-center rounded-lg border border-gray-800 bg-gray-950 p-0.5"
+                >
+                  <span className="hidden px-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 xl:inline">
+                    Course
+                  </span>
+                  {COURSE_CHOICES.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      role="radio"
+                      aria-checked={course === c}
+                      aria-label={`Course ${c}`}
+                      onClick={() => setCourse(c)}
+                      className={`h-7 min-w-[1.75rem] rounded-md px-2 text-xs font-bold tabular-nums transition-colors ${
+                        course === c ? 'bg-primary text-primary-foreground' : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 <KitchenTicketsBadge onReview={kitchen.review} />
                 <Button
                   onClick={sendToKitchen}
@@ -1251,6 +1308,19 @@ function Terminal() {
                   Send{unsentCount > 0 ? ` (${unsentCount})` : ''}
                   <kbd className="hidden rounded border border-primary-foreground/30 px-1 font-mono text-[10px] sm:inline">F5</kbd>
                 </Button>
+                {courses.nextHeldCourse !== null && (
+                  <Button
+                    onClick={() =>
+                      fireCourseMutation.mutate({ orderId: dineIn.order!.id, courseNo: courses.nextHeldCourse! })
+                    }
+                    disabled={fireCourseMutation.isPending || fireMutation.isPending || dineIn.isBusy}
+                    className="h-8 gap-2 bg-amber-500 px-3 text-black hover:bg-amber-400"
+                    title={`The table is ready: send course ${courses.nextHeldCourse} to the kitchen`}
+                  >
+                    {fireCourseMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Flame size={14} />}
+                    Fire course {courses.nextHeldCourse} ({courses.nextHeldCount})
+                  </Button>
+                )}
                 <OrderKitchenTickets orderId={dineIn.order.id} onReprint={kitchen.reprint} />
                 {items.reduce((sum, i) => sum + Math.floor(i.cartQuantity), 0) > 1 && (
                   <Button
@@ -1320,7 +1390,7 @@ function Terminal() {
                   ? 'Paid now, then sent to the kitchen.'
                   : 'No table. Open the floor to seat one.'}
               </span>
-              <div className="ml-auto flex shrink-0 items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 <KitchenTicketsBadge onReview={kitchen.review} />
                 <Button
                   variant="outline"
@@ -1424,6 +1494,14 @@ function Terminal() {
                 // No endpoint stores a discount on an order line, so the control
                 // is absent on a tab rather than silently dropping the number.
                 showDiscount={!dineInActive}
+                onCycleCourse={
+                  dineInActive && dineIn.order?.orderType === 'DINE_IN'
+                    ? (lineId) => {
+                        const line = items.find((i) => i.lineId === lineId);
+                        if (line?.courseNo) dineIn.setLineCourse(lineId, nextCourse(line.courseNo));
+                      }
+                    : undefined
+                }
               />
             ))
           )}
