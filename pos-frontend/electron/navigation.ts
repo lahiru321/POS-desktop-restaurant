@@ -39,7 +39,9 @@ export function lockDownNavigation(win: BrowserWindow, appOrigin: string | null,
   });
 
   // Same-window navigation: stay on the app, send web links to the browser.
-  contents.on('will-navigate', (event, url) => {
+  // Electron 25+ carries the URL on the event; the positional argument is deprecated.
+  contents.on('will-navigate', (event) => {
+    const url = event.url;
     let origin: string | null = null;
     try {
       origin = new URL(url).origin;

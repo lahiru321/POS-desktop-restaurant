@@ -34,6 +34,20 @@
     "$INSTDIR\StoreX Restaurant.exe" 0 SW_SHOWMINIMIZED "" "Set up silent receipt and kitchen printing again"
 !macroend
 
+!macro customUnInit
+  ; An upgrade runs the old uninstaller (with --updated) and then copies the new
+  ; files over $INSTDIR. The PostgreSQL service runs from $INSTDIR\resources, and
+  ; Windows locks a running program's files — so without this the old files could
+  ; not be removed and the new ones could not be written ("Error opening file for
+  ; writing"). Stop it here, BEFORE anything is removed; the new version's
+  ; install-postgres.ps1 starts it again on the new programs. The database itself
+  ; (in ProgramData) is untouched. Stop-Service waits until it has stopped.
+  ${if} ${isUpdated}
+    nsExec::ExecToLog 'powershell.exe -NoProfile -Command "Stop-Service -Name StoreXRestaurantPostgres -Force -ErrorAction SilentlyContinue"'
+    Pop $0
+  ${endIf}
+!macroend
+
 !macro customUnInstall
   ; Our own Start menu entry; electron-builder removes only the shortcuts it made.
   ${ifNot} ${isUpdated}
@@ -56,7 +70,7 @@
     Sleep 2000
 
     ; Default to KEEP. /SD IDNO makes a silent uninstall keep data too.
-    MessageBox MB_YESNO|MB_ICONQUESTION "Delete the StoreX Restaurant database (all sales, products, customers, settings)?$\r$\n$\r$\nChoose 'No' to keep your data and reuse it on a future reinstall." /SD IDNO IDYES un_wipe IDNO un_keep
+    MessageBox MB_YESNO|MB_ICONQUESTION "Delete the StoreX Restaurant database (all sales, products, customers, settings)?$\r$\n$\r$\nChoose 'No' to keep your data and reuse it on a future reinstall.$\r$\n$\r$\nBackups in C:\ProgramData\StoreX Restaurant\backups are kept either way." /SD IDNO IDYES un_wipe IDNO un_keep
 
     un_wipe:
       DetailPrint "Removing PostgreSQL service and database..."
@@ -75,5 +89,8 @@
       Pop $0
 
     un_done:
+      ; The files PostgreSQL held open survived electron-builder's RMDir above;
+      ; with the service stopped and deleted they can go now.
+      RMDir /r "$INSTDIR"
   ${endIf}
 !macroend

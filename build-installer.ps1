@@ -27,11 +27,16 @@ New-Item -ItemType Directory -Force -Path (Split-Path $JarDst) | Out-Null
 Copy-Item $JarSrc $JarDst -Force
 Write-Host "Staged backend jar -> $JarDst"
 
-# 1b. pg_dump/pg_restore for local backups (resources/ is gitignored, so stage
-#     them on every build rather than trusting a hand copy).
-Step 'Staging PostgreSQL client tools (backups)'
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Frontend 'build\stage-pg-tools.ps1') -Resources $Resources
-if ($LASTEXITCODE -ne 0) { throw "Staging pg_dump failed" }
+# 1b. The bundled runtimes, refreshed on every build rather than trusted from a
+#     hand copy (resources/ is gitignored): PostgreSQL 16 (server + backup tools)
+#     from this PC's PostgreSQL 16 install, and the latest Temurin 17 JRE.
+Step 'Staging PostgreSQL 16 (server + backup tools)'
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Frontend 'build\stage-postgres.ps1') -Resources $Resources
+if ($LASTEXITCODE -ne 0) { throw "Staging PostgreSQL failed" }
+
+Step 'Staging Java runtime (Temurin 17)'
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Frontend 'build\stage-jre.ps1') -Resources $Resources
+if ($LASTEXITCODE -ne 0) { throw "Staging the JRE failed" }
 
 # 2. Next.js standalone build
 Step 'Building Next.js standalone server'
