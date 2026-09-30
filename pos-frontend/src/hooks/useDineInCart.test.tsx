@@ -272,6 +272,52 @@ describe("useDineInCart", () => {
     await waitFor(() => expect(voidItem).toHaveBeenCalledWith("o1", "i1", undefined));
   });
 
+  it("asks for a manager PIN before voiding food the kitchen has, and sends it", async () => {
+    getOrder.mockResolvedValue(
+      makeOrder({ items: [makeLine({ firedQuantity: 2, pendingQuantity: 0 })] })
+    );
+    voidItem.mockResolvedValue({ order: makeOrder(), tickets: [] });
+    const requestManagerPin = vi.fn().mockResolvedValue("4321");
+    const { result } = mount({ voidNeedsPin: true, requestManagerPin });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => result.current.updateQuantity("i1", 1));
+
+    await waitFor(() =>
+      expect(voidItem).toHaveBeenCalledWith("o1", "i1", { quantity: 1, managerPin: "4321" })
+    );
+    expect(requestManagerPin).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Void 1 x Chicken Kottu" })
+    );
+  });
+
+  it("voids nothing when the manager PIN is cancelled", async () => {
+    getOrder.mockResolvedValue(
+      makeOrder({ items: [makeLine({ firedQuantity: 2, pendingQuantity: 0 })] })
+    );
+    const requestManagerPin = vi.fn().mockResolvedValue(null);
+    const { result } = mount({ voidNeedsPin: true, requestManagerPin });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => result.current.removeFromCart("i1"));
+
+    await waitFor(() => expect(requestManagerPin).toHaveBeenCalled());
+    expect(voidItem).not.toHaveBeenCalled();
+  });
+
+  it("never asks for a PIN to void what the kitchen has not seen", async () => {
+    getOrder.mockResolvedValue(makeOrder()); // 2 ordered, 2 pending, none fired
+    voidItem.mockResolvedValue({ order: makeOrder(), tickets: [] });
+    const requestManagerPin = vi.fn();
+    const { result } = mount({ voidNeedsPin: true, requestManagerPin });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => result.current.removeFromCart("i1"));
+
+    await waitFor(() => expect(voidItem).toHaveBeenCalledWith("o1", "i1", undefined));
+    expect(requestManagerPin).not.toHaveBeenCalled();
+  });
+
   it("taking a line to zero is a void, not a quantity update", async () => {
     getOrder.mockResolvedValue(makeOrder());
     voidItem.mockResolvedValue({ order: makeOrder(), tickets: [] });

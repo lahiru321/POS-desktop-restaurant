@@ -89,6 +89,7 @@ export default function SettingsPage() {
   // Restaurant settings form state.
   const [restCovers, setRestCovers] = useState("2");
   const [restServiceRate, setRestServiceRate] = useState("10");
+  const [restVoidPin, setRestVoidPin] = useState(false);
 
   const { data: tenantInfo, isLoading: tenantLoading } = useQuery({
     queryKey: QK.tenantInfo,
@@ -109,6 +110,7 @@ export default function SettingsPage() {
       setTaxInclusive(tenantInfo.taxInclusive ?? true);
       setRestCovers(String(tenantInfo.defaultCovers ?? 2));
       setRestServiceRate(String(tenantInfo.serviceChargeRate ?? 10));
+      setRestVoidPin(tenantInfo.restaurantVoidRequiresPin ?? false);
     }
   }, [tenantInfo]);
 
@@ -204,13 +206,15 @@ export default function SettingsPage() {
       receiptFooter: tenantInfo.receiptFooter ?? null,
       defaultCovers: covers,
       serviceChargeRate: serviceRate,
+      restaurantVoidRequiresPin: restVoidPin,
     });
   };
 
   const restDirty =
     !!tenantInfo &&
     (Number(restCovers) !== tenantInfo.defaultCovers ||
-      Number(restServiceRate) !== tenantInfo.serviceChargeRate);
+      Number(restServiceRate) !== tenantInfo.serviceChargeRate ||
+      restVoidPin !== (tenantInfo.restaurantVoidRequiresPin ?? false));
 
   const loyDirty =
     !!tenantInfo &&
@@ -1030,6 +1034,27 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
+
+                  <label className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium text-foreground">
+                        Manager PIN to void food already sent to the kitchen
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        A cashier removing a dish the kitchen is cooking needs a manager to type their PIN.
+                        Unsent items and managers&apos; own voids never ask. Every void is logged either way.
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      aria-label="Manager PIN to void food already sent to the kitchen"
+                      checked={restVoidPin}
+                      onChange={(e) => setRestVoidPin(e.target.checked)}
+                      disabled={!isAdmin}
+                      className="mt-1 h-5 w-5 shrink-0 accent-primary"
+                    />
+                  </label>
 
                   {isAdmin && (
                     <div className="flex justify-end pt-2">

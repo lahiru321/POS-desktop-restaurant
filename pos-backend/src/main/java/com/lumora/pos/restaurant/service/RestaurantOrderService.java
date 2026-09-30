@@ -1,5 +1,7 @@
 package com.lumora.pos.restaurant.service;
 
+import com.lumora.pos.auth.entity.UserEntity;
+import com.lumora.pos.auth.service.ManagerPinService;
 import com.lumora.pos.audit.AuditAction;
 import com.lumora.pos.audit.service.AuditService;
 import com.lumora.pos.branch.entity.BranchEntity;
@@ -75,6 +77,7 @@ public class RestaurantOrderService {
     private final SaleService saleService;
     private final KitchenTicketService kitchenTicketService;
     private final TenantInfoService tenantInfoService;
+    private final ManagerPinService managerPinService;
     private final AuditService auditService;
 
     // ------------------------------------------------------------------
@@ -247,6 +250,7 @@ public class RestaurantOrderService {
 
         BigDecimal fromUnsent = amount.min(item.pendingQuantity());
         BigDecimal firedPortion = amount.subtract(fromUnsent);
+        UUID approvedBy = requireApprovalForFiredVoid(firedPortion, request);
 
         item.setVoidedQuantity(item.getVoidedQuantity().add(amount));
         item.setFiredQuantity(item.getFiredQuantity().subtract(firedPortion));
@@ -256,11 +260,37 @@ public class RestaurantOrderService {
         List<KitchenTicketEntity> tickets = kitchenTicketService.voidPortions(order, portions, reason);
 
         RestaurantOrderEntity saved = orderRepository.save(order);
-        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER_ITEM", itemId, null, Map.of(
-                "voided", amount.toPlainString(),
-                "firedPortion", firedPortion.toPlainString(),
-                "reason", reason));
+        Map<String, Object> audit = new LinkedHashMap<>();
+        audit.put("voided", amount.toPlainString());
+        audit.put("firedPortion", firedPortion.toPlainString());
+        audit.put("reason", reason);
+        if (approvedBy != null) {
+            audit.put("approvedBy", approvedBy);
+        }
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER_ITEM", itemId, null, audit);
         return withTickets(saved, tickets);
+    }
+
+    /**
+     * When the tenant asks for it, a cashier cannot take back food the kitchen
+     * already has without a manager's PIN. Unsent units never need one — nothing
+     * was cooked — and a manager or admin approves their own void.
+     *
+     * @return the approving manager's id when a PIN was used, else null
+     */
+    private UUID requireApprovalForFiredVoid(BigDecimal firedPortion, OrderDtos.VoidItemRequest request) {
+        if (firedPortion.signum() <= 0
+                || !tenantInfoService.restaurantVoidRequiresPin(TenantContext.getTenantId())
+                || managerPinService.currentUserIsManager()) {
+            return null;
+        }
+        String pin = request != null ? request.getManagerPin() : null;
+        if (pin == null || pin.isBlank()) {
+            throw new BusinessException("Manager PIN is required to void food the kitchen already has");
+        }
+        return managerPinService.findApprover(TenantContext.getTenantId(), pin)
+                .map(UserEntity::getId)
+                .orElseThrow(() -> new BusinessException("Invalid manager PIN"));
     }
 
     // ------------------------------------------------------------------

@@ -1,5 +1,6 @@
 package com.lumora.pos.sales.service;
 
+import com.lumora.pos.auth.service.ManagerPinService;
 import com.lumora.pos.audit.AuditAction;
 import com.lumora.pos.audit.service.AuditService;
 import com.lumora.pos.cashsession.entity.CashSessionEntity;
@@ -732,18 +733,9 @@ public class SaleService {
          * pattern used by {@code AuthService.pinLogin}.
          */
         private boolean verifyManagerPin(UUID tenantId, String pin) {
-                List<UserEntity> candidates = userRepository.findActiveUsersWithPinByTenantId(tenantId);
-                boolean matched = false;
-                for (UserEntity user : candidates) {
-                        boolean pinMatches = passwordEncoder.matches(pin, user.getPin());
-                        boolean hasManagerRole = user.getRoles().stream()
-                                        .map(RoleEntity::getName)
-                                        .anyMatch(n -> "MANAGER".equalsIgnoreCase(n) || "ADMIN".equalsIgnoreCase(n));
-                        if (pinMatches && hasManagerRole && !matched) {
-                                matched = true;
-                        }
-                }
-                return matched;
+                return ManagerPinService.match(
+                                userRepository.findActiveUsersWithPinByTenantId(tenantId), pin, passwordEncoder)
+                                .isPresent();
         }
 
         /**

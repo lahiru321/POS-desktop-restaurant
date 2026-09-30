@@ -164,6 +164,13 @@ public final class OrderDtos {
 
         @Size(max = 255)
         private String reason;
+
+        /**
+         * A manager's PIN, when the tenant requires one to void food the kitchen
+         * already has and the person voiding is not a manager. Never stored.
+         */
+        @Size(max = 12)
+        private String managerPin;
     }
 
     /**

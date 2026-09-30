@@ -87,6 +87,8 @@ export interface VoidItemRequest {
   /** How much to void. Omitted = the whole remaining line. */
   quantity?: number;
   reason?: string;
+  /** Needed when the tenant requires a PIN and the kitchen already has some of it. */
+  managerPin?: string;
 }
 
 /**

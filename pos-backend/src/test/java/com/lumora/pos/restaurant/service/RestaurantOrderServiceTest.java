@@ -1,5 +1,8 @@
 package com.lumora.pos.restaurant.service;
 
+import com.lumora.pos.auth.service.ManagerPinService;
+import com.lumora.pos.auth.entity.UserEntity;
+import com.lumora.pos.audit.AuditAction;
 import com.lumora.pos.audit.service.AuditService;
 import com.lumora.pos.branch.entity.BranchEntity;
 import com.lumora.pos.branch.repository.BranchRepository;
@@ -60,6 +63,7 @@ class RestaurantOrderServiceTest {
     @Mock private SaleService saleService;
     @Mock private KitchenTicketService kitchenTicketService;
     @Mock private TenantInfoService tenantInfoService;
+    @Mock private ManagerPinService managerPinService;
     @Mock private AuditService auditService;
 
     @InjectMocks private RestaurantOrderService orderService;
@@ -404,6 +408,73 @@ class RestaurantOrderServiceTest {
             assertThat(item.getFiredQuantity()).isEqualByComparingTo("1");
             assertThat(item.getVoidedQuantity()).isEqualByComparingTo("2");
             assertThat(item.pendingQuantity()).isEqualByComparingTo("0");
+        }
+
+        @Test
+        @DisplayName("With the PIN rule on, a cashier cannot void cooking food without a manager's PIN")
+        void shouldRequirePinForFiredVoid() {
+            RestaurantOrderEntity order = order();
+            RestaurantOrderItemEntity item = item(order, "Kottu", "2", "950.00");
+            item.setFiredQuantity(new BigDecimal("2"));
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tenantInfoService.restaurantVoidRequiresPin(tenantId)).thenReturn(true);
+
+            assertThatThrownBy(() -> orderService.voidItem(order.getId(), item.getId(),
+                    OrderDtos.VoidItemRequest.builder().quantity(BigDecimal.ONE).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Manager PIN is required");
+
+            when(managerPinService.findApprover(tenantId, "1111")).thenReturn(Optional.empty());
+            assertThatThrownBy(() -> orderService.voidItem(order.getId(), item.getId(),
+                    OrderDtos.VoidItemRequest.builder().quantity(BigDecimal.ONE).managerPin("1111").build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Invalid manager PIN");
+
+            // Nothing moved: the kitchen was not told, the line is whole.
+            assertThat(item.getVoidedQuantity()).isEqualByComparingTo("0");
+            verify(kitchenTicketService, never()).voidPortions(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("A manager's PIN approves it, and the audit names the manager")
+        @SuppressWarnings("unchecked")
+        void shouldVoidWithManagerPin() {
+            RestaurantOrderEntity order = order();
+            RestaurantOrderItemEntity item = item(order, "Kottu", "2", "950.00");
+            item.setFiredQuantity(new BigDecimal("2"));
+            stubLockedOrder(order);
+            when(tenantInfoService.restaurantVoidRequiresPin(tenantId)).thenReturn(true);
+            UserEntity manager = new UserEntity();
+            manager.setId(UUID.randomUUID());
+            when(managerPinService.findApprover(tenantId, "4321")).thenReturn(Optional.of(manager));
+
+            orderService.voidItem(order.getId(), item.getId(),
+                    OrderDtos.VoidItemRequest.builder().quantity(BigDecimal.ONE).managerPin("4321").build());
+
+            assertThat(item.getVoidedQuantity()).isEqualByComparingTo("1");
+            ArgumentCaptor<Object> audit = ArgumentCaptor.forClass(Object.class);
+            verify(auditService).log(eq(AuditAction.UPDATE), eq("RESTAURANT_ORDER_ITEM"), eq(item.getId()),
+                    any(), audit.capture());
+            assertThat((Map<String, Object>) audit.getValue()).containsEntry("approvedBy", manager.getId());
+        }
+
+        @Test
+        @DisplayName("Unsent food, or a manager voiding, needs no PIN even with the rule on")
+        void shouldNotAskForPinWhenNothingCooked() {
+            RestaurantOrderEntity order = order();
+            RestaurantOrderItemEntity unsent = item(order, "Kottu", "2", "950.00");
+            RestaurantOrderItemEntity cooking = item(order, "Rice", "1", "700.00");
+            cooking.setFiredQuantity(BigDecimal.ONE);
+            stubLockedOrder(order);
+            when(tenantInfoService.restaurantVoidRequiresPin(tenantId)).thenReturn(true);
+
+            orderService.voidItem(order.getId(), unsent.getId(), null);
+            assertThat(unsent.getVoidedQuantity()).isEqualByComparingTo("2");
+
+            when(managerPinService.currentUserIsManager()).thenReturn(true);
+            orderService.voidItem(order.getId(), cooking.getId(), null);
+            assertThat(cooking.getVoidedQuantity()).isEqualByComparingTo("1");
+            verify(managerPinService, never()).findApprover(any(), any());
         }
 
         @Test

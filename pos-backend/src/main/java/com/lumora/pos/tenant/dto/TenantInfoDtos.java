@@ -36,6 +36,8 @@ public class TenantInfoDtos {
         private Integer defaultCovers;
         /** Service charge on dine-in bills, in percent (10 = 10%). 0 = none. */
         private Integer serviceChargeRate;
+        /** A cashier needs a manager PIN to void food the kitchen already has. */
+        private boolean restaurantVoidRequiresPin;
     }
 
     @Data
@@ -87,5 +89,8 @@ public class TenantInfoDtos {
         @Min(value = 0, message = "Service charge cannot be negative")
         @Max(value = 50, message = "Service charge must be 50% or less")
         private Integer serviceChargeRate;
+
+        /** Null leaves the existing value unchanged. */
+        private Boolean restaurantVoidRequiresPin;
     }
 }

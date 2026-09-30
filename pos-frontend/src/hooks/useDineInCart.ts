@@ -74,6 +74,14 @@ export interface UseDineInCartOptions {
   /** The course new lines go into — the "Course 1 / 2 / 3" picker on the tab. */
   course?: number;
   /**
+   * The tenant requires a manager's PIN to void food the kitchen already has,
+   * and whoever is at the till is not a manager. The server enforces this
+   * either way; knowing it here means asking first, not failing after.
+   */
+  voidNeedsPin?: boolean;
+  /** Shows the PIN pad; resolves with the PIN, or null if cancelled. */
+  requestManagerPin?: (request: { title: string; reason: string }) => Promise<string | null>;
+  /**
    * Called with any kitchen tickets a change produced — a void of something the
    * kitchen already had comes back as a VOID ticket, already saved PENDING.
    * The caller prints and acknowledges them; dropping them on the floor would
@@ -173,6 +181,8 @@ export function useDineInCart({
   taxInclusive,
   branchId,
   course = 1,
+  voidNeedsPin = false,
+  requestManagerPin,
   onKitchenTickets,
 }: UseDineInCartOptions): DineInCart {
   const queryClient = useQueryClient();
@@ -257,8 +267,12 @@ export function useDineInCart({
   });
 
   const voidItem = useMutation({
-    mutationFn: ({ id, itemId, quantity }: { id: string; itemId: string; quantity?: number }) =>
-      restaurantOrderService.voidItem(id, itemId, quantity !== undefined ? { quantity } : undefined),
+    mutationFn: ({ id, itemId, quantity, managerPin }: { id: string; itemId: string; quantity?: number; managerPin?: string }) =>
+      restaurantOrderService.voidItem(
+        id,
+        itemId,
+        quantity !== undefined || managerPin ? { quantity, managerPin } : undefined,
+      ),
     onSuccess: (result) => {
       applyOrder(result.order);
       if (result.tickets.length > 0) onKitchenTickets?.(result.tickets);
@@ -267,6 +281,30 @@ export function useDineInCart({
   });
 
   const isBusy = addItems.isPending || updateItem.isPending || voidItem.isPending;
+
+  /**
+   * Voids `quantity` of a line (all of it when omitted). Unsent units go first,
+   * exactly as the server takes them; if any of the void is food the kitchen
+   * already has and the rule applies, a manager's PIN is asked for first.
+   */
+  const voidLine = useCallback(
+    async (item: OrderItemResponse, quantity?: number) => {
+      if (!order) return;
+      const amount = quantity ?? item.billableQuantity;
+      const cooking = amount - Math.min(amount, item.pendingQuantity);
+      let managerPin: string | undefined;
+      if (voidNeedsPin && cooking > 0 && requestManagerPin) {
+        const pin = await requestManagerPin({
+          title: `Void ${cooking} x ${item.itemName}`,
+          reason: 'The kitchen already has this. A manager needs to approve taking it back.',
+        });
+        if (!pin) return;
+        managerPin = pin;
+      }
+      voidItem.mutate({ id: order.id, itemId: item.id, quantity, managerPin });
+    },
+    [order, voidNeedsPin, requestManagerPin, voidItem],
+  );
 
   /**
    * How much of this product the tab already carries. Stock is a product-level
@@ -362,9 +400,10 @@ export function useDineInCart({
   const removeFromCart = useCallback(
     (lineId: string) => {
       if (!order || isBusy) return;
-      voidItem.mutate({ id: order.id, itemId: lineId });
+      const item = order.items.find((i) => i.id === lineId);
+      if (item) void voidLine(item);
     },
-    [order, isBusy, voidItem],
+    [order, isBusy, voidLine],
   );
 
   const updateQuantity = useCallback(
@@ -376,7 +415,7 @@ export function useDineInCart({
       // Taking a line to zero is a void, not an update: the row has to keep
       // saying how much was ordered and how much was written off.
       if (quantity <= 0) {
-        voidItem.mutate({ id: order.id, itemId: lineId });
+        void voidLine(item);
         return;
       }
 
@@ -387,7 +426,7 @@ export function useDineInCart({
       const delta = quantity - item.billableQuantity;
       if (delta === 0) return;
       if (delta < 0) {
-        voidItem.mutate({ id: order.id, itemId: lineId, quantity: -delta });
+        void voidLine(item, -delta);
         return;
       }
 
@@ -405,7 +444,7 @@ export function useDineInCart({
 
       updateItem.mutate({ id: order.id, itemId: lineId, quantity: item.quantity + delta });
     },
-    [order, isBusy, menu, branchId, orderedQuantityOf, updateItem, voidItem],
+    [order, isBusy, menu, branchId, orderedQuantityOf, updateItem, voidLine],
   );
 
   /**

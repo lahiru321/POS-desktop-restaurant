@@ -21,6 +21,8 @@ export interface TenantInfo {
   defaultCovers: number;
   /** Service charge on dine-in bills, in percent (10 = 10%). 0 = none. */
   serviceChargeRate: number;
+  /** A cashier needs a manager's PIN to void food the kitchen already has. */
+  restaurantVoidRequiresPin: boolean;
 }
 
 export interface TenantInfoUpdateRequest {
@@ -39,6 +41,7 @@ export interface TenantInfoUpdateRequest {
   /** Omit to leave the restaurant settings unchanged. */
   defaultCovers?: number;
   serviceChargeRate?: number;
+  restaurantVoidRequiresPin?: boolean;
 }
 
 export const tenantService = {

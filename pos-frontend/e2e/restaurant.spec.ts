@@ -587,6 +587,62 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     await expect(page.getByText(new RegExp(`${TABLE} paid`))).toBeVisible();
   });
 
+  test("with the PIN rule on, a cashier needs a manager to void food the kitchen has", async ({ page, request }) => {
+    type Info = { name: string; addressLine1?: string; addressLine2?: string; phone?: string;
+      logoUrl?: string; receiptFooter?: string; restaurantVoidRequiresPin: boolean };
+    const info = await api<Info>(request, "get", "/tenant/info");
+    // PUT /tenant/info is a full replace: the business fields ride along.
+    const setRule = (on: boolean) => api(request, "put", "/tenant/info", {
+      name: info.name, addressLine1: info.addressLine1, addressLine2: info.addressLine2,
+      phone: info.phone, logoUrl: info.logoUrl, receiptFooter: info.receiptFooter,
+      restaurantVoidRequiresPin: on,
+    });
+    await setRule(true);
+    try {
+      await openShift(page);
+      await page.keyboard.press("F11");
+      await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+      await page.getByRole("button", { name: new RegExp(`^${TABLE}, 2 seats, available`) }).click();
+      await addDishWithAddon(page);
+      await addDishWithAddon(page);
+      await page.getByRole("button", { name: /^send \(1\)/i }).click();
+      await expect(page.getByText(/-R1 recorded — tell the kitchen$/)).toBeVisible();
+
+      // Take one back: the kitchen has both, so the manager PIN pad opens.
+      await page.getByRole("button", { name: "Decrease quantity" }).first().click();
+      const pad = page.getByRole("dialog", { name: /manager pin/i });
+      await expect(pad).toBeVisible();
+      await expect(pad.getByText(`Void 1 x ${DISH}`)).toBeVisible();
+
+      // The cashier's own PIN is not a manager's.
+      await page.keyboard.type("4321");
+      await page.keyboard.press("Enter");
+      await expect(page.getByText("Invalid manager PIN")).toBeVisible();
+      await expect(pad).toBeHidden();
+
+      const open = await api<{ id: string; tableName: string; items: { billableQuantity: number }[] }[]>(
+        request, "get", "/restaurant/orders");
+      let tab = open.find((o) => o.tableName === TABLE)!;
+      expect(tab.items[0].billableQuantity).toBe(2);
+
+      // The admin walks over and types theirs.
+      await page.getByRole("button", { name: "Decrease quantity" }).first().click();
+      await expect(pad).toBeVisible();
+      for (const d of "1234") await pad.getByRole("button", { name: d, exact: true }).click();
+      await pad.getByRole("button", { name: "OK" }).click();
+      await expect(page.getByText(/-VOID recorded — tell the kitchen to stop$/)).toBeVisible();
+
+      tab = (await api<typeof open>(request, "get", "/restaurant/orders")).find((o) => o.tableName === TABLE)!;
+      expect(tab.items[0].billableQuantity).toBe(1);
+
+      await page.getByRole("button", { name: /^settle/i }).click();
+      await payExactCash(page);
+      await expect(page.getByText(new RegExp(`${TABLE} paid`))).toBeVisible();
+    } finally {
+      await setRule(false);
+    }
+  });
+
   test("a dine-in bill carries the service charge, and it can be removed", async ({ page, request }) => {
     await openShift(page);
 

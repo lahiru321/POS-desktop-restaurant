@@ -81,6 +81,9 @@ public class TenantInfoService {
             if (request.getServiceChargeRate() != null) {
                 settings.put("serviceChargeRate", request.getServiceChargeRate());
             }
+            if (request.getRestaurantVoidRequiresPin() != null) {
+                settings.put("restaurantVoidRequiresPin", request.getRestaurantVoidRequiresPin());
+            }
             tenant.setSettings(objectMapper.writeValueAsString(settings));
         } catch (Exception e) {
             log.warn("Failed to update tenant settings JSON: {}", e.getMessage());
@@ -166,6 +169,22 @@ public class TenantInfoService {
                 .orElse(DEFAULT_SERVICE_CHARGE_RATE);
     }
 
+    /**
+     * Whether a cashier needs a manager's PIN to void food the kitchen already
+     * has. Off unless a manager turns it on: most small restaurants trust their
+     * servers, and the void ticket and audit log record every void either way.
+     */
+    @Transactional(readOnly = true)
+    public boolean restaurantVoidRequiresPin(UUID tenantId) {
+        return tenantRepository.findById(tenantId)
+                .map(this::voidRequiresPinFromSettings)
+                .orElse(false);
+    }
+
+    private boolean voidRequiresPinFromSettings(TenantEntity t) {
+        return Boolean.TRUE.equals(settingValue(t, "restaurantVoidRequiresPin"));
+    }
+
     private int serviceChargeRateFromSettings(TenantEntity t) {
         Object raw = settingValue(t, "serviceChargeRate");
         if (raw instanceof Number n && n.intValue() >= 0 && n.intValue() <= 50) {
@@ -239,6 +258,7 @@ public class TenantInfoService {
                 .taxInclusive(taxInclusiveFromSettings(t))
                 .defaultCovers(defaultCoversFromSettings(t))
                 .serviceChargeRate(serviceChargeRateFromSettings(t))
+                .restaurantVoidRequiresPin(voidRequiresPinFromSettings(t))
                 .build();
     }
 }

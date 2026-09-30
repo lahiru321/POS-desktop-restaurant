@@ -45,6 +45,7 @@ import { ProductGrid } from '@/components/pos/ProductGrid';
 import { ToppingPickerDialog } from '@/components/pos/ToppingPickerDialog';
 import { toppingService } from '@/services/toppingService';
 import { CartItemCard } from '@/components/pos/CartItemCard';
+import { ManagerPinDialog, type ManagerPinRequest } from '@/components/pos/ManagerPinDialog';
 import { CartSummary } from '@/components/pos/CartSummary';
 import { TenderOverlay } from '@/components/pos/TenderOverlay';
 import { CorrectPaymentModal } from '@/components/pos/CorrectPaymentModal';
@@ -243,8 +244,21 @@ function Terminal() {
   // The same interface, backed by `restaurant_orders` instead of `useState`.
   // Every query inside is `enabled: !!orderId`, so a counter sale with no tab
   // open issues no requests at all.
+  // The manager PIN pad, as a promise: useDineInCart awaits it before a void
+  // the kitchen already has, when the tenant asks for one.
+  const [pinRequest, setPinRequest] = useState<
+    (ManagerPinRequest & { resolve: (pin: string | null) => void }) | null
+  >(null);
+  const requestManagerPin = useCallback(
+    (req: ManagerPinRequest) => new Promise<string | null>((resolve) => setPinRequest({ ...req, resolve })),
+    [],
+  );
+  const isManager = !!user?.roles?.some((r) => r === 'ADMIN' || r === 'MANAGER');
+
   const dineIn = useDineInCart({
     orderId: dineInOrderId,
+    voidNeedsPin: !!tenantInfo?.restaurantVoidRequiresPin && !isManager,
+    requestManagerPin,
     taxContext,
     taxInclusive: tenantInfo?.taxInclusive ?? true,
     branchId: selectedBranch?.id,
@@ -1043,7 +1057,8 @@ function Terminal() {
       || correctPickerOpen
       || !!correctSale
       || !!returnSaleId
-      || !!kitchen.current,
+      || !!kitchen.current
+      || !!pinRequest,
     activeRegion,
     setActiveRegion,
     productCount: filteredProducts.length,
@@ -1226,6 +1241,17 @@ function Terminal() {
   return (
     <>
       {confirmDialog}
+      <ManagerPinDialog
+        request={pinRequest}
+        onSubmit={(pin) => {
+          pinRequest?.resolve(pin);
+          setPinRequest(null);
+        }}
+        onCancel={() => {
+          pinRequest?.resolve(null);
+          setPinRequest(null);
+        }}
+      />
       <KitchenPrintFailedDialog
         failure={kitchen.current}
         remaining={kitchen.remaining}
