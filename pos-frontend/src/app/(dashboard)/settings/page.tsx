@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Receipt } from "@/components/pos/Receipt";
 import { HardwareSettings } from "@/components/settings/HardwareSettings";
+import { BackupSettings } from "@/components/settings/BackupSettings";
 import type { SaleResponse } from "@/services/salesService";
 import {
   Table,
@@ -44,6 +45,7 @@ import {
   Building2,
   Receipt as ReceiptIcon,
   Cpu,
+  DatabaseBackup,
   Image as ImageIcon,
   UtensilsCrossed,
   X,
@@ -382,6 +384,11 @@ export default function SettingsPage() {
           <TabsTrigger value="hardware" className="lg:w-full lg:justify-start gap-2">
             <Cpu size={14} /> Hardware
           </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="backups" className="lg:w-full lg:justify-start gap-2">
+              <DatabaseBackup size={14} /> Backups
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <div className="space-y-6 min-w-0">
@@ -1110,6 +1117,19 @@ export default function SettingsPage() {
           </p>
           <HardwareSettings />
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="backups" className="space-y-4 mt-0">
+            <div className="flex items-center gap-2">
+              <DatabaseBackup className="text-primary" size={20} />
+              <h2 className="text-xl font-semibold text-foreground">Backups</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Copies of this till&apos;s database — every sale, customer and setting.
+            </p>
+            <BackupSettings />
+          </TabsContent>
+        )}
         </div>
       </Tabs>
 

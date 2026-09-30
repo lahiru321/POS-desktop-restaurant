@@ -210,6 +210,10 @@ async function startBackend(db: DbConfig, license: ActivatedLicense): Promise<vo
         APP_MACHINE_FINGERPRINT: computeFingerprint(),
         // Silent QZ Tray printing, when setup-qz-signing.ps1 has made this machine a key.
         ...qzSigningEnv(),
+        // Local backups: the bundled pg_dump, into ProgramData — outside the install
+        // directory, and kept when "delete the database" is chosen at uninstall.
+        PG_DUMP_PATH: path.join(resources, 'postgres-bin', 'tools', 'pg_dump.exe'),
+        APP_BACKUP_DIR: path.join(PROGRAM_DATA, 'StoreX Restaurant', 'backups'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

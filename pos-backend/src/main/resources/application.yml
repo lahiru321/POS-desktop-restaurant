@@ -73,6 +73,12 @@ app:
   # (QZ asks the cashier to allow the site). Either PEM strings (hosted, with a
   # commercial QZ certificate) or a PKCS12 keystore — the desktop launcher passes
   # the per-machine one that setup-qz-signing.ps1 generates. Never committed.
+  # Local database backups (DatabaseBackupService). Off unless the desktop launcher
+  # passes the bundled pg_dump and a backups folder outside the install directory.
+  backup:
+    pg-dump: ${PG_DUMP_PATH:}
+    dir: ${APP_BACKUP_DIR:}
+    keep: ${APP_BACKUP_KEEP:14}
   qz:
     certificate: ${QZ_CERTIFICATE:}
     private-key: ${QZ_PRIVATE_KEY:}

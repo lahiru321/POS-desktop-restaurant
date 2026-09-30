@@ -27,6 +27,12 @@ New-Item -ItemType Directory -Force -Path (Split-Path $JarDst) | Out-Null
 Copy-Item $JarSrc $JarDst -Force
 Write-Host "Staged backend jar -> $JarDst"
 
+# 1b. pg_dump/pg_restore for local backups (resources/ is gitignored, so stage
+#     them on every build rather than trusting a hand copy).
+Step 'Staging PostgreSQL client tools (backups)'
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Frontend 'build\stage-pg-tools.ps1') -Resources $Resources
+if ($LASTEXITCODE -ne 0) { throw "Staging pg_dump failed" }
+
 # 2. Next.js standalone build
 Step 'Building Next.js standalone server'
 Push-Location $Frontend

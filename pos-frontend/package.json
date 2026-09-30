@@ -149,6 +149,10 @@
       {
         "from": "build/repair-printing.ps1",
         "to": "repair-printing.ps1"
+      },
+      {
+        "from": "build/restore-backup.ps1",
+        "to": "restore-backup.ps1"
       }
     ],
     "win": {

@@ -24,6 +24,8 @@ export const QK = {
   kitchenTicketsForOrder: (orderId: string) => ['kitchen-tickets', 'order', orderId] as const,
   /** Stations named by any product or category, KITCHEN first. */
   kitchenStations: ['kitchen-stations'] as const,
+  /** Settings → Backups: the till's local database backups. */
+  backups: ['system-backups'] as const,
   brands: ['brands'] as const,
   expenses: ['expenses'] as const,
   expenseCategories: ['expense-categories'] as const,
