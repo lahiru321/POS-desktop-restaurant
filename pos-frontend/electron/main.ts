@@ -1,4 +1,3 @@
-import { lockDownNavigation } from './navigation';
 import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { spawn, ChildProcess } from 'node:child_process';
 import http from 'node:http';
@@ -10,6 +9,8 @@ import { ensureActivated, type ActivatedLicense } from './activation-window';
 import { runFirstRunWizard } from './first-run-window';
 import { needsFirstRun, writeTenantSeed } from './services/tenantSeed';
 import { computeFingerprint } from './services/fingerprint';
+import { lockDownNavigation } from './navigation';
+import { decideRestart, type RestartDecision } from './supervisor';
 
 // StoreX Restaurant desktop entry point. This is a product in its own right,
 // not a second copy of retail StoreX: its own appId, install directory, Windows
@@ -58,6 +59,15 @@ let backendProc: ChildProcess | null = null;
 let frontendProc: ChildProcess | null = null;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
+
+// Supervision: once the till is up, a backend or web-server process that dies is
+// restarted instead of leaving a dead window. Before that, startup's own error
+// path handles failures (and there is nothing yet to keep alive).
+let servicesReady = false;
+let restartTimes: number[] = [];
+let restartInFlight = false;
+let lastDb: DbConfig | null = null;
+let lastLicense: ActivatedLicense | null = null;
 
 function resourcesDir(): string {
   return isDev
@@ -223,10 +233,14 @@ async function startBackend(db: DbConfig, license: ActivatedLicense): Promise<vo
 
   backendProc.stdout?.on('data', d => appendLog('[backend] ' + d.toString().trimEnd()));
   backendProc.stderr?.on('data', d => appendLog('[backend!] ' + d.toString().trimEnd()));
+  const proc = backendProc;
   backendProc.on('exit', code => {
     appendLog(`[backend] exited with code ${code}`);
-    backendProc = null;
-    if (!isQuitting && code !== 0) {
+    if (backendProc === proc) backendProc = null;
+    if (isQuitting) return;
+    if (servicesReady) {
+      onServiceDied('backend');
+    } else if (code !== 0) {
       dialog.showErrorBox(
         'Backend stopped',
         'The StoreX Restaurant backend stopped unexpectedly. Check logs in ' + path.dirname(logFile())
@@ -261,9 +275,11 @@ async function startFrontend(): Promise<void> {
 
   frontendProc.stdout?.on('data', d => appendLog('[web] ' + d.toString().trimEnd()));
   frontendProc.stderr?.on('data', d => appendLog('[web!] ' + d.toString().trimEnd()));
+  const proc = frontendProc;
   frontendProc.on('exit', code => {
     appendLog(`[web] exited with code ${code}`);
-    frontendProc = null;
+    if (frontendProc === proc) frontendProc = null;
+    if (!isQuitting && servicesReady) onServiceDied('frontend');
   });
 
   return waitForUrl(`http://127.0.0.1:${FRONTEND_PORT}`, FRONTEND_READY_TIMEOUT_MS, 'frontend');
@@ -295,6 +311,56 @@ function waitForUrl(url: string, timeoutMs: number, label: string): Promise<void
     };
     tick();
   });
+}
+
+function showReconnecting(part: 'backend' | 'frontend', attempt: number, max: number): void {
+  if (!mainWindow) return;
+  void mainWindow.loadFile(path.join(__dirname, 'reconnecting.html'), {
+    query: { part, attempt: String(attempt), max: String(max) },
+  });
+}
+
+/**
+ * A server process died while the till was in use. Show the reconnecting page,
+ * wait (2 s, 4 s, 8 s), start it again, and put the till back once it answers.
+ * Gives up after too many deaths in a short time — a crash loop needs a person,
+ * not a fourth identical attempt.
+ */
+function onServiceDied(part: 'backend' | 'frontend'): void {
+  if (restartInFlight) return; // the running attempt will pick this up
+  const decision: RestartDecision = decideRestart(restartTimes, Date.now());
+  restartTimes = decision.history;
+  if (!decision.restart) {
+    appendLog(`[main] ${part} died ${decision.history.length} times in a short time — giving up`);
+    dialog.showErrorBox(
+      'StoreX Restaurant stopped',
+      `The till server keeps stopping. Close StoreX Restaurant and open it again. ` +
+        `If it happens again, send the logs in ${path.dirname(logFile())} to support.`
+    );
+    return;
+  }
+  appendLog(`[main] ${part} died — restart ${decision.attempt} of ${decision.max} in ${decision.delayMs} ms`);
+  showReconnecting(part, decision.attempt, decision.max);
+  restartInFlight = true;
+  setTimeout(() => {
+    void (async () => {
+      try {
+        if (part === 'backend') {
+          if (!lastDb || !lastLicense) throw new Error('nothing to restart with');
+          await startBackend(lastDb, lastLicense);
+        } else {
+          await startFrontend();
+        }
+        appendLog(`[main] ${part} is back`);
+        await mainWindow?.loadURL(`http://localhost:${FRONTEND_PORT}`);
+        restartInFlight = false;
+      } catch (err) {
+        appendLog(`[main] restarting ${part} failed: ${(err as Error).message}`);
+        restartInFlight = false;
+        onServiceDied(part);
+      }
+    })();
+  }, decision.delayMs);
 }
 
 async function createWindow(): Promise<void> {
@@ -384,12 +450,15 @@ if (!gotLock) {
         }
         // 3. Bring up the local services against the bundled DB.
         const db = loadDbConfig();
+        lastDb = db;
+        lastLicense = license;
         await startBackend(db, license);
         await startFrontend();
       } else {
         await waitForUrl(`http://127.0.0.1:${FRONTEND_PORT}`, FRONTEND_READY_TIMEOUT_MS, 'dev frontend');
       }
       await createWindow();
+      servicesReady = !isDev;
     } catch (err) {
       const msg = (err as Error).message;
       appendLog('[main] startup failed: ' + msg);

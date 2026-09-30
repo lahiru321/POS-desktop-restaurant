@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>StoreX Restaurant</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      background: #0b0b0e; color: #e5e7eb;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    .card { max-width: 460px; padding: 32px; text-align: center; }
+    .spinner {
+      width: 40px; height: 40px; margin: 0 auto 20px;
+      border: 4px solid #1f2937; border-top-color: #3b82f6; border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { margin: 6px 0; color: #9ca3af; font-size: 14px; line-height: 1.5; }
+    .small { font-size: 12px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="card" role="status" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <h1>Reconnecting&hellip;</h1>
+    <p id="what">Part of StoreX Restaurant stopped and is being restarted.</p>
+    <p>Sales and open tabs are saved. The till comes back on its own in a few seconds.</p>
+    <p class="small" id="attempt"></p>
+  </div>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const part = q.get('part') === 'frontend' ? 'The till screen server' : 'The till server';
+    document.getElementById('what').textContent = part + ' stopped and is being restarted.';
+    const attempt = Number(q.get('attempt') || '0');
+    const max = Number(q.get('max') || '0');
+    if (attempt && max) document.getElementById('attempt').textContent = 'Attempt ' + attempt + ' of ' + max;
+  </script>
+</body>
+</html>

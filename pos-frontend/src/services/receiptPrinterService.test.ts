@@ -32,16 +32,17 @@ const config = (printerMode: string) => ({
   kickCode: '27,112,0,25,250',
 });
 
-let openSpy: ReturnType<typeof vi.spyOn>;
+const realOpen = window.open;
+const openSpy = vi.fn(() => null);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+  window.open = openSpy as unknown as typeof window.open;
 });
 
 afterEach(() => {
   delete (window as { lumora?: unknown }).lumora;
-  openSpy.mockRestore();
+  window.open = realOpen;
 });
 
 describe('receiptPrinterService.processHardwareCheckoutActions', () => {

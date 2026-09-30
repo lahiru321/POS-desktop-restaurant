@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "electron:tsc": "tsc -p electron && node -e \"const fs=require('fs');for(const f of ['activation.html','first-run.html'])fs.copyFileSync('electron/'+f,'dist-electron/'+f)\"",
+    "electron:tsc": "tsc -p electron && node -e \"const fs=require('fs');for(const f of ['activation.html','first-run.html','reconnecting.html'])fs.copyFileSync('electron/'+f,'dist-electron/'+f)\"",
     "electron:dev": "cross-env NODE_ENV=development wait-on http://127.0.0.1:3000 && electron .",
     "electron:build": "next build && npm run electron:tsc && electron-builder --win nsis --x64"
   },
