@@ -256,7 +256,7 @@ public class KitchenTicketService {
                 .status(KitchenTicketEntity.TicketStatus.PENDING)
                 .orderNumber(order.getOrderNumber())
                 .orderType(order.getOrderType())
-                .tableName(order.getTable() != null ? order.getTable().getName() : null)
+                .tableName(truncate(order.tableLabel(), 50))
                 .covers(order.getCovers())
                 .serverName(serverName(order.getServedBy()))
                 .build();

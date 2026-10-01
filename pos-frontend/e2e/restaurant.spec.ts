@@ -236,12 +236,15 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     await page.getByRole("button", { name: /^merge tabs$/i }).click();
     await expect(page.getByText(`Merged into ${other.label}`)).toBeVisible();
 
-    const afterMerge = await api<{ id: string; tableName: string; covers: number; items: unknown[] }[]>(
-      request, "get", "/restaurant/orders");
+    const afterMerge = await api<
+      { id: string; tableName: string; covers: number; items: unknown[]; joinedTables: { name: string }[] }[]
+    >(request, "get", "/restaurant/orders");
     expect(afterMerge.some((o) => o.tableName === TABLE2)).toBe(false);
     const merged = afterMerge.find((o) => o.id === other.id)!;
     expect(merged.items).toHaveLength(2);
     expect(merged.covers).toBe(4);
+    // The party is still sitting at TABLE2: it stays taken, joined to the bill.
+    expect(merged.joinedTables.map((t) => t.name)).toEqual([TABLE2]);
     // The merged-in dish was already cooking: one MOVE slip, and nothing re-fired.
     const mergedTickets = await ticketsFor(request, merged.id);
     expect(mergedTickets.map((t) => t.ticketType)).toEqual(["MOVE"]);
@@ -249,7 +252,49 @@ test.describe("restaurant — tables, kitchen rounds, takeaway", () => {
     // Tidy: settle the merged bill so the tables are free for the next test.
     await page.getByRole("button", { name: /^settle/i }).click();
     await payExactCash(page);
-    await expect(page.getByText(new RegExp(`${other.label} paid`))).toBeVisible();
+    // TABLE2 came along as a joined table, so the bill is named for both.
+    await expect(page.getByText(new RegExp(`${other.label}\\+${TABLE2} paid`))).toBeVisible();
+  });
+
+  test("a party at two tables: both stay taken, either resumes the tab, settling frees both", async ({ page, request }) => {
+    await openShift(page);
+
+    await page.keyboard.press("F11");
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE}, 2 seats, available`) }).click();
+    await addDishWithAddon(page);
+
+    // ── Join TABLE2 to the tab ───────────────────────────────────────────
+    await page.getByRole("button", { name: "More tab actions" }).click();
+    await page.getByRole("button", { name: /^join table/i }).click();
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE2}, 4 seats, available`) }).click();
+    const both = `${TABLE}\\+${TABLE2}`;
+    await expect(page.getByText(new RegExp(`Order \\d+ · ${both} — table added`))).toBeVisible();
+
+    const open = await api<{ id: string; label: string; tableName: string; joinedTables: { name: string }[] }[]>(
+      request, "get", "/restaurant/orders");
+    const order = open.find((o) => o.tableName === TABLE)!;
+    expect(order.joinedTables.map((t) => t.name)).toEqual([TABLE2]);
+    const tables = await api<{ name: string; status: string }[]>(request, "get", "/restaurant/tables");
+    expect(tables.find((t) => t.name === TABLE2)!.status).toBe("OCCUPIED");
+
+    // ── Tapping the joined table resumes the same tab ────────────────────
+    await page.getByRole("button", { name: "More tab actions" }).click();
+    await page.getByRole("button", { name: /^leave tab/i }).click();
+    await page.getByRole("button", { name: /^dine-in/i }).click();
+    await page.getByRole("tab", { name: new RegExp(`E2E ${RUN}`) }).click();
+    await page.getByRole("button", { name: new RegExp(`^${TABLE2}, occupied, with ${TABLE}`) }).click();
+    await expect(page.getByText(order.label).first()).toBeVisible();
+
+    // ── Settle frees both tables ─────────────────────────────────────────
+    await page.getByRole("button", { name: /^settle/i }).click();
+    await payExactCash(page);
+    await expect(page.getByText(new RegExp(`Order \\d+ · ${both} paid`))).toBeVisible();
+
+    const after = await api<{ name: string; status: string }[]>(request, "get", "/restaurant/tables");
+    expect(after.find((t) => t.name === TABLE)!.status).toBe("AVAILABLE");
+    expect(after.find((t) => t.name === TABLE2)!.status).toBe("AVAILABLE");
   });
 
   test("a parked sale waits on the floor, then fires the kitchen when paid", async ({ page, request }) => {

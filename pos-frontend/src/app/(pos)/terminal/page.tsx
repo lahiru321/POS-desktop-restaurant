@@ -11,7 +11,7 @@ import { SaleResponse, salesService, SaleRequest, SaleItemRequest, SalesSummaryR
 import { applyServiceCharge, useCart, useCartTotals, TaxContext, type CartView } from '@/hooks/useCart';
 import { useDineInCart } from '@/hooks/useDineInCart';
 import { useKitchenPrinting } from '@/hooks/useKitchenPrinting';
-import { ShoppingCart, Loader2, Plus, LayoutGrid, Send } from 'lucide-react';
+import { ShoppingCart, Loader2, Plus, LayoutGrid, Send, X } from 'lucide-react';
 import { unsentLineCount } from '@/lib/kitchenState';
 import { useAuthStore } from '@/stores/authStore';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -998,10 +998,72 @@ function Terminal() {
       title: `Merge into ${occupiedBy.label}?`,
       description: `Everything on ${current.label} joins ${table.name}'s tab and becomes one bill. ${
         current.tableName ?? 'This table'
-      } is freed. Nothing is sent to the kitchen twice.`,
+      } stays taken as part of it. Nothing is sent to the kitchen twice.`,
       confirmLabel: 'Merge tabs',
     });
     if (ok) mergeMutation.mutate({ targetId: occupiedBy.id, sourceId: current.id });
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Join tables — one party, more than one table, one bill
+  // ─────────────────────────────────────────────────────────────────────────
+  const [joinOpen, setJoinOpen] = useState(false);
+
+  const joinMutation = useMutation({
+    mutationFn: ({ orderId, tableId }: { orderId: string; tableId: string }) =>
+      restaurantOrderService.joinTable(orderId, tableId),
+    onSuccess: ({ order, tickets }) => {
+      queryClient.setQueryData(QK.restaurantOrder(order.id), order);
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
+      toast.success(`${order.label} — table added`);
+      if (tickets.length > 0) void kitchen.dispatchTickets(tickets);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not add that table'));
+    },
+  });
+
+  const releaseMutation = useMutation({
+    mutationFn: ({ orderId, tableId }: { orderId: string; tableId: string }) =>
+      restaurantOrderService.releaseTable(orderId, tableId),
+    onSuccess: (order) => {
+      queryClient.setQueryData(QK.restaurantOrder(order.id), order);
+      queryClient.invalidateQueries({ queryKey: QK.restaurantOpenOrders });
+      queryClient.invalidateQueries({ queryKey: QK.restaurantAreas });
+      toast.success(`${order.label} — table freed`);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not free that table'));
+    },
+  });
+
+  const handleJoinPick = async (table: RestaurantTable, occupiedBy: RestaurantOrder | undefined) => {
+    const current = dineIn.order;
+    if (!current) return;
+    if (!occupiedBy) {
+      joinMutation.mutate({ orderId: current.id, tableId: table.id });
+      return;
+    }
+    // A table with its own tab cannot simply be joined — its bill has to come
+    // along. Merging it into this tab does exactly that and keeps it taken.
+    const ok = await confirm({
+      title: `Merge ${occupiedBy.label} into this tab?`,
+      description: `${table.name} already has its own tab. Merging brings everything on it onto ${current.label} as one bill, and ${table.name} stays taken as part of it. Nothing is sent to the kitchen twice.`,
+      confirmLabel: 'Merge tabs',
+    });
+    if (ok) mergeMutation.mutate({ targetId: current.id, sourceId: occupiedBy.id });
+  };
+
+  const releaseTable = async (tableId: string, tableName: string) => {
+    const current = dineIn.order;
+    if (!current || releaseMutation.isPending) return;
+    const ok = await confirm({
+      title: `Free ${tableName}?`,
+      description: `${tableName} is no longer part of ${current.label} and shows as available on the floor. Everything ordered stays on this tab.`,
+      confirmLabel: `Free ${tableName}`,
+    });
+    if (ok) releaseMutation.mutate({ orderId: current.id, tableId });
   };
 
   // Part of a tab, paid now as its own bill; the tab stays open on its table.
@@ -1356,6 +1418,28 @@ function Terminal() {
                     {formatElapsed(dineIn.order.openedAt, now)}
                   </p>
                 </div>
+                {(dineIn.order.joinedTables ?? []).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5" aria-label="Joined tables">
+                    {dineIn.order.joinedTables!.map((t) => (
+                      <span
+                        key={t.id}
+                        className="inline-flex h-8 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 pl-3 pr-1 text-sm font-semibold text-amber-200"
+                      >
+                        + {t.name}
+                        <button
+                          type="button"
+                          onClick={() => void releaseTable(t.id, t.name)}
+                          disabled={releaseMutation.isPending || dineIn.isBusy}
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-amber-300 hover:bg-amber-500/20 hover:text-white disabled:opacity-50"
+                          aria-label={`Free ${t.name}`}
+                          title={`Free ${t.name}`}
+                        >
+                          <X size={14} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {dineIn.isBusy && (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" aria-hidden="true" />
                 )}
@@ -1364,13 +1448,22 @@ function Terminal() {
                 <KitchenTicketsBadge onReview={kitchen.review} />
                 <OrderKitchenTickets orderId={dineIn.order.id} onReprint={kitchen.reprint} />
                 <TabActionsMenu
-                  disabled={dineIn.isBusy || moveMutation.isPending || mergeMutation.isPending || splitMutation.isPending}
+                  disabled={
+                    dineIn.isBusy ||
+                    moveMutation.isPending ||
+                    mergeMutation.isPending ||
+                    joinMutation.isPending ||
+                    splitMutation.isPending
+                  }
                   onSplit={
                     items.reduce((sum, i) => sum + Math.floor(i.cartQuantity), 0) > 1
                       ? () => setSplitOpen(true)
                       : undefined
                   }
                   onMove={dineIn.order.orderType === 'DINE_IN' ? () => setMoveOpen(true) : undefined}
+                  onJoinTable={
+                    dineIn.order.orderType === 'DINE_IN' && dineIn.order.tableId ? () => setJoinOpen(true) : undefined
+                  }
                   onLeave={() => selectOrder(null)}
                 />
                 <Button
@@ -1584,6 +1677,14 @@ function Terminal() {
           onOpenChange={setMoveOpen}
           onSelectOrder={() => undefined}
           moving={{ order: dineIn.order, onPickTable: handlePickTable }}
+        />
+      )}
+      {dineInActive && dineIn.order && (
+        <FloorSheet
+          open={joinOpen}
+          onOpenChange={setJoinOpen}
+          onSelectOrder={() => undefined}
+          joining={{ order: dineIn.order, onPickTable: handleJoinPick }}
         />
       )}
       <FloorSheet

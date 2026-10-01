@@ -154,10 +154,16 @@ export interface OrderItemResponse {
   toppings: OrderItemToppingResponse[];
 }
 
+/** A table joined to a tab besides its own: T1 and T2 pushed together. */
+export interface JoinedTable {
+  id: string;
+  name: string;
+}
+
 export interface RestaurantOrder {
   id: string;
   orderNumber: number;
-  /** "Order 14 · T1" — what staff say out loud. */
+  /** "Order 14 · T1", or "Order 14 · T1+T2" — what staff say out loud. */
   label: string;
   /** ISO date, e.g. "2026-09-21". */
   businessDate: string;
@@ -166,7 +172,10 @@ export interface RestaurantOrder {
   branchId?: string | null;
   /** Null for TAKEAWAY. */
   tableId?: string | null;
+  /** The tab's own table. */
   tableName?: string | null;
+  /** Further tables the same party sits at, in the order they were joined. */
+  joinedTables?: JoinedTable[];
   customerId?: string | null;
   covers: number;
   openedBy?: string | null;
@@ -295,8 +304,21 @@ export const restaurantOrderService = {
       .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/move`, { tableId })
       .then((res) => res.data.data),
 
+  /** Seats the same party at one more, free table. A MOVE ticket comes back if
+   *  the kitchen already has food for the tab. */
+  joinTable: (id: string, tableId: string) =>
+    api
+      .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/tables`, { tableId })
+      .then((res) => res.data.data),
+
+  /** Frees a joined table; the tab carries on at the others. */
+  releaseTable: (id: string, tableId: string) =>
+    api
+      .delete<ApiResponse<RestaurantOrder>>(`/restaurant/orders/${id}/tables/${tableId}`)
+      .then((res) => res.data.data),
+
   /** Folds `sourceOrderId` into the tab `id`. Lines move as they are, so
-   *  nothing is sent to the kitchen twice. */
+   *  nothing is sent to the kitchen twice, and its tables join this tab. */
   merge: (id: string, sourceOrderId: string) =>
     api
       .post<ApiResponse<OrderKitchenResponse>>(`/restaurant/orders/${id}/merge`, { sourceOrderId })

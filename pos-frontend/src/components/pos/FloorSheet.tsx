@@ -39,13 +39,21 @@ export interface FloorSheetProps {
    * resuming. A free table means move; an occupied one means merge — the caller
    * decides, and confirms a merge, from what it is handed.
    */
-  moving?: {
-    order: RestaurantOrder;
-    onPickTable: (table: RestaurantTable, occupiedBy: RestaurantOrder | undefined) => void;
-  };
+  moving?: TablePick;
+  /**
+   * Join mode: the sheet picks one more table for this tab's party. A free table
+   * joins; an occupied one is another tab, which the caller may offer to merge.
+   */
+  joining?: TablePick;
 }
 
-export function FloorSheet({ open, onOpenChange, onSelectOrder, moving }: FloorSheetProps) {
+interface TablePick {
+  order: RestaurantOrder;
+  onPickTable: (table: RestaurantTable, occupiedBy: RestaurantOrder | undefined) => void;
+}
+
+export function FloorSheet({ open, onOpenChange, onSelectOrder, moving, joining }: FloorSheetProps) {
+  const picking = moving ?? joining;
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -56,23 +64,29 @@ export function FloorSheet({ open, onOpenChange, onSelectOrder, moving }: FloorS
       >
         <SheetHeader className="mb-4 text-left">
           <SheetTitle className="text-2xl font-bold tracking-tight text-white">
-            {moving ? `Move ${moving.order.label}` : "Floor"}
+            {moving
+              ? `Move ${moving.order.label}`
+              : joining
+                ? `Add a table to ${joining.order.label}`
+                : "Floor"}
           </SheetTitle>
           <SheetDescription className="text-gray-400">
             {moving
               ? "Tap a free table to move this tab there, or an occupied one to merge the two tabs into one bill."
-              : "Tap a free table to seat it, or an occupied one to pick its tab back up. The till stays exactly as you left it."}
+              : joining
+                ? "Tap a free table to seat this party there too. It stays one bill, and both tables show as taken until it is paid."
+                : "Tap a free table to seat it, or an occupied one to pick its tab back up. The till stays exactly as you left it."}
           </SheetDescription>
         </SheetHeader>
 
         <FloorPlan
           className="flex-1"
           pick={
-            moving && {
-              excludeOrderId: moving.order.id,
+            picking && {
+              excludeOrderId: picking.order.id,
               onPick: (table, occupiedBy) => {
                 onOpenChange(false);
-                moving.onPickTable(table, occupiedBy);
+                picking.onPickTable(table, occupiedBy);
               },
             }
           }

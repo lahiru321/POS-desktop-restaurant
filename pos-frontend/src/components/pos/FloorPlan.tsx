@@ -48,9 +48,10 @@ export interface FloorPlanProps {
    */
   onOrderReady: (orderId: string) => void;
   /**
-   * Pick mode: a tap chooses a table for something else — moving a tab — rather
-   * than seating it or resuming its tab. The tab being moved is shown but cannot
-   * be tapped, and parked takeaways are hidden: only tables can be picked.
+   * Pick mode: a tap chooses a table for something else — moving a tab, or
+   * joining another table to it — rather than seating it or resuming its tab.
+   * The tab's own tables are shown but cannot be tapped, and parked takeaways
+   * are hidden: only tables can be picked.
    */
   pick?: {
     excludeOrderId: string;
@@ -100,6 +101,8 @@ export function FloorPlan({ onOrderReady, pick, className }: FloorPlanProps) {
     const map = new Map<string, RestaurantOrder>();
     for (const order of openOrders) {
       if (order.tableId) map.set(order.tableId, order);
+      // A joined table is the same party: tapping it resumes the same tab.
+      for (const joined of order.joinedTables ?? []) map.set(joined.id, order);
     }
     return map;
   }, [openOrders]);
@@ -427,6 +430,8 @@ function TableTile({
 }) {
   const occupied = !!order || table.status === "OCCUPIED";
   const elapsed = order ? formatElapsed(order.openedAt, now) : null;
+  // Joined to a tab whose own table is elsewhere: "with T1".
+  const joinedTo = order && order.tableId !== table.id ? order.tableName : null;
 
   return (
     <button
@@ -435,7 +440,7 @@ function TableTile({
       disabled={disabled || pending}
       aria-label={
         order
-          ? `${table.name}, occupied, ${order.label}. Resume this tab.`
+          ? `${table.name}, occupied${joinedTo ? `, with ${joinedTo}` : ""}, ${order.label}. Resume this tab.`
           : `${table.name}, ${table.seats} seats, available. Open a tab.`
       }
       // Tall enough to hit standing up, at speed, with a thumb.
@@ -465,6 +470,11 @@ function TableTile({
 
       {order ? (
         <div className={cn("space-y-0.5", compact ? "mt-2" : "mt-3")}>
+          {joinedTo && (
+            <p className="truncate text-xs font-bold uppercase tracking-wide text-amber-300">
+              With {joinedTo}
+            </p>
+          )}
           <p className="truncate text-sm font-semibold text-amber-200">
             {order.label}
           </p>

@@ -71,11 +71,15 @@ everything and should not be relitigated without reading it:
   **only** by `PUT /restaurant/areas/{id}/layout` (whole-area, collision-checked; the table form never sends
   them), and moving a table to another area clears them. `uk_rest_table_area_pos` is DEFERRABLE so a swap in
   one save cannot trip it mid-flush. Grid arithmetic lives in `src/lib/floorMap.ts`.
-- **Send does not mean "everything unsent" any more.** A tab has a `released_course` (V70); Send fires
-  unsent lines at or below it and skips lines **held** for a later course, and `POST /orders/{id}/fire-course`
-  raises it (bannering the sheets `FIRE COURSE N` via the ticket's `notice`). The server's
-  `OrderItemResponse.held` is the verdict — the till only counts it (`src/lib/courses.ts`). Takeaway releases
-  every course before firing on payment; a merge keeps the higher release; line merging on tap is per course.
+- **Courses were removed: Send fires every unsent line.** V70's `released_course` and V63's `course_no`
+  stay in the DB, unmapped/ignored (no fire-course endpoint, no `held` flag); don't bring them back piecemeal.
+- **A tab can sit at several tables** (V71 `restaurant_order_tables`, "Join table" in the till's More menu).
+  `restaurant_orders.table_id` stays the tab's *own* table, so `uk_rest_order_open_table` is unchanged; the
+  extras are join rows that exist only while the tab is OPEN (`UNIQUE(table_id)`). "Is anyone on T2?" spans
+  both places, so open/join/move take the table's row lock (`findByIdAndTenantIdForUpdate`) and then
+  `requireTableFree`. Settle/void free every table; **merge now keeps the source's tables occupied** as joined
+  tables of the target (a parked-takeaway target still frees them). Labels/tickets read `T1+T2`
+  (`RestaurantOrderEntity.tableLabel`); the floor maps joined ids to the tab from `OrderResponse.joinedTables`.
 - **Everything printed goes through `qzTrayService.printRaw`, which sends ISO-8859-1 and cleans every
   string to printable ASCII (`printerText.toPrinterText`)** — the target printers (DBL 822, 80mm ESC/POS,
   48 cols) carry a Chinese GB18030 font and no Sinhala/Tamil, so UTF-8 or a stray byte prints as garbage.
@@ -223,12 +227,12 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
 ## Flyway version reservation
 
 Migrations live in `pos-backend/src/main/resources/db/migration/`. Reserve the next `V<n>__` number
-before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V70`**: V59
+before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V71`**: V59
 `products.track_stock`, V60 toppings, V61 `sale_items.parent_item_id` + `topping_id` + `sort_order` + `notes`, V62 `restaurant_areas`/`restaurant_tables` + the `RESTAURANT` backfill, V63 `restaurant_orders` +
 `restaurant_order_items` + `restaurant_order_item_toppings` + `restaurant_order_counters`. Toppings landed
 before tables — trust disk over the plan. V64 `kitchen_tickets` + `kitchen_ticket_items` + `kitchen_station`
 columns, V65 ticket `notice`, V66 nullable `return_items.product_id`, V67 `split_from_id`,
-V68 `sales.service_charge_*`, V69 `restaurant_tables.pos_x/pos_y` (floor map), V70 `restaurant_orders.released_course`. Next free: **V71**.
+V68 `sales.service_charge_*`, V69 `restaurant_tables.pos_x/pos_y` (floor map), V70 `restaurant_orders.released_course` (unused since courses were removed), V71 `restaurant_order_tables` (joined tables). Next free: **V72**.
 
 V63's `uk_rest_order_open_table` (partial unique on `table_id WHERE status = 'OPEN'`) is what makes "one
 table, one tab" true under a race, and `restaurant_order_counters` breaks house style on purpose — no `id`,

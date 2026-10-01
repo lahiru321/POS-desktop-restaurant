@@ -14,6 +14,7 @@ import com.lumora.pos.restaurant.entity.*;
 import com.lumora.pos.restaurant.repository.RestaurantOrderCounterDao;
 import com.lumora.pos.restaurant.repository.RestaurantOrderItemRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderRepository;
+import com.lumora.pos.restaurant.repository.RestaurantOrderTableRepository;
 import com.lumora.pos.restaurant.repository.RestaurantTableRepository;
 import com.lumora.pos.restaurant.repository.ToppingRepository;
 import com.lumora.pos.sales.dto.SaleRequest;
@@ -66,9 +67,13 @@ public class RestaurantOrderService {
      *  thing that actually makes "one table, one tab" true under a race. */
     private static final String OPEN_TABLE_CONSTRAINT = "uk_rest_order_open_table";
 
+    /** V71: a table is joined to at most one tab. */
+    private static final String JOINED_TABLE_CONSTRAINT = "uk_rest_order_tables_table";
+
     private final RestaurantOrderRepository orderRepository;
     private final RestaurantOrderItemRepository itemRepository;
     private final RestaurantTableRepository tableRepository;
+    private final RestaurantOrderTableRepository orderTableRepository;
     private final RestaurantOrderCounterDao counterDao;
     private final ProductRepository productRepository;
     private final ToppingRepository toppingRepository;
@@ -320,6 +325,8 @@ public class RestaurantOrderService {
      * caller is told so rather than having it guessed. {@code uk_rest_order_open_table}
      * is the real guarantee under a race, exactly as when opening a tab.
      *
+     * <p>Only the tab's own table moves; tables joined to it stay joined.
+     *
      * <p>If the kitchen already has food for this tab, a MOVE ticket goes out so
      * the runner carries it to the new table, not the old one.
      */
@@ -330,16 +337,16 @@ public class RestaurantOrderService {
         if (order.getOrderType() != RestaurantOrderEntity.OrderType.DINE_IN) {
             throw new BusinessException("A takeaway has no table to move");
         }
-        RestaurantTableEntity target = tableRepository.findByIdAndTenantId(request.getTableId(), tenantId)
+        RestaurantTableEntity target = tableRepository.findByIdAndTenantIdForUpdate(request.getTableId(), tenantId)
                 .orElseThrow(() -> new BusinessException("Table not found"));
         RestaurantTableEntity from = order.getTable();
         if (from != null && from.getId().equals(target.getId())) {
             throw new BusinessException("This tab is already on " + target.getName());
         }
-        orderRepository.findOpenByTableId(tenantId, target.getId()).ifPresent(open -> {
-            throw new BusinessException(tableBusy(target) + " (order " + open.getOrderNumber()
-                    + "). Merge the two tabs instead.");
-        });
+        if (isJoined(order, target)) {
+            throw new BusinessException(target.getName() + " is already part of this tab");
+        }
+        requireTableFree(target, tenantId, ". Merge the two tabs instead.");
 
         order.setTable(target);
         try {
@@ -370,10 +377,15 @@ public class RestaurantOrderService {
      * at T7, and the two bills become one.
      *
      * <p>The lines move as they are — same rows, same fired and voided counts —
-     * so nothing is sent to the kitchen twice. The absorbed order becomes MERGED
-     * and its table is freed; its own kitchen tickets stay with it as the record
-     * of what was sent under that number. If the kitchen was cooking for it, a
-     * MOVE ticket on this order tells the runner where that food now goes.
+     * so nothing is sent to the kitchen twice. The absorbed order becomes MERGED;
+     * its own kitchen tickets stay with it as the record of what was sent under
+     * that number. If the kitchen was cooking for it, a MOVE ticket on this order
+     * tells the runner where that food now goes.
+     *
+     * <p>Its tables do not empty when the bills combine — the people are still
+     * sitting there — so they become tables joined to this tab and stay
+     * occupied until it is settled. Only a parked takeaway, which has no table to
+     * join them to, frees them.
      */
     @Transactional
     public OrderDtos.OrderKitchenResponse merge(UUID targetId, OrderDtos.MergeOrderRequest request) {
@@ -397,19 +409,41 @@ public class RestaurantOrderService {
         }
 
         boolean sourceCooking = source.getItems().stream().anyMatch(i -> i.getFiredQuantity().signum() > 0);
-        String sourceWhere = source.getTable() != null ? source.getTable().getName() : "takeaway";
+        String sourceWhere = source.getTable() != null ? source.tableLabel() : "takeaway";
         int sourceNumber = source.getOrderNumber();
+        boolean keepTables = target.getOrderType() == RestaurantOrderEntity.OrderType.DINE_IN
+                && target.getTable() != null;
+        List<UUID> sourceTables = new ArrayList<>();
+        if (source.getTable() != null) {
+            sourceTables.add(source.getTable().getId());
+        }
+        source.getJoinedTables().forEach(j -> sourceTables.add(j.getTable().getId()));
+
         target.setCovers(target.getCovers() + source.getCovers());
         if (target.getCustomerId() == null) {
             target.setCustomerId(source.getCustomerId());
         }
         source.setStatus(RestaurantOrderEntity.OrderStatus.MERGED);
-        freeTable(source);
+        if (keepTables) {
+            // The rows go now and come back on the target below. reassignLines
+            // flushes these deletes first, so V71's UNIQUE (table_id) never sees
+            // a table on both tabs at once.
+            source.getJoinedTables().clear();
+        } else {
+            freeTable(source);
+        }
 
         // Flushes the changes above, re-parents the rows, then clears the context.
         int moved = itemRepository.reassignLines(source, target, tenantId);
 
         RestaurantOrderEntity merged = require(targetId);
+        if (keepTables) {
+            // Re-read: the clear above detached every table loaded before it.
+            for (UUID tableId : sourceTables) {
+                tableRepository.findByIdAndTenantId(tableId, tenantId)
+                        .ifPresent(t -> orderTableRepository.save(merged.joinTable(t)));
+            }
+        }
         List<KitchenTicketEntity> tickets = sourceCooking
                 ? kitchenTicketService.moveNotice(merged, "ORDER " + sourceNumber + " FROM " + sourceWhere + " JOINS")
                 : List.of();
@@ -419,6 +453,70 @@ public class RestaurantOrderService {
         auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", sourceId, null, Map.of(
                 "status", "MERGED", "into", targetId));
         return withTickets(saved, tickets);
+    }
+
+    /**
+     * Seats the same party at one more table: T1 and T2 pushed together, one bill.
+     *
+     * <p>The table must be free — a table with its own tab is a merge, and the
+     * caller is told so. Its row lock queues this against anyone seating it at
+     * the same moment, and V71's unique key is the backstop.
+     */
+    @Transactional
+    public OrderDtos.OrderKitchenResponse joinTable(UUID orderId, OrderDtos.JoinTableRequest request) {
+        UUID tenantId = TenantContext.getTenantId();
+        RestaurantOrderEntity order = requireOpenForUpdate(orderId);
+        if (order.getOrderType() != RestaurantOrderEntity.OrderType.DINE_IN || order.getTable() == null) {
+            throw new BusinessException("Only a dine-in tab on a table can take another table");
+        }
+        RestaurantTableEntity table = tableRepository.findByIdAndTenantIdForUpdate(request.getTableId(), tenantId)
+                .orElseThrow(() -> new BusinessException("Table not found"));
+        if (order.getTable().getId().equals(table.getId()) || isJoined(order, table)) {
+            throw new BusinessException(table.getName() + " is already part of this tab");
+        }
+        requireTableFree(table, tenantId, ". Merge the two tabs instead.");
+
+        RestaurantOrderTableEntity row = order.joinTable(table);
+        try {
+            // Flushed inside the try for the same reason open() does: the unique
+            // key, not the check above, is what settles a genuine race.
+            orderTableRepository.saveAndFlush(row);
+        } catch (DataIntegrityViolationException ex) {
+            if (mentionsConstraint(ex, JOINED_TABLE_CONSTRAINT)) {
+                throw new BusinessException(tableBusy(table));
+            }
+            throw ex;
+        }
+        table.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+
+        List<KitchenTicketEntity> tickets = kitchenTicketService.moveNotice(order,
+                table.getName() + " JOINS " + order.getTable().getName());
+        RestaurantOrderEntity saved = orderRepository.save(order);
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", orderId, null,
+                Map.of("joinedTable", table.getName()));
+        return withTickets(saved, tickets);
+    }
+
+    /** Lets a joined table go — part of the party left — and frees it. The tab's
+     *  own table is not released this way; moving the tab is how that changes. */
+    @Transactional
+    public OrderDtos.OrderResponse releaseTable(UUID orderId, UUID tableId) {
+        RestaurantOrderEntity order = requireOpenForUpdate(orderId);
+        if (order.getTable() != null && order.getTable().getId().equals(tableId)) {
+            throw new BusinessException(order.getTable().getName()
+                    + " is this tab's own table. Move the tab to change it.");
+        }
+        RestaurantOrderTableEntity row = order.getJoinedTables().stream()
+                .filter(j -> j.getTable().getId().equals(tableId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("That table is not part of this tab"));
+
+        order.getJoinedTables().remove(row);
+        row.getTable().setStatus(RestaurantTableEntity.TableStatus.AVAILABLE);
+        RestaurantOrderEntity saved = orderRepository.save(order);
+        auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER", orderId, null,
+                Map.of("releasedTable", row.getTable().getName()));
+        return toResponse(saved);
     }
 
     // ------------------------------------------------------------------
@@ -462,6 +560,8 @@ public class RestaurantOrderService {
         order.setSaleId(sale.getId());
         order.setStatus(RestaurantOrderEntity.OrderStatus.SETTLED);
         order.setSettledAt(LocalDateTime.now());
+        // Named before the joined tables are let go, so "T1+T2 paid" says where.
+        String label = label(order);
         freeTable(order);
 
         // Takeaway pays, then fires: whatever the kitchen has not been told about
@@ -480,7 +580,7 @@ public class RestaurantOrderService {
 
         return OrderDtos.SettleResponse.builder()
                 .sale(sale)
-                .label(label(order))
+                .label(label)
                 .repricedLines(repricedLines(billable, sale))
                 .tickets(tickets.stream().map(kitchenTicketService::toResponse).toList())
                 .build();
@@ -913,15 +1013,34 @@ public class RestaurantOrderService {
         if (tableId == null) {
             throw new BusinessException("Pick a table to seat this order");
         }
-        RestaurantTableEntity table = tableRepository.findByIdAndTenantId(tableId, tenantId)
+        RestaurantTableEntity table = tableRepository.findByIdAndTenantIdForUpdate(tableId, tenantId)
                 .orElseThrow(() -> new BusinessException("Table not found"));
 
-        // uk_rest_order_open_table is the real guarantee; this is the readable
-        // message for the common case where one server got there first.
-        orderRepository.findOpenByTableId(tenantId, tableId).ifPresent(open -> {
-            throw new BusinessException(tableBusy(table) + " (order " + open.getOrderNumber() + ")");
-        });
+        // uk_rest_order_open_table is the real guarantee for a table's own tab;
+        // this is the readable message for the common case where one server got
+        // there first, and the only guard against seating a joined table.
+        requireTableFree(table, tenantId, "");
         return table;
+    }
+
+    /**
+     * Refuses a table somebody is on — as a tab's own table or joined to one.
+     * The caller holds the table's row lock, so the answer stays true until commit.
+     *
+     * @param ifTabbed appended when another tab sits on it directly, e.g. a hint to merge
+     */
+    private void requireTableFree(RestaurantTableEntity table, UUID tenantId, String ifTabbed) {
+        orderRepository.findOpenByTableId(tenantId, table.getId()).ifPresent(open -> {
+            throw new BusinessException(tableBusy(table) + " (order " + open.getOrderNumber() + ")" + ifTabbed);
+        });
+        orderTableRepository.findByTableId(tenantId, table.getId()).ifPresent(joined -> {
+            throw new BusinessException(tableBusy(table) + " (joined to order "
+                    + joined.getOrder().getOrderNumber() + ")");
+        });
+    }
+
+    private static boolean isJoined(RestaurantOrderEntity order, RestaurantTableEntity table) {
+        return order.getJoinedTables().stream().anyMatch(j -> j.getTable().getId().equals(table.getId()));
     }
 
     /** One wording for "somebody is already on that table", so losing the check
@@ -944,10 +1063,16 @@ public class RestaurantOrderService {
         return false;
     }
 
+    /** Frees the tab's own table and every table joined to it. Deleting the join
+     *  rows is what lets V71's unique key take those tables again. */
     private void freeTable(RestaurantOrderEntity order) {
         if (order.getTable() != null) {
             order.getTable().setStatus(RestaurantTableEntity.TableStatus.AVAILABLE);
         }
+        for (RestaurantOrderTableEntity joined : order.getJoinedTables()) {
+            joined.getTable().setStatus(RestaurantTableEntity.TableStatus.AVAILABLE);
+        }
+        order.getJoinedTables().clear();
     }
 
     /** Explicit branchId wins, then the user's primary branch, then the tenant
@@ -982,7 +1107,7 @@ public class RestaurantOrderService {
     }
 
     private String label(RestaurantOrderEntity order) {
-        String where = order.getTable() != null ? order.getTable().getName()
+        String where = order.getTable() != null ? order.tableLabel()
                 : order.getSplitFromId() != null ? "Split bill"
                 : "Takeaway";
         return "Order " + order.getOrderNumber() + " · " + where;
@@ -1007,6 +1132,12 @@ public class RestaurantOrderService {
                 .branchId(order.getBranch() != null ? order.getBranch().getId() : null)
                 .tableId(order.getTable() != null ? order.getTable().getId() : null)
                 .tableName(order.getTable() != null ? order.getTable().getName() : null)
+                .joinedTables(order.getJoinedTables().stream()
+                        .map(j -> OrderDtos.JoinedTable.builder()
+                                .id(j.getTable().getId())
+                                .name(j.getTable().getName())
+                                .build())
+                        .toList())
                 .customerId(order.getCustomerId())
                 .covers(order.getCovers())
                 .openedBy(order.getOpenedBy())

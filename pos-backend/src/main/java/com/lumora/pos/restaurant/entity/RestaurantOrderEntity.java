@@ -99,10 +99,39 @@ public class RestaurantOrderEntity extends BaseEntity {
     @OrderBy("courseNo ASC, sortOrder ASC")
     private List<RestaurantOrderItemEntity> items = new ArrayList<>();
 
+    /** Tables joined to this tab besides its own, in the order they were joined.
+     *  Removing one deletes its row, which is what frees the table for others. */
+    @Builder.Default
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("createdAt ASC")
+    private List<RestaurantOrderTableEntity> joinedTables = new ArrayList<>();
+
     public void addItem(RestaurantOrderItemEntity item) {
         item.setOrder(this);
         item.setTenantId(getTenantId());
         items.add(item);
+    }
+
+    /** Adds the join row. The caller persists it: cascading a new row through
+     *  {@code save} (an {@code em.merge} on this managed order) leaves the
+     *  collection holding the transient original, which fails at commit. */
+    public RestaurantOrderTableEntity joinTable(RestaurantTableEntity table) {
+        RestaurantOrderTableEntity row = RestaurantOrderTableEntity.builder().order(this).table(table).build();
+        row.setTenantId(getTenantId());
+        joinedTables.add(row);
+        return row;
+    }
+
+    /** "T1+T2" — the own table first, then the joined ones. Null for a takeaway. */
+    public String tableLabel() {
+        if (table == null) {
+            return null;
+        }
+        StringBuilder label = new StringBuilder(table.getName());
+        for (RestaurantOrderTableEntity joined : joinedTables) {
+            label.append('+').append(joined.getTable().getName());
+        }
+        return label.toString();
     }
 
     public enum OrderType {

@@ -201,6 +201,26 @@ public final class OrderDtos {
         private UUID tableId;
     }
 
+    /** Seat the same party at one more table. */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class JoinTableRequest {
+        @NotNull(message = "Pick the table to join")
+        private UUID tableId;
+    }
+
+    /** A table joined to a tab besides its own. */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class JoinedTable {
+        private UUID id;
+        private String name;
+    }
+
     /** Fold another open tab into this one. */
     @Data
     @Builder
@@ -266,14 +286,17 @@ public final class OrderDtos {
     public static class OrderResponse {
         private UUID id;
         private int orderNumber;
-        /** "Order 14 · T1" — what staff say out loud. */
+        /** "Order 14 · T1", or "Order 14 · T1+T2" — what staff say out loud. */
         private String label;
         private LocalDate businessDate;
         private RestaurantOrderEntity.OrderType orderType;
         private RestaurantOrderEntity.OrderStatus status;
         private UUID branchId;
         private UUID tableId;
+        /** The tab's own table. */
         private String tableName;
+        /** Further tables the party sits at, in the order they were joined. */
+        private List<JoinedTable> joinedTables;
         private UUID customerId;
         private int covers;
         private UUID openedBy;

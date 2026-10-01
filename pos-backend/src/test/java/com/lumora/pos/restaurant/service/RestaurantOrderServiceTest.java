@@ -14,6 +14,7 @@ import com.lumora.pos.restaurant.entity.*;
 import com.lumora.pos.restaurant.repository.RestaurantOrderCounterDao;
 import com.lumora.pos.restaurant.repository.RestaurantOrderItemRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderRepository;
+import com.lumora.pos.restaurant.repository.RestaurantOrderTableRepository;
 import com.lumora.pos.restaurant.repository.RestaurantTableRepository;
 import com.lumora.pos.restaurant.repository.ToppingRepository;
 import com.lumora.pos.sales.dto.SaleRequest;
@@ -55,6 +56,7 @@ class RestaurantOrderServiceTest {
     @Mock private RestaurantOrderRepository orderRepository;
     @Mock private RestaurantOrderItemRepository itemRepository;
     @Mock private RestaurantTableRepository tableRepository;
+    @Mock private RestaurantOrderTableRepository orderTableRepository;
     @Mock private RestaurantOrderCounterDao counterDao;
     @Mock private ProductRepository productRepository;
     @Mock private ToppingRepository toppingRepository;
@@ -104,7 +106,7 @@ class RestaurantOrderServiceTest {
         @DisplayName("Seats the table, takes its number from the counter, marks it OCCUPIED")
         void shouldSeatTable() {
             when(branchRepository.findByIsDefaultTrueAndTenantId(tenantId)).thenReturn(Optional.of(branch));
-            when(tableRepository.findByIdAndTenantId(table.getId(), tenantId)).thenReturn(Optional.of(table));
+            when(tableRepository.findByIdAndTenantIdForUpdate(table.getId(), tenantId)).thenReturn(Optional.of(table));
             when(orderRepository.findOpenByTableId(tenantId, table.getId())).thenReturn(Optional.empty());
             when(counterDao.nextOrderNumber(eq(tenantId), eq(branch.getId()), any(LocalDate.class)))
                     .thenReturn(14);
@@ -154,7 +156,7 @@ class RestaurantOrderServiceTest {
             existing.setOrderNumber(9);
 
             when(branchRepository.findByIsDefaultTrueAndTenantId(tenantId)).thenReturn(Optional.of(branch));
-            when(tableRepository.findByIdAndTenantId(table.getId(), tenantId)).thenReturn(Optional.of(table));
+            when(tableRepository.findByIdAndTenantIdForUpdate(table.getId(), tenantId)).thenReturn(Optional.of(table));
             when(orderRepository.findOpenByTableId(tenantId, table.getId())).thenReturn(Optional.of(existing));
 
             assertThatThrownBy(() -> orderService.open(OrderDtos.OpenOrderRequest.builder()
@@ -171,7 +173,7 @@ class RestaurantOrderServiceTest {
         @DisplayName("Losing the uk_rest_order_open_table race reads as a busy table, not a 500")
         void shouldTranslateOpenTableConstraintViolation() {
             when(branchRepository.findByIsDefaultTrueAndTenantId(tenantId)).thenReturn(Optional.of(branch));
-            when(tableRepository.findByIdAndTenantId(table.getId(), tenantId)).thenReturn(Optional.of(table));
+            when(tableRepository.findByIdAndTenantIdForUpdate(table.getId(), tenantId)).thenReturn(Optional.of(table));
             // The read-check passes — the other server's INSERT lands in between.
             when(orderRepository.findOpenByTableId(tenantId, table.getId())).thenReturn(Optional.empty());
             when(counterDao.nextOrderNumber(any(), any(), any())).thenReturn(1);
@@ -191,7 +193,7 @@ class RestaurantOrderServiceTest {
         @DisplayName("An unrelated integrity violation is not disguised as a busy table")
         void shouldNotSwallowUnrelatedIntegrityViolation() {
             when(branchRepository.findByIsDefaultTrueAndTenantId(tenantId)).thenReturn(Optional.of(branch));
-            when(tableRepository.findByIdAndTenantId(table.getId(), tenantId)).thenReturn(Optional.of(table));
+            when(tableRepository.findByIdAndTenantIdForUpdate(table.getId(), tenantId)).thenReturn(Optional.of(table));
             when(orderRepository.findOpenByTableId(tenantId, table.getId())).thenReturn(Optional.empty());
             when(counterDao.nextOrderNumber(any(), any(), any())).thenReturn(1);
             when(orderRepository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException(
@@ -218,7 +220,7 @@ class RestaurantOrderServiceTest {
             product.setBasePrice(new BigDecimal("950.00"));
 
             when(branchRepository.findByIsDefaultTrueAndTenantId(tenantId)).thenReturn(Optional.of(branch));
-            when(tableRepository.findByIdAndTenantId(table.getId(), tenantId)).thenReturn(Optional.of(table));
+            when(tableRepository.findByIdAndTenantIdForUpdate(table.getId(), tenantId)).thenReturn(Optional.of(table));
             when(orderRepository.findOpenByTableId(tenantId, table.getId())).thenReturn(Optional.empty());
             when(counterDao.nextOrderNumber(any(), any(), any())).thenReturn(1);
             when(productRepository.findByIdAndTenantId(product.getId(), tenantId)).thenReturn(Optional.of(product));
@@ -339,7 +341,7 @@ class RestaurantOrderServiceTest {
         /** Stubs for "a fresh dine-in tab on a free table", up to the first line. */
         private void stubOpenOnTable() {
             when(branchRepository.findByIsDefaultTrueAndTenantId(tenantId)).thenReturn(Optional.of(branch));
-            when(tableRepository.findByIdAndTenantId(table.getId(), tenantId)).thenReturn(Optional.of(table));
+            when(tableRepository.findByIdAndTenantIdForUpdate(table.getId(), tenantId)).thenReturn(Optional.of(table));
             when(orderRepository.findOpenByTableId(tenantId, table.getId())).thenReturn(Optional.empty());
             when(counterDao.nextOrderNumber(any(), any(), any())).thenReturn(1);
         }
@@ -1049,7 +1051,7 @@ class RestaurantOrderServiceTest {
             RestaurantTableEntity t7 = otherTable();
 
             when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
-            when(tableRepository.findByIdAndTenantId(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
+            when(tableRepository.findByIdAndTenantIdForUpdate(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
             when(orderRepository.findOpenByTableId(tenantId, t7.getId())).thenReturn(Optional.empty());
             when(orderRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
             when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -1073,7 +1075,7 @@ class RestaurantOrderServiceTest {
             there.setOrderNumber(15);
 
             when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
-            when(tableRepository.findByIdAndTenantId(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
+            when(tableRepository.findByIdAndTenantIdForUpdate(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
             when(orderRepository.findOpenByTableId(tenantId, t7.getId())).thenReturn(Optional.of(there));
 
             assertThatThrownBy(() -> orderService.move(order.getId(),
@@ -1098,7 +1100,7 @@ class RestaurantOrderServiceTest {
         }
 
         @Test
-        @DisplayName("Merging moves the lines in place, sums covers, frees the source table")
+        @DisplayName("Merging moves the lines in place, sums covers, keeps the source table as a joined one")
         void shouldMerge() {
             RestaurantOrderEntity target = order();
             target.setCovers(2);
@@ -1114,16 +1116,22 @@ class RestaurantOrderServiceTest {
             when(orderRepository.findByIdAndTenantIdForUpdate(source.getId(), tenantId)).thenReturn(Optional.of(source));
             when(itemRepository.reassignLines(source, target, tenantId)).thenReturn(1);
             when(orderRepository.findByIdAndTenantId(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(tableRepository.findByIdAndTenantId(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
             when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(kitchenTicketService.moveNotice(eq(target), any())).thenReturn(List.of());
 
-            orderService.merge(target.getId(),
+            OrderDtos.OrderKitchenResponse response = orderService.merge(target.getId(),
                     OrderDtos.MergeOrderRequest.builder().sourceOrderId(source.getId()).build());
 
             assertThat(source.getStatus()).isEqualTo(RestaurantOrderEntity.OrderStatus.MERGED);
-            assertThat(t7.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            // The party at T7 is still sitting there: the table stays taken.
+            assertThat(t7.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.OCCUPIED);
+            assertThat(response.getOrder().getLabel()).isEqualTo("Order 14 · T1+T7");
+            assertThat(response.getOrder().getJoinedTables()).extracting(OrderDtos.JoinedTable::getName)
+                    .containsExactly("T7");
             assertThat(target.getCovers()).isEqualTo(5);
             verify(itemRepository).reassignLines(source, target, tenantId);
+            verify(orderTableRepository).save(target.getJoinedTables().get(0));
             // The source's food was cooking, so the runner is told where it now goes.
             verify(kitchenTicketService).moveNotice(target, "ORDER 9 FROM T7 JOINS");
         }
@@ -1145,6 +1153,46 @@ class RestaurantOrderServiceTest {
                     OrderDtos.MergeOrderRequest.builder().sourceOrderId(source.getId()).build());
 
             verify(kitchenTicketService, never()).moveNotice(any(), any());
+        }
+
+        @Test
+        @DisplayName("Merging into a parked takeaway frees the source table — there is nothing to join it to")
+        void shouldFreeTableWhenMergingIntoTakeaway() {
+            RestaurantOrderEntity target = order();
+            target.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
+            target.setTable(null);
+            RestaurantTableEntity t7 = otherTable();
+            t7.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+            RestaurantOrderEntity source = order();
+            source.setTable(t7);
+            item(source, "Lime juice", "1", "300.00");
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(orderRepository.findByIdAndTenantIdForUpdate(source.getId(), tenantId)).thenReturn(Optional.of(source));
+            when(orderRepository.findByIdAndTenantId(target.getId(), tenantId)).thenReturn(Optional.of(target));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            orderService.merge(target.getId(),
+                    OrderDtos.MergeOrderRequest.builder().sourceOrderId(source.getId()).build());
+
+            assertThat(t7.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            assertThat(target.getJoinedTables()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Moving onto a table already joined to this tab is refused")
+        void shouldRefuseMoveOntoOwnJoinedTable() {
+            RestaurantOrderEntity order = order();
+            RestaurantTableEntity t7 = otherTable();
+            order.joinTable(t7);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tableRepository.findByIdAndTenantIdForUpdate(t7.getId(), tenantId)).thenReturn(Optional.of(t7));
+
+            assertThatThrownBy(() -> orderService.move(order.getId(),
+                    OrderDtos.MoveOrderRequest.builder().tableId(t7.getId()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("already part of this tab");
         }
 
         @Test
@@ -1174,6 +1222,196 @@ class RestaurantOrderServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("different branches");
             verify(itemRepository, never()).reassignLines(any(), any(), any());
+        }
+    }
+
+    // ==================================================================
+    @Nested
+    @DisplayName("Joining tables")
+    class JoiningTables {
+
+        private RestaurantTableEntity t2;
+
+        @BeforeEach
+        void setUpTable() {
+            t2 = RestaurantTableEntity.builder().area(table.getArea()).name("T2").seats(4).build();
+            t2.setId(UUID.randomUUID());
+            t2.setTenantId(tenantId);
+        }
+
+        @Test
+        @DisplayName("Joining occupies the table and names both on the tab")
+        void shouldJoinFreeTable() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "1", "950.00").setFiredQuantity(BigDecimal.ONE);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tableRepository.findByIdAndTenantIdForUpdate(t2.getId(), tenantId)).thenReturn(Optional.of(t2));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(kitchenTicketService.moveNotice(eq(order), any())).thenReturn(List.of());
+
+            OrderDtos.OrderKitchenResponse response = orderService.joinTable(order.getId(),
+                    OrderDtos.JoinTableRequest.builder().tableId(t2.getId()).build());
+
+            assertThat(t2.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.OCCUPIED);
+            assertThat(response.getOrder().getLabel()).isEqualTo("Order 14 · T1+T2");
+            assertThat(response.getOrder().getTableName()).isEqualTo("T1");
+            assertThat(response.getOrder().getJoinedTables()).extracting(OrderDtos.JoinedTable::getId)
+                    .containsExactly(t2.getId());
+            verify(kitchenTicketService).moveNotice(order, "T2 JOINS T1");
+            // Persisted directly and flushed, so V71's unique key answers inside the call.
+            verify(orderTableRepository).saveAndFlush(order.getJoinedTables().get(0));
+        }
+
+        @Test
+        @DisplayName("A table with its own tab is refused, pointing at merge")
+        void shouldRefuseTableWithItsOwnTab() {
+            RestaurantOrderEntity order = order();
+            RestaurantOrderEntity there = order();
+            there.setOrderNumber(15);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tableRepository.findByIdAndTenantIdForUpdate(t2.getId(), tenantId)).thenReturn(Optional.of(t2));
+            when(orderRepository.findOpenByTableId(tenantId, t2.getId())).thenReturn(Optional.of(there));
+
+            assertThatThrownBy(() -> orderService.joinTable(order.getId(),
+                    OrderDtos.JoinTableRequest.builder().tableId(t2.getId()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Merge the two tabs instead");
+            assertThat(order.getJoinedTables()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("A table joined to another tab is refused")
+        void shouldRefuseTableJoinedElsewhere() {
+            RestaurantOrderEntity order = order();
+            RestaurantOrderEntity other = order();
+            other.setOrderNumber(15);
+            other.joinTable(t2);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tableRepository.findByIdAndTenantIdForUpdate(t2.getId(), tenantId)).thenReturn(Optional.of(t2));
+            when(orderTableRepository.findByTableId(tenantId, t2.getId()))
+                    .thenReturn(Optional.of(other.getJoinedTables().get(0)));
+
+            assertThatThrownBy(() -> orderService.joinTable(order.getId(),
+                    OrderDtos.JoinTableRequest.builder().tableId(t2.getId()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("joined to order 15");
+        }
+
+        @Test
+        @DisplayName("A tab's own table cannot be joined to it again")
+        void shouldRefuseOwnTable() {
+            RestaurantOrderEntity order = order();
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(tableRepository.findByIdAndTenantIdForUpdate(table.getId(), tenantId)).thenReturn(Optional.of(table));
+
+            assertThatThrownBy(() -> orderService.joinTable(order.getId(),
+                    OrderDtos.JoinTableRequest.builder().tableId(table.getId()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("already part of this tab");
+        }
+
+        @Test
+        @DisplayName("A takeaway has no table to join another to")
+        void shouldRefuseTakeaway() {
+            RestaurantOrderEntity order = order();
+            order.setOrderType(RestaurantOrderEntity.OrderType.TAKEAWAY);
+            order.setTable(null);
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+
+            assertThatThrownBy(() -> orderService.joinTable(order.getId(),
+                    OrderDtos.JoinTableRequest.builder().tableId(t2.getId()).build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("dine-in");
+        }
+
+        @Test
+        @DisplayName("Seating a table that is joined to a tab is refused")
+        void shouldRefuseOpeningJoinedTable() {
+            RestaurantOrderEntity other = order();
+            other.setOrderNumber(15);
+            other.joinTable(t2);
+
+            when(branchRepository.findByIsDefaultTrueAndTenantId(tenantId)).thenReturn(Optional.of(branch));
+            when(tableRepository.findByIdAndTenantIdForUpdate(t2.getId(), tenantId)).thenReturn(Optional.of(t2));
+            when(orderTableRepository.findByTableId(tenantId, t2.getId()))
+                    .thenReturn(Optional.of(other.getJoinedTables().get(0)));
+
+            assertThatThrownBy(() -> orderService.open(OrderDtos.OpenOrderRequest.builder()
+                    .orderType(RestaurantOrderEntity.OrderType.DINE_IN)
+                    .tableId(t2.getId())
+                    .build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("joined to order 15");
+            verify(orderRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("Releasing a joined table frees it and keeps the tab")
+        void shouldReleaseJoinedTable() {
+            RestaurantOrderEntity order = order();
+            order.joinTable(t2);
+            t2.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDtos.OrderResponse response = orderService.releaseTable(order.getId(), t2.getId());
+
+            assertThat(t2.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            assertThat(response.getJoinedTables()).isEmpty();
+            assertThat(response.getLabel()).isEqualTo("Order 14 · T1");
+        }
+
+        @Test
+        @DisplayName("The tab's own table cannot be released, only moved")
+        void shouldRefuseReleasingOwnTable() {
+            RestaurantOrderEntity order = order();
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+
+            assertThatThrownBy(() -> orderService.releaseTable(order.getId(), table.getId()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Move the tab");
+        }
+
+        @Test
+        @DisplayName("Settling frees the tab's own table and every joined one")
+        void shouldFreeAllTablesOnSettle() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "1", "950.00");
+            order.joinTable(t2);
+            table.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+            t2.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+
+            when(orderRepository.findByIdAndTenantIdForUpdate(order.getId(), tenantId)).thenReturn(Optional.of(order));
+            when(saleService.createSale(any())).thenReturn(sale(new BigDecimal("950.00")));
+            when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDtos.SettleResponse response = orderService.settle(order.getId(),
+                    OrderDtos.SettleRequest.builder().paymentMethod("CASH").build());
+
+            assertThat(table.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            assertThat(t2.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            assertThat(order.getJoinedTables()).isEmpty();
+            assertThat(response.getLabel()).isEqualTo("Order 14 · T1+T2");
+        }
+
+        @Test
+        @DisplayName("Voiding the tab frees every joined table too")
+        void shouldFreeAllTablesOnVoid() {
+            RestaurantOrderEntity order = order();
+            item(order, "Kottu", "1", "950.00");
+            order.joinTable(t2);
+            t2.setStatus(RestaurantTableEntity.TableStatus.OCCUPIED);
+            stubLockedOrder(order);
+
+            orderService.voidOrder(order.getId());
+
+            assertThat(t2.getStatus()).isEqualTo(RestaurantTableEntity.TableStatus.AVAILABLE);
+            assertThat(order.getJoinedTables()).isEmpty();
         }
     }
 

@@ -132,6 +132,30 @@ public class RestaurantOrderController {
                 .build());
     }
 
+    /** Seats the same party at one more, free table. */
+    @PostMapping("/{id}/tables")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.OrderKitchenResponse>> joinTable(
+            @PathVariable UUID id, @Valid @RequestBody OrderDtos.JoinTableRequest request) {
+        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderKitchenResponse>builder()
+                .success(true)
+                .message("Table joined")
+                .data(orderService.joinTable(id, request))
+                .build());
+    }
+
+    /** Frees a joined table; the tab carries on at the others. */
+    @DeleteMapping("/{id}/tables/{tableId}")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
+    public ResponseEntity<ApiResponse<OrderDtos.OrderResponse>> releaseTable(
+            @PathVariable UUID id, @PathVariable UUID tableId) {
+        return ResponseEntity.ok(ApiResponse.<OrderDtos.OrderResponse>builder()
+                .success(true)
+                .message("Table released")
+                .data(orderService.releaseTable(id, tableId))
+                .build());
+    }
+
     /** Folds {@code sourceOrderId} into this tab. */
     @PostMapping("/{id}/merge")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CASHIER')")
