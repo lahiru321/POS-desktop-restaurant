@@ -111,7 +111,7 @@ export default function CategoryForm({
             <FormItem>
               <FormLabel>Name</FormLabel>
               <FormControl>
-                <Input placeholder="Electronics, Beverages..." {...field} />
+                <Input placeholder="Rice & Curry, Kottu, Drinks..." {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>

@@ -56,7 +56,7 @@ export default function ProductTable({
 }: ProductTableProps) {
   const selectable = !!onToggleRow;
   if (isLoading) {
-    return <div className="py-20 text-center text-muted-foreground">Loading products...</div>;
+    return <div className="py-20 text-center text-muted-foreground">Loading the menu...</div>;
   }
 
   return (
@@ -83,7 +83,6 @@ export default function ProductTable({
                 onSort={onSort}
                 className="py-4"
               />
-              <TableHead className="text-muted-foreground font-semibold">SKU</TableHead>
               <TableHead className="text-muted-foreground font-semibold">Category</TableHead>
               <SortableHeader
                 label="Price"
@@ -150,14 +149,15 @@ export default function ProductTable({
                         {product.name}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {product.isActive
-                          ? product.brandName || 'No Brand'
-                          : 'Hidden from POS'}
+                        {!product.isActive
+                          ? 'Hidden from the till'
+                          : product.trackStock
+                            ? 'Packaged item'
+                            : 'Cooked to order'}
                       </div>
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="text-foreground font-mono text-xs">{product.sku}</TableCell>
                 <TableCell>
                   <span className="text-muted-foreground text-sm bg-muted/50 px-2 py-1 rounded">
                     {product.categoryName || 'Uncategorized'}
@@ -167,6 +167,9 @@ export default function ProductTable({
                   {formatCurrency(product.basePrice)}
                 </TableCell>
                 <TableCell className="text-center">
+                  {!product.trackStock ? (
+                    <span className="text-muted-foreground" title="Cooked to order: no stock count">—</span>
+                  ) : (
                   <div className="flex flex-col items-center">
                     <span className={product.stockQuantity <= product.lowStockThreshold ? 'text-destructive font-bold' : 'text-foreground'}>
                       {product.stockQuantity}
@@ -189,14 +192,15 @@ export default function ProductTable({
                       </div>
                     )}
                   </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <div
                     className="flex items-center gap-2"
                     title={
                       product.isActive
-                        ? 'Active — visible in POS. Toggle to deactivate.'
-                        : 'Inactive — hidden from POS. Toggle to activate.'
+                        ? 'On the menu. Toggle to hide it from the till.'
+                        : 'Hidden from the till. Toggle to put it back on the menu.'
                     }
                   >
                     <Switch
@@ -222,16 +226,18 @@ export default function ProductTable({
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Adjust inventory for ${product.name}`}
-                      title="Adjust Inventory"
-                      className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
-                      onClick={() => onManageInventory?.(product)}
-                    >
-                      <LayoutList size={14} />
-                    </Button>
+                    {product.trackStock && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Adjust stock for ${product.name}`}
+                        title="Adjust stock"
+                        className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                        onClick={() => onManageInventory?.(product)}
+                      >
+                        <LayoutList size={14} />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -259,8 +265,8 @@ export default function ProductTable({
             })}
             {data.length === 0 && (
               <TableRow>
-                <TableCell colSpan={selectable ? 8 : 7} className="h-24 text-center text-muted-foreground">
-                  No products found.
+                <TableCell colSpan={selectable ? 7 : 6} className="h-24 text-center text-muted-foreground">
+                  No menu items found.
                 </TableCell>
               </TableRow>
             )}

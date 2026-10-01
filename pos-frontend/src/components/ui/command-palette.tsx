@@ -3,25 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import {
-  LayoutDashboard,
-  Package,
-  Tags,
-  Bookmark,
-  Users,
-  UserSquare2,
-  BarChart3,
-  Settings,
-  Store,
-  Building2,
-  Truck,
-  ArrowRightLeft,
-  Monitor,
-  LogOut,
-  Sun,
-  Moon,
-  Search,
-} from 'lucide-react';
+import { Monitor, LogOut, Sun, Moon, Search } from 'lucide-react';
 
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import {
@@ -35,25 +17,14 @@ import {
   CommandShortcut,
 } from '@/components/ui/command';
 import { performLogout } from '@/lib/performLogout';
+import { useNavItems } from '@/components/layout/navItems';
+import { useAuthStore } from '@/stores/authStore';
 
 type Page = { label: string; href: string; icon: typeof Search; keywords?: string };
 type Action = { label: string; icon: typeof Search; run: () => void; keywords?: string };
 
-const PAGES: Page[] = [
-  { label: 'Overview', href: '/overview', icon: LayoutDashboard },
-  { label: 'Products', href: '/inventory/products', icon: Package, keywords: 'inventory' },
-  { label: 'Categories', href: '/inventory/categories', icon: Tags },
-  { label: 'Brands', href: '/inventory/brands', icon: Bookmark },
-  { label: 'Customers', href: '/customers', icon: Users },
-  { label: 'Suppliers', href: '/inventory/suppliers', icon: Building2 },
-  { label: 'Purchase Orders', href: '/inventory/purchase-orders', icon: Truck, keywords: 'po' },
-  { label: 'Stock Transfers', href: '/inventory/stock-transfers', icon: ArrowRightLeft },
-  { label: 'Employees', href: '/employees', icon: UserSquare2 },
-  { label: 'Reports', href: '/reports', icon: BarChart3 },
-  { label: 'Branches', href: '/branches', icon: Store },
-  { label: 'Settings', href: '/settings', icon: Settings },
-  { label: 'POS Terminal', href: '/terminal', icon: Monitor, keywords: 'checkout cashier' },
-];
+/** The till is not a dashboard page, so the sidebar list does not carry it. */
+const TERMINAL_PAGE: Page = { label: 'POS Terminal', href: '/terminal', icon: Monitor, keywords: 'till checkout cashier' };
 
 type CommandPaletteProps = {
   open: boolean;
@@ -72,7 +43,16 @@ export function CommandPalette({ open, onOpenChange, extraActions, extraPages }:
     run();
   };
 
-  const allPages = extraPages ? [...PAGES, ...extraPages] : PAGES;
+  // The sidebar's own list, filtered the same way, so a page the user cannot
+  // open never shows up here either.
+  const navPages = useNavItems();
+  const roles = useAuthStore((s) => s.user?.roles);
+  const canUseTill = !!roles?.some((r) => ['ADMIN', 'MANAGER', 'CASHIER'].includes(r));
+  const allPages: Page[] = [
+    ...navPages,
+    ...(canUseTill ? [TERMINAL_PAGE] : []),
+    ...(extraPages ?? []),
+  ];
 
   const actions: Action[] = [
     { label: 'Switch to light theme', icon: Sun, run: () => setTheme('light'), keywords: 'theme appearance' },

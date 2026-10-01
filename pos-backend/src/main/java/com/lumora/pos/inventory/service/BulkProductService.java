@@ -106,6 +106,9 @@ public class BulkProductService {
                 // Bulk seed stocks (ARCH-002)
                 List<StockLevelEntity> stockLevels = new ArrayList<>();
                 for (int i = 0; i < savedProducts.size(); i++) {
+                    if (!savedProducts.get(i).isTrackStock()) {
+                        continue; // made to order: no stock row (V59)
+                    }
                     stockLevels.add(StockLevelEntity.builder()
                             .product(savedProducts.get(i))
                             .branch(defaultBranch)
@@ -183,6 +186,16 @@ public class BulkProductService {
         }
     }
 
+    /** ProductService.importProductsFromCsv's rule: an explicit column wins,
+     *  otherwise only a row that brings stock is counted in units. */
+    private static boolean trackStock(CSVRecord record) {
+        if (record.isMapped("trackStock") && !record.get("trackStock").isBlank()) {
+            return Boolean.parseBoolean(record.get("trackStock"));
+        }
+        return record.isMapped("stockQuantity") && !record.get("stockQuantity").isBlank()
+                && Integer.parseInt(record.get("stockQuantity")) > 0;
+    }
+
     private ProductEntity mapToEntityWithCaching(CSVRecord record, UUID tenantId,
             Map<String, CategoryEntity> catCache, Map<String, BrandEntity> brandCache) {
         
@@ -207,6 +220,7 @@ public class BulkProductService {
                 .category(category)
                 .brand(brand)
                 .isActive(true)
+                .trackStock(trackStock(record))
                 .build();
         product.setTenantId(tenantId);
         return product;

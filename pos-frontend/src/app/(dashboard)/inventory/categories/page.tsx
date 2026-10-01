@@ -100,8 +100,8 @@ export default function CategoriesPage() {
       {confirmDialog}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
-          <p className="text-muted-foreground">Manage your product categories and hierarchy.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Menu Categories</h1>
+          <p className="text-muted-foreground">Sections of your menu. They become the tabs on the till and set tax and kitchen routing.</p>
         </div>
         <Button onClick={handleCreate} className="gap-2">
           <Plus size={18} /> Add Category

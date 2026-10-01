@@ -28,7 +28,6 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryId, setCategoryId] = useState<string>("");
-  const [brandId, setBrandId] = useState<string>("");
   const [isActive, setIsActive] = useState<string>("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -54,10 +53,9 @@ export default function ProductsPage() {
   const filters: ProductFilters = useMemo(() => ({
     search: debouncedSearch || undefined,
     categoryId: categoryId || undefined,
-    brandId: brandId || undefined,
     isActive: isActive === '' ? undefined : isActive === 'true',
     sort: sortKey && sortDirection ? `${sortKey},${sortDirection}` : undefined,
-  }), [debouncedSearch, categoryId, brandId, isActive, sortKey, sortDirection]);
+  }), [debouncedSearch, categoryId, isActive, sortKey, sortDirection]);
 
   // Fetch products with filters
   const { data: productsData, isLoading } = useQuery({
@@ -68,25 +66,21 @@ export default function ProductsPage() {
   const totalElements = productsData?.totalElements || 0;
   const isLimitReached = totalElements >= maxProducts;
 
-  // Fetch categories and brands for filter dropdowns
+  // Categories for the filter dropdown
   const { data: categories } = useQuery({
     queryKey: QK.categories,
     queryFn: () => inventoryService.getCategories(),
   });
 
-  const { data: brands } = useQuery({
-    queryKey: QK.brands,
-    queryFn: () => inventoryService.getBrands(),
-  });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => inventoryService.deleteProduct(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast.success("Product deleted");
+      toast.success("Menu item deleted");
     },
     onError: (error: unknown) => {
-      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to delete product");
+      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to delete menu item");
     }
   });
 
@@ -101,7 +95,7 @@ export default function ProductsPage() {
     mutationFn: ({ ids, active }: { ids: string[]; active: boolean }) =>
       inventoryService.bulkSetStatus(ids, active),
     onSuccess: (count, { active }) => {
-      toast.success(`${count} product${count === 1 ? '' : 's'} ${active ? 'activated' : 'deactivated'}`);
+      toast.success(`${count} item${count === 1 ? '' : 's'} ${active ? 'activated' : 'deactivated'}`);
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['products'] });
     },
@@ -196,8 +190,8 @@ export default function ProductsPage() {
   const handleDelete = async (product: Product) => {
     const ok = await confirm({
       title: `Delete "${product.name}"?`,
-      description: 'The product will be removed from the catalog. Historical sales remain intact.',
-      confirmLabel: 'Delete product',
+      description: 'It comes off the menu. Past sales keep it.',
+      confirmLabel: 'Delete item',
       variant: 'destructive',
     });
     if (ok) deleteMutation.mutate(product.id);
@@ -218,11 +212,10 @@ export default function ProductsPage() {
     setPage(0);
   };
 
-  const hasActiveFilters = categoryId || brandId || isActive !== '';
+  const hasActiveFilters = categoryId || isActive !== '';
 
   const clearFilters = () => {
     setCategoryId("");
-    setBrandId("");
     setIsActive("");
     setSearch("");
     setDebouncedSearch("");
@@ -237,19 +230,19 @@ export default function ProductsPage() {
         if (!product.isActive) {
           toast.warning(`Note: ${product.name} is currently INACTIVE. Opening to reactivate.`);
         } else {
-          toast.info(`Existing product found: ${product.name}. Opening editor.`);
+          toast.info(`${product.name} is already on the menu. Opening it.`);
         }
         router.push(`/inventory/products/${product.id}`);
       } catch {
         // Check quota before redirecting to creation form
         if (isLimitReached) {
-          toast.error("Product limit reached. Cannot onboard new barcode.", {
-            description: `You have reached your limit of ${maxProducts} products.`
+          toast.error("Item limit reached. Cannot add a new barcode.", {
+            description: `You have reached your limit of ${maxProducts} menu items.`
           });
           return;
         }
         
-        toast.success("New product detected! Redirecting to onboard.");
+        toast.success("New barcode. Opening a new packaged item.");
         router.push(`/inventory/products/new?barcode=${encodeURIComponent(barcode)}`);
       }
     }
@@ -274,15 +267,11 @@ export default function ProductsPage() {
       {confirmDialog}
       <div className="flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-end">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Products</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Menu Items</h1>
           <p className="text-muted-foreground flex flex-wrap items-center gap-2">
-            Manage your inventory, pricing, and stock levels.
+            Manage your menu, prices and kitchen routing.
             <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wider ${isLimitReached ? 'bg-warning/10 text-warning border-warning/20' : 'bg-muted text-muted-foreground border-border'}`}>
-               {totalElements} / {maxProducts} Products
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-bold uppercase tracking-wider animate-pulse flex items-center gap-1">
-              <span className="w-1 h-1 rounded-full bg-primary" />
-              Scanner Active
+               {totalElements} / {maxProducts} items
             </span>
           </p>
         </div>
@@ -308,7 +297,7 @@ export default function ProductsPage() {
                  className="gap-2 bg-primary hover:bg-primary/90"
                >
                  {isLimitReached ? <Shield size={18} className="text-warning" /> : <Plus size={18} />}
-                 Add Product
+                 Add menu item
                </Button>
              </Link>
              {isLimitReached && (
@@ -325,8 +314,8 @@ export default function ProductsPage() {
         <DataTableToolbar
           searchValue={search}
           onSearchChange={handleSearchChange}
-          searchPlaceholder="Search products by name or SKU..."
-          resultsCount={{ shown: pageProducts.length, total: totalElements, label: 'products' }}
+          searchPlaceholder="Search the menu by name..."
+          resultsCount={{ shown: pageProducts.length, total: totalElements, label: 'items' }}
           filters={
             <>
               <select
@@ -338,18 +327,6 @@ export default function ProductsPage() {
                 <option value="">All Categories</option>
                 {categories?.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-
-              <select
-                value={brandId}
-                onChange={(e) => { setBrandId(e.target.value); setPage(0); }}
-                aria-label="Filter by brand"
-                className="h-10 px-3 rounded-lg bg-background border border-border text-sm text-foreground focus:border-primary focus:outline-none min-w-[150px]"
-              >
-                <option value="">All Brands</option>
-                {brands?.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
 
@@ -415,12 +392,6 @@ export default function ProductsPage() {
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20">
                 Category: {categories?.find(c => c.id === categoryId)?.name}
                 <button onClick={() => setCategoryId("")} className="hover:text-foreground"><X size={12} /></button>
-              </span>
-            )}
-            {brandId && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-medium border border-success/20">
-                Brand: {brands?.find(b => b.id === brandId)?.name}
-                <button onClick={() => setBrandId("")} className="hover:text-foreground"><X size={12} /></button>
               </span>
             )}
             {isActive !== '' && (

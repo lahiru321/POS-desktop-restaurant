@@ -80,6 +80,15 @@ everything and should not be relitigated without reading it:
   `requireTableFree`. Settle/void free every table; **merge now keeps the source's tables occupied** as joined
   tables of the target (a parked-takeaway target still frees them). Labels/tickets read `T1+T2`
   (`RestaurantOrderEntity.tableLabel`); the floor maps joined ids to the tab from `OrderResponse.joinedTables`.
+- **Dashboard nav is one list keyed on roles, not labels** (`components/layout/navItems.ts`, read by both
+  `SidebarNav` and the command palette). Products/Categories are labelled **Menu Items / Menu Categories**,
+  Brands is hidden (backend, table and `brandId` untouched; the form still round-trips it because the update is
+  a full replace), and Stock Transfers shows only with more than one branch.
+- **A menu item is untracked unless it says otherwise.** `ProductRequest.trackStock` defaults **false** (the form's
+  "Sold as a packaged item" switch, off by default); the entity/DB default stays true for existing rows. Low-stock
+  queries (`findLowStockProducts`, `StockLevelRepository.findLowStockByBranch`) filter `trackStock = true`. The
+  CSV import matches a blank SKU by name, stores blank barcodes as null (V29's unique index counts `""`), honours
+  a `trackStock` column, and without one tracks only rows that bring stock.
 - **Everything printed goes through `qzTrayService.printRaw`, which sends ISO-8859-1 and cleans every
   string to printable ASCII (`printerText.toPrinterText`)** — the target printers (DBL 822, 80mm ESC/POS,
   48 cols) carry a Chinese GB18030 font and no Sinhala/Tamil, so UTF-8 or a stray byte prints as garbage.

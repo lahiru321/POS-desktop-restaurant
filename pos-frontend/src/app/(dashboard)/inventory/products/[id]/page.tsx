@@ -18,7 +18,7 @@ export default function EditProductPage() {
   });
 
   if (isLoading) {
-    return <div className="p-8 text-center text-muted-foreground">Loading product details...</div>;
+    return <div className="p-8 text-center text-muted-foreground">Loading menu item...</div>;
   }
 
   return (
@@ -26,8 +26,8 @@ export default function EditProductPage() {
       <DashboardHeaderSlot>
         <Breadcrumbs
           items={[
-            { label: 'Products', href: '/inventory/products' },
-            { label: productData?.name ?? 'Edit product' },
+            { label: 'Menu Items', href: '/inventory/products' },
+            { label: productData?.name ?? 'Edit menu item' },
           ]}
         />
       </DashboardHeaderSlot>

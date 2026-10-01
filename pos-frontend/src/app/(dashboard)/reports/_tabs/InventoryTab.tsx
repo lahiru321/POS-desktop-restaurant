@@ -31,7 +31,7 @@ export function InventoryTab({ branchId }: { branchId?: string }) {
 
   const exportCSV = () => {
     if (!breakdown.length) return;
-    const headers = ["Category", "Products", "Stock", "Cost Value", "Retail Value", "Profit"];
+    const headers = ["Category", "Items", "Stock", "Cost Value", "Menu Value", "Profit"];
     const rows = breakdown.map(cat => [
       cat.categoryName, cat.productCount, cat.stockCount,
       cat.costValue, cat.retailValue, cat.retailValue - cat.costValue,
@@ -56,7 +56,7 @@ export function InventoryTab({ branchId }: { branchId?: string }) {
         </Card>
         <Card className="bg-card/50 border-border">
           <CardHeader className="pb-2">
-            <CardDescription>Retail Stock Value</CardDescription>
+            <CardDescription>Stock at menu prices</CardDescription>
             <CardTitle className="text-3xl font-bold flex items-center gap-2 text-success">
               <TrendingUp />
               {isLoading ? "..." : fc(data?.totalRetailValue ?? 0)}
@@ -100,7 +100,7 @@ export function InventoryTab({ branchId }: { branchId?: string }) {
                   <TableHead className="text-center">Products</TableHead>
                   <TableHead className="text-center">Total Stock</TableHead>
                   <TableHead className="text-right">Cost Value</TableHead>
-                  <TableHead className="text-right">Retail Value</TableHead>
+                  <TableHead className="text-right">Menu Value</TableHead>
                   <TableHead className="text-right">Potential Profit</TableHead>
                 </TableRow>
               </TableHeader>

@@ -100,7 +100,7 @@ export default function BranchFormModal({
                 <FormItem>
                   <FormLabel>Branch Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Downtown Store" {...field} className="bg-card border-border" />
+                    <Input placeholder="Main outlet" {...field} className="bg-card border-border" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -128,7 +128,7 @@ export default function BranchFormModal({
                 <FormItem>
                   <FormLabel>Phone Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="+1 (555) 000-0000" {...field} className="bg-card border-border" />
+                    <Input placeholder="011-2345678" {...field} className="bg-card border-border" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

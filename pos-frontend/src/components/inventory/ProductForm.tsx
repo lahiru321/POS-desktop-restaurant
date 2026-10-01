@@ -3,8 +3,8 @@
 import { useForm, Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { 
-  Form, FormControl, FormField, FormItem, FormLabel, FormMessage 
+import {
+  Form, FormControl, FormField, FormItem, FormLabel, FormMessage
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,14 @@ import { branchService } from "@/services/branchService";
 import { toppingService } from "@/services/toppingService";
 import { supplierService, Supplier } from "@/services/supplierService";
 import { toast } from "sonner";
-import { Product, ProductRequest, Category, Brand } from "@/types/inventory";
+import { Product, ProductRequest, Category } from "@/types/inventory";
 import { Branch } from "@/services/branchService";
 import { useRouter, useSearchParams } from "next/navigation";
 import { QK } from "@/lib/queryKeys";
+import { CURRENCY, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, Save, Sparkles, PencilLine, Upload, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, Save, Sparkles, PencilLine, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import InventoryAdjustmentModal from "./InventoryAdjustmentModal";
@@ -33,7 +34,7 @@ import {
 } from "@/lib/kitchenStations";
 
 const productSchema = z.object({
-  name: z.string().min(1, "Product name is required"),
+  name: z.string().min(1, "Item name is required"),
   sku: z.string().optional(),
   barcode: z.string().optional(),
   description: z.string().optional(),
@@ -42,11 +43,14 @@ const productSchema = z.object({
   stockQuantity: z.coerce.number().int().min(0),
   lowStockThreshold: z.coerce.number().int().min(0),
   categoryId: z.string().uuid().optional().nullable(),
+  // Not on the form any more (a restaurant has no brands), but carried through:
+  // the update is a full replace, so dropping it would wipe an existing brand.
   brandId: z.string().uuid().optional().nullable(),
   primarySupplierId: z.string().uuid().optional().nullable(),
   isActive: z.boolean().default(true),
-  // False = made to order: no stock row, no shortage block, sells freely.
-  trackStock: z.boolean().default(true),
+  // False = made to order: no stock row, no shortage block, sells freely. Most
+  // of a menu is cooked, so this starts off; bottled drinks switch it on.
+  trackStock: z.boolean().default(false),
   imageUrl: z.string().optional(),
   // Empty = inherit the category's station, then KITCHEN.
   kitchenStation: z
@@ -67,6 +71,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isAdjModalOpen, setIsAdjModalOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,11 +92,6 @@ export default function ProductForm({ initialData }: ProductFormProps) {
   const { data: categories } = useQuery({
     queryKey: ['categories'],
     queryFn: inventoryService.getCategories
-  });
-
-  const { data: brands } = useQuery({
-    queryKey: ['brands'],
-    queryFn: inventoryService.getBrands
   });
 
   const { data: suppliersPage } = useQuery({
@@ -120,26 +120,26 @@ export default function ProductForm({ initialData }: ProductFormProps) {
       brandId: initialData?.brandId || null,
       primarySupplierId: initialData?.primarySupplierId || null,
       isActive: initialData?.isActive ?? true,
-      trackStock: initialData?.trackStock ?? true,
+      trackStock: initialData?.trackStock ?? false,
       imageUrl: initialData?.imageUrl || "",
       kitchenStation: initialData?.kitchenStation ?? "",
       branchStockLevels: {},
     },
   });
 
-  // Drives the Inventory card: an untracked product has no stock count and no
-  // low-stock threshold to show. stockQuantity stays in the payload as 0 — the
+  // Drives the packaged-item section: an untracked item has no stock count and
+  // no low-stock alert to show. stockQuantity stays in the payload as 0 — the
   // API still requires it, and the server ignores it when tracking is off.
   const trackStock = form.watch("trackStock");
 
-  // What an empty station field means for this product: its category's
-  // station if it has one, otherwise the main kitchen.
+  // What an empty station field means for this item: its category's station if
+  // it has one, otherwise the main kitchen.
   const selectedCategoryId = form.watch("categoryId");
   const inheritedStation =
     categories?.find((c: Category) => c.id === selectedCategoryId)?.kitchenStation || null;
 
   // Add-on groups are a separate resource with their own endpoint, so they are
-  // held outside the form and saved after the product, once it has an id.
+  // held outside the form and saved after the item, once it has an id.
   const { data: toppingGroupOptions = [] } = useQuery({
     queryKey: QK.toppingGroups,
     queryFn: toppingService.getGroups,
@@ -179,9 +179,8 @@ export default function ProductForm({ initialData }: ProductFormProps) {
         primarySupplierId: initialData.primarySupplierId || null,
         isActive: initialData.isActive ?? true,
         // Must be reset alongside the rest: omitting it falls back to the schema
-        // default of true, which would silently re-enable stock tracking on a
-        // made-to-order product the moment anyone opened it to edit.
-        trackStock: initialData.trackStock ?? true,
+        // default, which would silently flip tracking on an item being edited.
+        trackStock: initialData.trackStock ?? false,
         imageUrl: initialData.imageUrl || "",
         kitchenStation: initialData.kitchenStation ?? "",
         branchStockLevels: {},
@@ -192,8 +191,10 @@ export default function ProductForm({ initialData }: ProductFormProps) {
   useEffect(() => {
     if (barcodeFromUrl && !initialData) {
       form.setValue("barcode", barcodeFromUrl);
+      // A scanned barcode is a bought-in, packaged item — counted in units.
+      form.setValue("trackStock", true);
       toast.info(`Barcode ${barcodeFromUrl} auto-filled from scanner.`);
-      
+
       // Small delay to ensure the field is focused after mount
       const timer = setTimeout(() => {
         nameInputRef.current?.focus();
@@ -219,9 +220,9 @@ export default function ProductForm({ initialData }: ProductFormProps) {
           quantity
         })) : undefined
       };
-      
+
       // Add-on groups are a child resource, so they can only be attached once the
-      // product has an id. On create that means a second call after the first
+      // item has an id. On create that means a second call after the first
       // returns; on update the id is already known.
       const saved = initialData
         ? await inventoryService.updateProduct(initialData.id, payload)
@@ -244,11 +245,11 @@ export default function ProductForm({ initialData }: ProductFormProps) {
       // to invalidate it or the new group is never offered.
       await queryClient.invalidateQueries({ queryKey: QK.productsWithToppings });
       await queryClient.invalidateQueries({ queryKey: QK.kitchenStations });
-      toast.success(initialData ? "Product updated" : "Product created");
+      toast.success(initialData ? "Menu item updated" : "Menu item created");
       router.push("/inventory/products");
     },
     onError: (error: unknown) => {
-      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to save product");
+      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to save menu item");
     }
   });
 
@@ -256,17 +257,26 @@ export default function ProductForm({ initialData }: ProductFormProps) {
     mutation.mutate(values);
   };
 
+  // The SKU, food cost and supplier live under Advanced; if one of them is what
+  // failed validation, open it so the message can be seen.
+  const onInvalid = (errors: Record<string, unknown>) => {
+    if (errors.sku || errors.costPrice || errors.primarySupplierId) setAdvancedOpen(true);
+  };
+
+  const fieldClass = "bg-background border-border";
+  const selectClass = "w-full h-10 px-3 bg-background border border-border rounded-lg text-sm";
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-4xl mx-auto p-6 space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="max-w-4xl mx-auto p-6 space-y-6">
         <div className="flex items-center gap-4">
           <Link href="/inventory/products">
-            <Button variant="ghost" size="icon" aria-label="Back to products" title="Back to products" className="rounded-full hover:bg-muted" type="button">
+            <Button variant="ghost" size="icon" aria-label="Back to menu items" title="Back to menu items" className="rounded-full hover:bg-muted" type="button">
               <ArrowLeft size={20} />
             </Button>
           </Link>
           <h1 className="text-3xl font-bold tracking-tight">
-            {initialData ? 'Edit Product' : 'New Product'}
+            {initialData ? 'Edit menu item' : 'New menu item'}
           </h1>
         </div>
 
@@ -274,7 +284,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
           <div className="md:col-span-2 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
-                <CardTitle className="text-lg">General Information</CardTitle>
+                <CardTitle className="text-lg">Menu item</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -282,12 +292,12 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Product Name</FormLabel>
+                      <FormLabel>Item name</FormLabel>
                       <FormControl>
-                        <Input 
-                          placeholder="Enter product name" 
-                          className="bg-background border-border" 
-                          {...field} 
+                        <Input
+                          placeholder="e.g. Chicken Kottu"
+                          className={fieldClass}
+                          {...field}
                           ref={(e) => {
                             field.ref(e);
                             // @ts-expect-error — ref callback type mismatch between RHF and HTMLElement
@@ -299,6 +309,46 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                     </FormItem>
                   )}
                 />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="categoryId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Menu category</FormLabel>
+                        <FormControl>
+                          <select
+                            className={selectClass}
+                            value={field.value || ""}
+                            onChange={(e) => field.onChange(e.target.value || null)}
+                          >
+                            <option value="">No category</option>
+                            {categories?.map((c: Category) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        </FormControl>
+                        <p className="text-[10px] text-muted-foreground">
+                          The till&apos;s menu tab, and the tax and kitchen it follows.
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="basePrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Price ({CURRENCY.symbol})</FormLabel>
+                        <FormControl>
+                          <Input type="number" step="0.01" min="0" className={fieldClass} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
                 <FormField
                   control={form.control}
                   name="description"
@@ -306,9 +356,9 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <textarea 
-                          className="w-full min-h-[100px] px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                          placeholder="Provide details about the product..."
+                        <textarea
+                          className="w-full min-h-[80px] px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                          placeholder="Optional — what is in it, how spicy it is"
                           {...field}
                         />
                       </FormControl>
@@ -321,242 +371,9 @@ export default function ProductForm({ initialData }: ProductFormProps) {
 
             <Card className="bg-card border-border">
               <CardHeader>
-                <CardTitle className="text-lg">Pricing & Identification</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="basePrice"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Sale Price ($)</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" className="bg-background border-border" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="costPrice"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Cost Price ($)</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" className="bg-background border-border" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="sku"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>SKU</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Leave empty for auto-generation" className="bg-background border-border" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="barcode"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Barcode</FormLabel>
-                        <FormControl>
-                        <div className="relative">
-                          <Input 
-                            placeholder="UPC / EAN" 
-                            className={`bg-background border-border ${barcodeFromUrl && !initialData ? 'border-primary/50 text-primary' : ''}`} 
-                            {...field} 
-                          />
-                          {barcodeFromUrl && !initialData && (
-                            <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 text-primary" size={16} />
-                          )}
-                        </div>
-                      </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="space-y-6">
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="text-lg">Inventory</CardTitle>
+                <CardTitle className="text-lg">Kitchen</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="trackStock"
-                  render={({ field }) => (
-                    <FormItem className="flex items-start justify-between gap-4 space-y-0 rounded-lg border border-border p-3">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-sm">Track stock</FormLabel>
-                        <p className="text-[11px] leading-snug text-muted-foreground">
-                          {field.value
-                            ? "Counted in units. Sales deduct stock and stop at zero."
-                            : "Made to order. No stock count, never runs out, sells in any quantity."}
-                        </p>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          aria-label="Track stock for this product"
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-
-                {!trackStock ? null : !initialData && branches && branches.length > 1 ? (
-                  <div className="space-y-4">
-                    <label className="text-sm font-semibold text-muted-foreground">Initial Stock per Branch</label>
-                    {branches.map((branch: Branch) => (
-                      <FormField
-                        key={branch.id}
-                        control={form.control}
-                        name={`branchStockLevels.${branch.id}`}
-                        render={({ field }) => (
-                          <FormItem className="flex items-center justify-between gap-4 space-y-0">
-                            <FormLabel className="text-xs text-muted-foreground w-1/2">{branch.name}</FormLabel>
-                            <FormControl className="w-1/2">
-                              <Input type="number" className="bg-background border-border h-8" {...field} />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <FormField
-                    control={form.control}
-                    name="stockQuantity"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{initialData ? 'Total Stock (Read-only)' : 'Initial Stock'}</FormLabel>
-                        <div className="flex gap-2">
-                          <FormControl className="flex-1">
-                            <Input type="number" className="bg-background border-border" {...field} disabled={!!initialData} />
-                          </FormControl>
-                          {initialData && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              className="shrink-0 border-border hover:bg-muted"
-                              onClick={() => setIsAdjModalOpen(true)}
-                              aria-label="Adjust inventory"
-                              title="Adjust Inventory"
-                            >
-                              <PencilLine size={16} className="text-primary" />
-                            </Button>
-                          )}
-                        </div>
-                        {initialData && <p className="text-[10px] text-muted-foreground">Stock can be managed via the Adjustment tool.</p>}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-                {trackStock && (
-                  <FormField
-                    control={form.control}
-                    name="lowStockThreshold"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Low Stock Threshold</FormLabel>
-                        <FormControl>
-                          <Input type="number" className="bg-background border-border" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Only shown once a tenant has authored some add-ons, so a retail
-                catalogue never grows a section it has no use for. */}
-            {toppingGroupOptions.length > 0 && (
-              <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="text-lg">Add-ons</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    Groups the till will offer when this item is rung up.
-                  </p>
-                  {toppingGroupOptions.map((group) => {
-                    const checked = selectedToppingGroups.includes(group.id);
-                    return (
-                      <label
-                        key={group.id}
-                        className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/40"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) =>
-                            setSelectedToppingGroups((prev) =>
-                              e.target.checked
-                                ? [...prev, group.id]
-                                : prev.filter((id) => id !== group.id),
-                            )
-                          }
-                          className="h-4 w-4 accent-primary"
-                        />
-                        <span className="flex-1 truncate">{group.name}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {group.toppings.length} option{group.toppings.length === 1 ? '' : 's'}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            )}
-
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="text-lg">Classification</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="categoryId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Category</FormLabel>
-                      <FormControl>
-                        <select 
-                          className="w-full h-10 px-3 bg-background border border-border rounded-lg text-sm"
-                          value={field.value || ""}
-                          onChange={(e) => field.onChange(e.target.value || null)}
-                        >
-                          <option value="">Select Category</option>
-                          {categories?.map((c: Category) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
                 <FormField
                   control={form.control}
                   name="kitchenStation"
@@ -574,7 +391,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                               ? `${inheritedStation} (from category)`
                               : `${DEFAULT_KITCHEN_STATION} (default)`
                           }
-                          className="bg-background border-border"
+                          className={fieldClass}
                         />
                       </FormControl>
                       <p className="text-[10px] text-muted-foreground">
@@ -584,56 +401,242 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="brandId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Brand</FormLabel>
-                      <FormControl>
-                        <select
-                          className="w-full h-10 px-3 bg-background border border-border rounded-lg text-sm"
-                          value={field.value || ""}
-                          onChange={(e) => field.onChange(e.target.value || null)}
+
+                {toppingGroupOptions.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Add-ons</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Groups the till offers when this item is rung up.
+                    </p>
+                    {toppingGroupOptions.map((group) => {
+                      const checked = selectedToppingGroups.includes(group.id);
+                      return (
+                        <label
+                          key={group.id}
+                          className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/40"
                         >
-                          <option value="">Select Brand</option>
-                          {brands?.map((b: Brand) => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                          ))}
-                        </select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="primarySupplierId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Primary Supplier</FormLabel>
-                      <FormControl>
-                        <select
-                          className="w-full h-10 px-3 bg-background border border-border rounded-lg text-sm"
-                          value={field.value || ""}
-                          onChange={(e) => field.onChange(e.target.value || null)}
-                        >
-                          <option value="">No preferred supplier</option>
-                          {suppliers.map((s: Supplier) => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setSelectedToppingGroups((prev) =>
+                                e.target.checked
+                                  ? [...prev, group.id]
+                                  : prev.filter((id) => id !== group.id),
+                              )
+                            }
+                            className="h-4 w-4 accent-primary"
+                          />
+                          <span className="flex-1 truncate">{group.name}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {group.toppings.length} option{group.toppings.length === 1 ? '' : 's'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    No add-ons yet. Create them under{' '}
+                    <Link href="/restaurant/toppings" className="text-primary hover:underline">Add-ons</Link>{' '}
+                    to offer extras such as cheese or an egg.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
+            <Card className="bg-card border-border">
+              <CardContent className="space-y-4 pt-6">
+                <FormField
+                  control={form.control}
+                  name="trackStock"
+                  render={({ field }) => (
+                    <FormItem className="flex items-start justify-between gap-4 space-y-0">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base font-semibold">Sold as a packaged item (track stock)</FormLabel>
+                        <p className="text-xs leading-snug text-muted-foreground">
+                          {field.value
+                            ? "Counted in units, like bottled drinks or ice-cream cups. Sales deduct stock and stop at zero."
+                            : "Cooked to order. No stock count, and it never runs out on the till."}
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          aria-label="Sold as a packaged item (track stock)"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {trackStock && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border pt-4">
+                    <FormField
+                      control={form.control}
+                      name="barcode"
+                      render={({ field }) => (
+                        <FormItem className="sm:col-span-2">
+                          <FormLabel>Barcode</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                placeholder="Scan or type the code on the pack"
+                                className={cn(fieldClass, barcodeFromUrl && !initialData && "border-primary/50 text-primary")}
+                                {...field}
+                              />
+                              {barcodeFromUrl && !initialData && (
+                                <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 text-primary" size={16} />
+                              )}
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {!initialData && branches && branches.length > 1 ? (
+                      <div className="space-y-3 sm:col-span-2">
+                        <p className="text-sm font-medium">Opening stock per branch</p>
+                        {branches.map((branch: Branch) => (
+                          <FormField
+                            key={branch.id}
+                            control={form.control}
+                            name={`branchStockLevels.${branch.id}`}
+                            render={({ field }) => (
+                              <FormItem className="flex items-center justify-between gap-4 space-y-0">
+                                <FormLabel className="text-xs text-muted-foreground w-1/2">{branch.name}</FormLabel>
+                                <FormControl className="w-1/2">
+                                  <Input type="number" min="0" className={cn(fieldClass, "h-8")} {...field} />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <FormField
+                        control={form.control}
+                        name="stockQuantity"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{initialData ? "In stock" : "Opening stock"}</FormLabel>
+                            <div className="flex gap-2">
+                              <FormControl className="flex-1">
+                                <Input type="number" min="0" className={fieldClass} {...field} disabled={!!initialData} />
+                              </FormControl>
+                              {initialData && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="shrink-0 border-border hover:bg-muted"
+                                  onClick={() => setIsAdjModalOpen(true)}
+                                  aria-label="Adjust stock"
+                                  title="Adjust stock"
+                                >
+                                  <PencilLine size={16} className="text-primary" />
+                                </Button>
+                              )}
+                            </div>
+                            {initialData && <p className="text-[10px] text-muted-foreground">Change it with the adjust button.</p>}
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                    <FormField
+                      control={form.control}
+                      name="lowStockThreshold"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Low-stock alert at</FormLabel>
+                          <FormControl>
+                            <Input type="number" min="0" className={fieldClass} {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card border-border">
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((o) => !o)}
+                aria-expanded={advancedOpen}
+                className="flex w-full items-center justify-between px-6 py-4 text-left"
+              >
+                <span>
+                  <span className="block text-lg font-semibold">Advanced</span>
+                  <span className="block text-xs text-muted-foreground">SKU, food cost and supplier. All optional.</span>
+                </span>
+                <ChevronDown size={18} className={cn("shrink-0 text-muted-foreground transition-transform", advancedOpen && "rotate-180")} />
+              </button>
+              {advancedOpen && (
+                <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border pt-4">
+                  <FormField
+                    control={form.control}
+                    name="sku"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>SKU</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Made for you if left empty" className={fieldClass} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="costPrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Food cost ({CURRENCY.symbol})</FormLabel>
+                        <FormControl>
+                          <Input type="number" step="0.01" min="0" className={fieldClass} {...field} />
+                        </FormControl>
+                        <p className="text-[10px] text-muted-foreground">What one portion costs you. Used by the profit reports.</p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="primarySupplierId"
+                    render={({ field }) => (
+                      <FormItem className="sm:col-span-2">
+                        <FormLabel>Primary supplier</FormLabel>
+                        <FormControl>
+                          <select
+                            className={selectClass}
+                            value={field.value || ""}
+                            onChange={(e) => field.onChange(e.target.value || null)}
+                          >
+                            <option value="">No preferred supplier</option>
+                            {suppliers.map((s: Supplier) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </CardContent>
+              )}
+            </Card>
+          </div>
+
+          <div className="space-y-6">
             <Card className="bg-card border-border overflow-hidden">
               <CardHeader>
-                <CardTitle className="text-lg">Product Image</CardTitle>
+                <CardTitle className="text-lg">Photo</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="aspect-square rounded border border-border bg-background flex items-center justify-center relative overflow-hidden">
@@ -644,15 +647,17 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                       <button
                         type="button"
                         onClick={handleRemoveImage}
+                        aria-label="Remove photo"
                         className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-foreground rounded-full p-1 z-10"
                       >
                         <X size={14} />
                       </button>
                     </>
                   ) : (
-                    <div className="text-center text-muted-foreground">
-                      <div className="text-2xl mb-1">🖼️</div>
-                      <p className="text-xs font-medium">No Image</p>
+                    <div className="text-center text-muted-foreground px-4">
+                      <div className="text-2xl mb-1">🍽️</div>
+                      <p className="text-xs font-medium">No photo</p>
+                      <p className="mt-1 text-[10px]">The till shows the name instead.</p>
                     </div>
                   )}
                 </div>
@@ -670,7 +675,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload size={15} />
-                  {form.watch("imageUrl") ? "Change Image" : "Upload Image"}
+                  {form.watch("imageUrl") ? "Change photo" : "Upload photo"}
                 </Button>
               </CardContent>
             </Card>
@@ -682,7 +687,7 @@ export default function ProductForm({ initialData }: ProductFormProps) {
             <Button variant="ghost" type="button">Discard</Button>
           </Link>
           <Button type="submit" className="gap-2 min-w-[150px]" disabled={mutation.isPending}>
-            <Save size={18} /> {mutation.isPending ? 'Saving...' : (initialData ? 'Update Product' : 'Save Product')}
+            <Save size={18} /> {mutation.isPending ? "Saving..." : (initialData ? "Update item" : "Save item")}
           </Button>
         </div>
 

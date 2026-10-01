@@ -48,9 +48,13 @@ public interface ProductRepository extends JpaRepository<ProductEntity, UUID>, J
     // --- Dashboard Analytics Queries ---
 
     /**
-     * Products where current stock is at or below the low stock threshold.
+     * Stock-tracked products at or below their low stock threshold.
+     *
+     * <p>{@code trackStock} is the filter, not the number: an untracked dish has no
+     * stock_levels row, so its {@code @Formula} stockQuantity reads 0 and every
+     * made-to-order item would otherwise top this list.
      */
-    @Query("SELECT p FROM ProductEntity p WHERE p.tenantId = :tenantId AND p.isActive = true AND p.stockQuantity <= p.lowStockThreshold ORDER BY p.stockQuantity ASC")
+    @Query("SELECT p FROM ProductEntity p WHERE p.tenantId = :tenantId AND p.isActive = true AND p.trackStock = true AND p.stockQuantity <= p.lowStockThreshold ORDER BY p.stockQuantity ASC")
     List<ProductEntity> findLowStockProducts(@Param("tenantId") UUID tenantId, Pageable pageable);
 
     /**

@@ -29,7 +29,7 @@ public interface StockLevelRepository extends JpaRepository<StockLevelEntity, UU
     @Query("SELECT sl FROM StockLevelEntity sl WHERE sl.product.id = :productId AND sl.branch.id = :branchId AND sl.tenantId = :tenantId")
     Optional<StockLevelEntity> findByProductAndBranchForUpdate(@Param("productId") UUID productId, @Param("branchId") UUID branchId, @Param("tenantId") UUID tenantId);
 
-    @Query(value = "SELECT sl FROM StockLevelEntity sl JOIN FETCH sl.product p JOIN FETCH sl.branch b WHERE sl.tenantId = :tenantId AND p.isActive = true AND sl.quantity <= p.lowStockThreshold AND (:branchId IS NULL OR b.id = :branchId)", countQuery = "SELECT count(sl) FROM StockLevelEntity sl JOIN sl.product p JOIN sl.branch b WHERE sl.tenantId = :tenantId AND p.isActive = true AND sl.quantity <= p.lowStockThreshold AND (:branchId IS NULL OR b.id = :branchId)")
+    @Query(value = "SELECT sl FROM StockLevelEntity sl JOIN FETCH sl.product p JOIN FETCH sl.branch b WHERE sl.tenantId = :tenantId AND p.isActive = true AND p.trackStock = true AND sl.quantity <= p.lowStockThreshold AND (:branchId IS NULL OR b.id = :branchId)", countQuery = "SELECT count(sl) FROM StockLevelEntity sl JOIN sl.product p JOIN sl.branch b WHERE sl.tenantId = :tenantId AND p.isActive = true AND p.trackStock = true AND sl.quantity <= p.lowStockThreshold AND (:branchId IS NULL OR b.id = :branchId)")
     Page<StockLevelEntity> findLowStockByBranch(@Param("tenantId") UUID tenantId, @Param("branchId") UUID branchId,
             Pageable pageable);
 }

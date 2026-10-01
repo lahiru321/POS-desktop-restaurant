@@ -45,7 +45,7 @@ export default function ImportProductsModal({ isOpen, onClose, onSuccess }: Impo
       // Backend returns the count of successfully imported products in the `data` wrapper
       const count = response.data;
       setResult({ successCount: count, failureCount: 0, errors: [] });
-      toast.success(`Successfully imported ${count} products`);
+      toast.success(`Imported ${count} menu items`);
       onSuccess();
       setTimeout(onClose, 2000);
     } catch (error: unknown) {
@@ -56,13 +56,19 @@ export default function ImportProductsModal({ isOpen, onClose, onSuccess }: Impo
   };
 
   const downloadTemplate = () => {
-    const headers = "name,sku,barcode,description,category,brand,basePrice,costPrice,stockQuantity,lowStockThreshold";
-    const example = "Sample Product,SKU001,12345678,A great product,Electronics,Apple,99.99,70.00,50,5";
-    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + example;
+    // A dish (cooked to order, no stock) and a bought-in drink (counted). SKU may
+    // stay blank: the server makes one, and matches a re-import by name. A brand
+    // column in an older file is still accepted, just no longer offered.
+    const headers = "name,category,basePrice,trackStock,stockQuantity,lowStockThreshold,barcode,description,costPrice,sku";
+    const examples = [
+      "Chicken Kottu,Kottu,1200.00,false,,,,Spicy chicken kottu,650.00,",
+      "Coca-Cola 500ml,Drinks,250.00,true,48,12,5449000000996,,180.00,",
+    ];
+    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...examples].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "product_import_template.csv");
+    link.setAttribute("download", "menu_import_template.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -72,9 +78,9 @@ export default function ImportProductsModal({ isOpen, onClose, onSuccess }: Impo
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[500px] bg-background border-border">
         <DialogHeader>
-          <DialogTitle>Import Products</DialogTitle>
+          <DialogTitle>Import menu items</DialogTitle>
           <DialogDescription>
-            Upload a CSV file to bulk import products into your inventory.
+            Upload a CSV file to add or update menu items in one go. A row matching an existing item (by SKU, or by name when SKU is blank) updates it.
           </DialogDescription>
         </DialogHeader>
 
@@ -126,7 +132,7 @@ export default function ImportProductsModal({ isOpen, onClose, onSuccess }: Impo
               <CheckCircle2 className="text-success" size={24} />
               <div>
                 <p className="text-sm font-medium text-success">Import Successful</p>
-                <p className="text-xs text-success/80">{result.successCount} products have been added.</p>
+                <p className="text-xs text-success/80">{result.successCount} menu items were added or updated.</p>
               </div>
             </div>
           )}

@@ -62,12 +62,13 @@ public class ProductRequest {
      * False for made-to-order items: no stock_levels row is created, the sale
      * never deducts, and fractional quantities are allowed (V59).
      *
-     * <p>Defaults true so an older client that omits the field keeps today's
-     * behaviour. {@code stockQuantity} stays required either way — send 0 for an
-     * untracked product rather than changing the contract for every caller.
+     * <p>Defaults false: on a restaurant menu most items are cooked to order, and
+     * a dish counted in units reads 0 and blocks the till. Bottled drinks and
+     * other bought-in items opt in. {@code stockQuantity} stays required either
+     * way — send 0 for an untracked product rather than changing the contract.
      */
     @Builder.Default
-    private boolean trackStock = true;
+    private boolean trackStock = false;
 
     /**
      * Which kitchen printer this dish goes to ({@code BAR}, {@code GRILL}).

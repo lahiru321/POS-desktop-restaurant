@@ -409,7 +409,7 @@ export default function SettingsPage() {
               Receipt header details
             </CardTitle>
             <CardDescription>
-              Store name, address, and phone shown at the top of every printed receipt.
+              Restaurant name, address, and phone shown at the top of every printed bill.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -421,12 +421,12 @@ export default function SettingsPage() {
               <form onSubmit={handleSaveBusinessInfo} className="space-y-4 max-w-2xl">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">
-                    Store Name <span className="text-destructive">*</span>
+                    Restaurant name <span className="text-destructive">*</span>
                   </label>
                   <Input
                     value={bizName}
                     onChange={(e) => setBizName(e.target.value)}
-                    placeholder="e.g. Lumora Grocery"
+                    placeholder="e.g. Spice Garden"
                     className="bg-card border-border"
                     maxLength={255}
                     required
@@ -485,12 +485,12 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">Store Logo</label>
+                      <label className="text-sm font-medium text-foreground">Restaurant logo</label>
                       <div className="flex items-center gap-4">
                         <div className="h-20 w-20 shrink-0 rounded-lg border border-border bg-card flex items-center justify-center overflow-hidden">
                           {bizLogoUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element -- user-supplied data URI, not a Next route
-                            <img src={bizLogoUrl} alt="Store logo" className="max-h-full max-w-full object-contain" />
+                            <img src={bizLogoUrl} alt="Restaurant logo" className="max-h-full max-w-full object-contain" />
                           ) : (
                             <ImageIcon className="text-muted-foreground" size={24} />
                           )}
@@ -541,7 +541,7 @@ export default function SettingsPage() {
                       <textarea
                         value={bizReceiptFooter}
                         onChange={(e) => setBizReceiptFooter(e.target.value)}
-                        placeholder="Return within 7 days with receipt."
+                        placeholder="Thank you! Come again."
                         className="w-full rounded-md bg-card border border-border text-sm text-foreground px-3 py-2 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
                         rows={3}
                         maxLength={500}
@@ -640,7 +640,7 @@ export default function SettingsPage() {
                 <p className="text-sm font-semibold text-foreground">Pricing mode</p>
                 <p className="text-sm text-muted-foreground max-w-xl">
                   {taxInclusive
-                    ? "Prices include VAT. The marked price is what the customer pays; VAT is broken out on the invoice (Sri Lankan retail convention)."
+                    ? "Prices include VAT. The marked price is what the customer pays; VAT is broken out on the bill, the usual way menu prices are shown in Sri Lanka."
                     : "Prices exclude VAT. VAT is added on top of the price at the till."}
                 </p>
               </div>
@@ -1096,7 +1096,7 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent>
               <ReceiptPreview
-                businessName={bizName || tenantInfo?.name || "Your Store"}
+                businessName={bizName || tenantInfo?.name || "Your Restaurant"}
                 addressLine1={bizAddress1 || tenantInfo?.addressLine1 || undefined}
                 addressLine2={bizAddress2 || tenantInfo?.addressLine2 || undefined}
                 phone={bizPhone || tenantInfo?.phone || undefined}

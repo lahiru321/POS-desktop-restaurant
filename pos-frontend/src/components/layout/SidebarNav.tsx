@@ -2,65 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  LayoutDashboard,
-  Package,
-  Tags,
-  Bookmark,
-  Users,
-  UserSquare2,
-  BarChart3,
-  Settings,
-  Store,
-  Building2,
-  Truck,
-  ArrowRightLeft,
-  Wallet,
-  TrendingUp,
-  Activity,
-  UserCircle,
-  LayoutGrid,
-  Salad,
-  type LucideIcon,
-} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuthStore } from '@/stores/authStore';
-
-type NavItem = {
-  label: string;
-  href: string;
-  icon: LucideIcon;
-  requiredFeature?: string;
-};
-
-const ALL_ITEMS: NavItem[] = [
-  { label: 'Overview', href: '/overview', icon: LayoutDashboard },
-  { label: 'Products', href: '/inventory/products', icon: Package, requiredFeature: 'INVENTORY' },
-  { label: 'Categories', href: '/inventory/categories', icon: Tags, requiredFeature: 'INVENTORY' },
-  { label: 'Brands', href: '/inventory/brands', icon: Bookmark, requiredFeature: 'INVENTORY' },
-  { label: 'Tables', href: '/restaurant/tables', icon: LayoutGrid },
-  { label: 'Add-ons', href: '/restaurant/toppings', icon: Salad },
-  { label: 'Customers', href: '/customers', icon: Users, requiredFeature: 'CUSTOMERS' },
-  { label: 'Suppliers', href: '/inventory/suppliers', icon: Building2, requiredFeature: 'INVENTORY' },
-  { label: 'Purchase Orders', href: '/inventory/purchase-orders', icon: Truck, requiredFeature: 'PURCHASE_ORDERS' },
-  { label: 'Stock Transfers', href: '/inventory/stock-transfers', icon: ArrowRightLeft, requiredFeature: 'STOCK_TRANSFERS' },
-  { label: 'Employees', href: '/employees', icon: UserSquare2, requiredFeature: 'EMPLOYEES' },
-  { label: 'Reports', href: '/reports', icon: BarChart3, requiredFeature: 'REPORTS' },
-  { label: 'Expenses', href: '/finance/expenses', icon: Wallet, requiredFeature: 'EXPENSES' },
-  { label: 'Cash Flow', href: '/finance/cash-flow', icon: Activity, requiredFeature: 'FINANCIAL_REPORTS' },
-  { label: 'Profit & Loss', href: '/finance/profit-loss', icon: TrendingUp, requiredFeature: 'FINANCIAL_REPORTS' },
-  { label: 'Branches', href: '/branches', icon: Store },
-  { label: 'My Profile', href: '/profile', icon: UserCircle },
-  { label: 'Settings', href: '/settings', icon: Settings },
-];
-
-const FINANCE_LABELS = ['Expenses', 'Cash Flow', 'Profit & Loss'];
-
-/** Floor-plan authoring screens. Admin/manager only, matching the backend's
- *  @PreAuthorize on the areas/tables and toppings CRUD. Listed explicitly
- *  because the switch below falls through to `return true` — an item with no
- *  case of its own would be visible to every cashier. */
-const RESTAURANT_ADMIN_LABELS = ['Tables', 'Add-ons'];
+import { useNavItems } from '@/components/layout/navItems';
 
 type SidebarNavProps = {
   /** When true, render icon-only (collapsed) form. */
@@ -72,33 +15,7 @@ type SidebarNavProps = {
 
 export function SidebarNav({ collapsed = false, onNavigate, className }: SidebarNavProps) {
   const pathname = usePathname();
-  const { user, hasFeature } = useAuthStore();
-
-  const items = ALL_ITEMS.filter((item) => {
-    if (item.requiredFeature && !hasFeature(item.requiredFeature)) return false;
-
-    if (['Overview', 'Employees', 'Settings', 'Reports', 'Branches', ...FINANCE_LABELS].includes(item.label)) {
-      return user?.roles?.includes('ADMIN') || user?.roles?.includes('MANAGER');
-    }
-    if (RESTAURANT_ADMIN_LABELS.includes(item.label)) {
-      return user?.roles?.includes('ADMIN') || user?.roles?.includes('MANAGER');
-    }
-    if (['Suppliers', 'Purchase Orders', 'Stock Transfers'].includes(item.label)) {
-      return (
-        user?.roles?.includes('ADMIN') ||
-        user?.roles?.includes('MANAGER') ||
-        user?.roles?.includes('INVENTORY_MANAGER')
-      );
-    }
-    if (item.label === 'Customers') {
-      return (
-        user?.roles?.includes('ADMIN') ||
-        user?.roles?.includes('MANAGER') ||
-        user?.roles?.includes('CASHIER')
-      );
-    }
-    return true;
-  });
+  const items = useNavItems();
 
   return (
     <nav
