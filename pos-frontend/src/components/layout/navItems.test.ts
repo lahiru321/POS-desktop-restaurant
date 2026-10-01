@@ -20,7 +20,7 @@ describe('visibleNavItems', () => {
 
   it('shows the stock screens to an inventory manager, not the admin-only ones', () => {
     const inv = labels(['INVENTORY_MANAGER'], 2);
-    expect(inv).toEqual(expect.arrayContaining(['Suppliers', 'Purchase Orders', 'Stock Transfers']));
+    expect(inv).toEqual(expect.arrayContaining(['Ingredients', 'Suppliers', 'Purchase Orders', 'Stock Transfers']));
     expect(inv).not.toContain('Settings');
     expect(inv).not.toContain('Tables');
   });

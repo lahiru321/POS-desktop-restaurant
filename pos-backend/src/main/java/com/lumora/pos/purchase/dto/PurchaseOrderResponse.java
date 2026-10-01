@@ -34,11 +34,18 @@ public class PurchaseOrderResponse {
     @Builder
     public static class PurchaseOrderItemResponse {
         private UUID id;
+        /** PRODUCT or INGREDIENT. */
+        private String itemType;
+        /** The product's or the ingredient's name. */
+        private String name;
+        /** The ingredient's unit (KG, L, ...); PCS for a product. */
+        private String unit;
         private UUID productId;
+        private UUID ingredientId;
         private String productName;
         private String sku;
-        private Integer orderedQuantity;
-        private Integer receivedQuantity;
+        private BigDecimal orderedQuantity;
+        private BigDecimal receivedQuantity;
         private BigDecimal unitCost;
         private BigDecimal totalCost;
     }

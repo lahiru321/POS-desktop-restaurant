@@ -6,6 +6,7 @@ import com.lumora.pos.superadmin.repository.TenantConfigurationRepository;
 import com.lumora.pos.tenant.TenantContext;
 import com.lumora.pos.dashboard.dto.DashboardResponse;
 import com.lumora.pos.dashboard.dto.DashboardResponse.*;
+import com.lumora.pos.ingredient.service.IngredientService;
 import com.lumora.pos.inventory.entity.ProductEntity;
 import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.sales.entity.SaleEntity;
@@ -37,6 +38,7 @@ public class DashboardService {
     private final ProductRepository productRepository;
     private final FinanceService financeService;
     private final TenantConfigurationRepository tenantConfigurationRepository;
+    private final IngredientService ingredientService;
 
     @Transactional(readOnly = true)
     public DashboardResponse getDashboardData() {
@@ -202,18 +204,30 @@ public class DashboardService {
     }
 
     /**
-     * Low stock alerts — products at or below their threshold.
+     * Low stock alerts — up to 10 packaged menu items, then up to 10 ingredients,
+     * at or below their threshold.
      */
     private List<LowStockAlert> buildLowStockAlerts(UUID tenantId) {
         List<ProductEntity> lowStock = productRepository.findLowStockProducts(tenantId, PageRequest.of(0, 10));
 
-        return lowStock.stream().map(p -> LowStockAlert.builder()
+        List<LowStockAlert> alerts = lowStock.stream().map(p -> LowStockAlert.builder()
+                .kind("PRODUCT")
                 .productId(p.getId().toString())
                 .productName(p.getName())
                 .sku(p.getSku())
-                .currentStock(p.getStockQuantity())
-                .threshold(p.getLowStockThreshold())
-                .build()).collect(Collectors.toList());
+                .currentStock(BigDecimal.valueOf(p.getStockQuantity()))
+                .threshold(BigDecimal.valueOf(p.getLowStockThreshold()))
+                .build()).collect(Collectors.toCollection(ArrayList::new));
+
+        ingredientService.lowStockForTenant(tenantId, 10).forEach(i -> alerts.add(LowStockAlert.builder()
+                .kind("INGREDIENT")
+                .productId(i.getId().toString())
+                .productName(i.getName())
+                .currentStock(i.getQuantity())
+                .threshold(i.getLowStockThreshold())
+                .unit(i.getUnit().name())
+                .build()));
+        return alerts;
     }
 
     /**

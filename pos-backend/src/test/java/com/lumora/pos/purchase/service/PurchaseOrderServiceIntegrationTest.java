@@ -5,6 +5,12 @@ import com.lumora.pos.auth.repository.UserRepository;
 import com.lumora.pos.branch.entity.BranchEntity;
 import com.lumora.pos.branch.repository.BranchRepository;
 import com.lumora.pos.common.exception.BusinessException;
+import com.lumora.pos.ingredient.entity.IngredientEntity;
+import com.lumora.pos.ingredient.entity.IngredientMovementEntity;
+import com.lumora.pos.ingredient.entity.IngredientUnit;
+import com.lumora.pos.ingredient.repository.IngredientMovementRepository;
+import com.lumora.pos.ingredient.repository.IngredientRepository;
+import com.lumora.pos.ingredient.repository.IngredientStockLevelRepository;
 import com.lumora.pos.inventory.entity.ProductEntity;
 import com.lumora.pos.inventory.entity.StockLevelEntity;
 import com.lumora.pos.inventory.repository.ProductRepository;
@@ -22,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
@@ -53,11 +60,15 @@ class PurchaseOrderServiceIntegrationTest {
     @Autowired private ProductRepository productRepository;
     @Autowired private StockLevelRepository stockLevelRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private IngredientRepository ingredientRepository;
+    @Autowired private IngredientStockLevelRepository ingredientStockLevelRepository;
+    @Autowired private IngredientMovementRepository ingredientMovementRepository;
 
     private UUID tenantId;
     private BranchEntity branch;
     private SupplierEntity supplier;
     private ProductEntity product;
+    private IngredientEntity rice;
 
     @BeforeEach
     void setUp() {
@@ -100,6 +111,16 @@ class PurchaseOrderServiceIntegrationTest {
                 .product(product).branch(branch).quantity(20).build();
         stock.setTenantId(tenantId);
         stockLevelRepository.save(stock);
+
+        rice = IngredientEntity.builder()
+                .name("Basmati rice")
+                .unit(IngredientUnit.KG)
+                .costPerUnit(new BigDecimal("400.0000"))
+                .lowStockThreshold(new BigDecimal("5.000"))
+                .isActive(true)
+                .build();
+        rice.setTenantId(tenantId);
+        rice = ingredientRepository.save(rice);
     }
 
     @AfterEach
@@ -114,7 +135,7 @@ class PurchaseOrderServiceIntegrationTest {
         UUID poItemId = po.getItems().get(0).getId();
 
         purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
-                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(50).build()));
+                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(new BigDecimal("50")).build()));
 
         StockLevelEntity stock = stockLevelRepository
                 .findByProductIdAndBranchIdAndTenantId(product.getId(), branch.getId(), tenantId)
@@ -135,7 +156,7 @@ class PurchaseOrderServiceIntegrationTest {
         UUID poItemId = po.getItems().get(0).getId();
 
         purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
-                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(4).build()));
+                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(new BigDecimal("4")).build()));
 
         StockLevelEntity stock = stockLevelRepository
                 .findByProductIdAndBranchIdAndTenantId(product.getId(), branch.getId(), tenantId)
@@ -152,7 +173,7 @@ class PurchaseOrderServiceIntegrationTest {
         UUID poItemId = po.getItems().get(0).getId();
 
         assertThatThrownBy(() -> purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
-                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(11).build())))
+                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(new BigDecimal("11")).build())))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Cannot receive more than ordered");
 
@@ -168,18 +189,154 @@ class PurchaseOrderServiceIntegrationTest {
         UUID poItemId = po.getItems().get(0).getId();
 
         purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
-                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(2).build()));
+                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(new BigDecimal("2")).build()));
 
         assertThatThrownBy(() -> purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
-                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(1).build())))
+                ReceivePoItemRequest.builder().poItemId(poItemId).receivedQuantity(new BigDecimal("1")).build())))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("already fully received");
+    }
+
+    @Test
+    void receivePO_ingredientLine_addsStockWritesMovementAndTakesLastCost() {
+        PurchaseOrderResponse po = purchaseOrderService.createPurchaseOrder(PurchaseOrderRequest.builder()
+                .supplierId(supplier.getId())
+                .branchId(branch.getId())
+                .items(List.of(ingredientLine(new BigDecimal("2.5"), new BigDecimal("450.00"))))
+                .build());
+        PurchaseOrderResponse.PurchaseOrderItemResponse line = po.getItems().get(0);
+        assertThat(line.getItemType()).isEqualTo("INGREDIENT");
+        assertThat(line.getName()).isEqualTo("Basmati rice");
+        assertThat(line.getUnit()).isEqualTo("KG");
+        assertThat(po.getTotalAmount()).isEqualByComparingTo("1125.00");
+
+        purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
+                ReceivePoItemRequest.builder().poItemId(line.getId()).receivedQuantity(new BigDecimal("1.25")).build()));
+        purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
+                ReceivePoItemRequest.builder().poItemId(line.getId()).receivedQuantity(new BigDecimal("1.25")).build()));
+
+        assertThat(ingredientStockLevelRepository
+                .findByIngredientIdAndBranchIdAndTenantId(rice.getId(), branch.getId(), tenantId)
+                .orElseThrow().getQuantity()).isEqualByComparingTo("2.5");
+        assertThat(ingredientRepository.findById(rice.getId()).orElseThrow().getCostPerUnit())
+                .isEqualByComparingTo("450");
+        assertThat(purchaseOrderRepository.findById(po.getId()).orElseThrow().getStatus())
+                .isEqualTo(PurchaseOrderEntity.POStatus.RECEIVED);
+
+        List<IngredientMovementEntity> movements = ingredientMovementRepository
+                .findAllByTenantIdAndIngredientIdOrderByCreatedAtDesc(tenantId, rice.getId(), PageRequest.of(0, 10))
+                .getContent();
+        assertThat(movements).hasSize(2).allSatisfy(m -> {
+            assertThat(m.getMovementType()).isEqualTo(IngredientMovementEntity.MovementType.PURCHASE);
+            assertThat(m.getReferenceId()).isEqualTo(po.getId());
+            assertThat(m.getQuantityChange()).isEqualByComparingTo("1.25");
+        });
+        assertThat(movements).extracting(m -> m.getQuantityAfter().stripTrailingZeros().toPlainString())
+                .containsExactlyInAnyOrder("1.25", "2.5");
+    }
+
+    @Test
+    void createPO_mixedIngredientAndPackagedItem_receivesBoth() {
+        PurchaseOrderResponse po = purchaseOrderService.createPurchaseOrder(PurchaseOrderRequest.builder()
+                .supplierId(supplier.getId())
+                .branchId(branch.getId())
+                .items(List.of(
+                        ingredientLine(new BigDecimal("2.5"), new BigDecimal("450.00")),
+                        PurchaseOrderRequest.PurchaseOrderItemRequest.builder()
+                                .productId(product.getId())
+                                .quantity(new BigDecimal("24"))
+                                .unitCost(new BigDecimal("60.00"))
+                                .build()))
+                .build());
+        assertThat(po.getTotalAmount()).isEqualByComparingTo("2565.00"); // 1125 + 1440
+
+        purchaseOrderService.receivePurchaseOrder(po.getId(), po.getItems().stream()
+                .map(i -> ReceivePoItemRequest.builder().poItemId(i.getId())
+                        .receivedQuantity(i.getOrderedQuantity()).build())
+                .toList());
+
+        assertThat(stockLevelRepository
+                .findByProductIdAndBranchIdAndTenantId(product.getId(), branch.getId(), tenantId)
+                .orElseThrow().getQuantity()).isEqualTo(44); // 20 + 24
+        assertThat(ingredientStockLevelRepository
+                .findByIngredientIdAndBranchIdAndTenantId(rice.getId(), branch.getId(), tenantId)
+                .orElseThrow().getQuantity()).isEqualByComparingTo("2.5");
+        assertThat(purchaseOrderRepository.findById(po.getId()).orElseThrow().getStatus())
+                .isEqualTo(PurchaseOrderEntity.POStatus.RECEIVED);
+    }
+
+    @Test
+    void createPO_untrackedMenuItem_isRefused() {
+        product.setTrackStock(false);
+        productRepository.save(product);
+
+        assertThatThrownBy(() -> createDraftPo(5, new BigDecimal("1.00")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("made to order");
+    }
+
+    @Test
+    void createPO_fractionalMenuItemQuantity_isRefused() {
+        assertThatThrownBy(() -> purchaseOrderService.createPurchaseOrder(PurchaseOrderRequest.builder()
+                .supplierId(supplier.getId())
+                .branchId(branch.getId())
+                .items(List.of(PurchaseOrderRequest.PurchaseOrderItemRequest.builder()
+                        .productId(product.getId())
+                        .quantity(new BigDecimal("1.5"))
+                        .unitCost(BigDecimal.ONE)
+                        .build()))
+                .build()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("whole units");
+    }
+
+    @Test
+    void createPO_lineWithBothOrNeitherItem_isRefused() {
+        PurchaseOrderRequest.PurchaseOrderItemRequest both = ingredientLine(BigDecimal.ONE, BigDecimal.ONE);
+        both.setProductId(product.getId());
+        PurchaseOrderRequest.PurchaseOrderItemRequest neither = PurchaseOrderRequest.PurchaseOrderItemRequest
+                .builder().quantity(BigDecimal.ONE).unitCost(BigDecimal.ONE).build();
+
+        for (PurchaseOrderRequest.PurchaseOrderItemRequest line : List.of(both, neither)) {
+            assertThatThrownBy(() -> purchaseOrderService.createPurchaseOrder(PurchaseOrderRequest.builder()
+                    .supplierId(supplier.getId())
+                    .branchId(branch.getId())
+                    .items(List.of(line))
+                    .build()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("either an ingredient or a menu item");
+        }
+    }
+
+    @Test
+    void receivePO_ingredientOverReceive_throwsAndLeavesNoStock() {
+        PurchaseOrderResponse po = purchaseOrderService.createPurchaseOrder(PurchaseOrderRequest.builder()
+                .supplierId(supplier.getId())
+                .branchId(branch.getId())
+                .items(List.of(ingredientLine(new BigDecimal("2.5"), new BigDecimal("450"))))
+                .build());
+
+        assertThatThrownBy(() -> purchaseOrderService.receivePurchaseOrder(po.getId(), List.of(
+                ReceivePoItemRequest.builder().poItemId(po.getItems().get(0).getId())
+                        .receivedQuantity(new BigDecimal("2.501")).build())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Cannot receive more than ordered");
+        assertThat(ingredientStockLevelRepository
+                .findByIngredientIdAndBranchIdAndTenantId(rice.getId(), branch.getId(), tenantId)).isEmpty();
+    }
+
+    private PurchaseOrderRequest.PurchaseOrderItemRequest ingredientLine(BigDecimal qty, BigDecimal unitCost) {
+        return PurchaseOrderRequest.PurchaseOrderItemRequest.builder()
+                .ingredientId(rice.getId())
+                .quantity(qty)
+                .unitCost(unitCost)
+                .build();
     }
 
     private PurchaseOrderResponse createDraftPo(int qty, BigDecimal unitCost) {
         PurchaseOrderRequest.PurchaseOrderItemRequest itemReq = PurchaseOrderRequest.PurchaseOrderItemRequest.builder()
                 .productId(product.getId())
-                .quantity(qty)
+                .quantity(BigDecimal.valueOf(qty))
                 .unitCost(unitCost)
                 .build();
 

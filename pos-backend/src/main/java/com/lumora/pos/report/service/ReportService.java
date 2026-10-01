@@ -2,6 +2,7 @@ package com.lumora.pos.report.service;
 
 import com.lumora.pos.cashsession.entity.CashSessionEntity;
 import com.lumora.pos.cashsession.repository.CashSessionRepository;
+import com.lumora.pos.ingredient.repository.IngredientStockLevelRepository;
 import com.lumora.pos.inventory.entity.InventoryAdjustmentEntity;
 import com.lumora.pos.inventory.repository.InventoryAdjustmentRepository;
 import com.lumora.pos.inventory.repository.ProductRepository;
@@ -42,6 +43,7 @@ public class ReportService {
         private final InventoryAdjustmentRepository inventoryAdjustmentRepository;
         private final CashSessionRepository cashSessionRepository;
         private final BranchAccessGuard branchAccessGuard;
+        private final IngredientStockLevelRepository ingredientStockLevelRepository;
 
         /**
          * Get paginated sales history for a specific date range.
@@ -117,6 +119,26 @@ public class ReportService {
                 int totalProducts = breakdown.stream().mapToInt(CategoryValuation::getProductCount).sum();
                 int totalStock = breakdown.stream().mapToInt(CategoryValuation::getStockCount).sum();
 
+                List<Object[]> ingredientRows = branchFilter.isPresent()
+                                ? (branchFilter.get().isEmpty() ? List.of()
+                                                : ingredientStockLevelRepository.valuationByBranchIn(tenantId,
+                                                                branchFilter.get()))
+                                : ingredientStockLevelRepository.valuationByBranch(tenantId);
+                List<IngredientBranchValuation> ingredientBreakdown = ingredientRows.stream()
+                                .map(row -> IngredientBranchValuation.builder()
+                                                .branchName(row[0] != null ? row[0].toString() : "Unknown")
+                                                .ingredientCount(row[1] instanceof Number n ? n.intValue() : 0)
+                                                .costValue(row[2] instanceof BigDecimal v
+                                                                ? v.setScale(2, RoundingMode.HALF_UP)
+                                                                : BigDecimal.ZERO)
+                                                .build())
+                                .collect(Collectors.toList());
+                BigDecimal ingredientCost = ingredientBreakdown.stream()
+                                .map(IngredientBranchValuation::getCostValue)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                int totalIngredients = ingredientBreakdown.stream()
+                                .mapToInt(IngredientBranchValuation::getIngredientCount).sum();
+
                 return InventoryValuationReport.builder()
                                 .totalProducts(totalProducts)
                                 .totalStockItems(totalStock)
@@ -124,6 +146,9 @@ public class ReportService {
                                 .totalRetailValue(totalRetail)
                                 .potentialProfit(totalRetail.subtract(totalCost))
                                 .categoryBreakdown(breakdown)
+                                .totalIngredients(totalIngredients)
+                                .ingredientCostValue(ingredientCost)
+                                .ingredientBreakdown(ingredientBreakdown)
                                 .build();
         }
 

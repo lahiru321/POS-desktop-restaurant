@@ -29,6 +29,13 @@ export const QK = {
   /** Desktop license expiry, for the warning banner. */
   licenseStatus: ['license-status'] as const,
   brands: ['brands'] as const,
+  /** Every ingredient read starts with this, so one invalidate refreshes them all. */
+  ingredients: ['ingredients'] as const,
+  ingredientList: (branchId: string, includeInactive: boolean) =>
+    ['ingredients', 'list', branchId || 'all', includeInactive] as const,
+  ingredientLowStock: (branchId: string) => ['ingredients', 'low-stock', branchId || 'all'] as const,
+  ingredientMovements: (id: string, branchId: string, page: number) =>
+    ['ingredients', 'movements', id, branchId || 'all', page] as const,
   expenses: ['expenses'] as const,
   expenseCategories: ['expense-categories'] as const,
   financePnl: ['finance', 'profit-loss'] as const,

@@ -4,26 +4,35 @@ import { purchaseOrderService, PurchaseOrderRequest } from "@/services/purchaseO
 import { supplierService } from "@/services/supplierService";
 import { branchService } from "@/services/branchService";
 import { inventoryService } from "@/services/inventoryService";
+import { ingredientService } from "@/services/ingredientService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Truck, Trash2 } from "lucide-react";
-import { Product } from "@/types/inventory";
 import { CURRENCY } from '@/lib/utils';
+import { QK } from "@/lib/queryKeys";
+import { hasAtMostDecimals, unitShort } from "@/lib/ingredientUnits";
 
 interface CreatePOModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-interface SelectedProduct extends Partial<Product> {
-  id: string;
+type LineKind = "INGREDIENT" | "PRODUCT";
+
+/** One order line: an ingredient (any quantity to 3 places) or a packaged menu item (whole units). */
+interface OrderLine {
+  key: string;
+  kind: LineKind;
+  refId: string;
   name: string;
-  sku: string;
+  /** KG, L, ... for an ingredient; PCS for a packaged item. */
+  unit: string;
   quantity: number;
   unitCost: number;
 }
@@ -34,7 +43,8 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
   const [branchId, setBranchId] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<SelectedProduct[]>([]);
+  const [items, setItems] = useState<OrderLine[]>([]);
+  const [pickerKind, setPickerKind] = useState<LineKind>("INGREDIENT");
 
   // Fetch Suppliers
   const { data: suppliersData } = useQuery({
@@ -50,6 +60,12 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
     enabled: isOpen,
   });
 
+  const { data: ingredientsData } = useQuery({
+    queryKey: QK.ingredientList("", false),
+    queryFn: () => ingredientService.getIngredients(undefined, false),
+    enabled: isOpen,
+  });
+
   // Fetch Products
   const { data: productsData } = useQuery({
     queryKey: ["products-all"],
@@ -58,7 +74,11 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
   });
 
   const suppliers = (suppliersData?.content || []).filter(s => s.isActive);
-  const products = productsData?.content || [];
+  // The selected supplier's own ingredients first — they are what this order is most likely for.
+  const ingredients = [...(ingredientsData || [])].sort((a, b) =>
+    Number(b.primarySupplierId === supplierId) - Number(a.primarySupplierId === supplierId));
+  // A made-to-order dish has no stock to buy; the server refuses it too.
+  const packagedItems = (productsData?.content || []).filter(p => p.trackStock && p.isActive);
 
   // Reset form when opened Let's rely on standard resets.
   useEffect(() => {
@@ -68,38 +88,53 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
       setExpectedDate("");
       setNotes("");
       setItems([]);
+      setPickerKind("INGREDIENT");
     }
   }, [isOpen]);
 
-  const addProduct = (productId: string) => {
-    if (!productId) return;
-    const product = products.find(p => p.id === productId);
-    if (!product) return;
-
-    if (items.some(i => i.id === productId)) {
-      toast.error("Product already added to the purchase order.");
+  const addLine = (line: Omit<OrderLine, "key" | "quantity">) => {
+    const key = `${line.kind}:${line.refId}`;
+    if (items.some(i => i.key === key)) {
+      toast.error(`${line.name} is already on this order.`);
       return;
     }
+    setItems([...items, { ...line, key, quantity: 1 }]);
+  };
 
-    setItems([...items, {
-      id: product.id,
+  const addIngredient = (id: string) => {
+    const ingredient = ingredients.find(i => i.id === id);
+    if (!ingredient) return;
+    addLine({
+      kind: "INGREDIENT",
+      refId: ingredient.id,
+      name: ingredient.name,
+      unit: ingredient.unit,
+      unitCost: ingredient.costPerUnit || 0,
+    });
+  };
+
+  const addProduct = (id: string) => {
+    const product = packagedItems.find(p => p.id === id);
+    if (!product) return;
+    addLine({
+      kind: "PRODUCT",
+      refId: product.id,
       name: product.name,
-      sku: product.sku,
-      quantity: 1,
+      unit: "PCS",
       unitCost: product.costPrice || 0,
-    }]);
+    });
   };
 
-  const removeProduct = (productId: string) => {
-    setItems(items.filter(i => i.id !== productId));
+  const removeLine = (key: string) => {
+    setItems(items.filter(i => i.key !== key));
   };
 
-  const updateItemQty = (productId: string, qty: number) => {
-    setItems(items.map(i => i.id === productId ? { ...i, quantity: qty } : i));
+  const updateItemQty = (key: string, qty: number) => {
+    setItems(items.map(i => i.key === key ? { ...i, quantity: qty } : i));
   };
 
-  const updateItemCost = (productId: string, cost: number) => {
-    setItems(items.map(i => i.id === productId ? { ...i, unitCost: cost } : i));
+  const updateItemCost = (key: string, cost: number) => {
+    setItems(items.map(i => i.key === key ? { ...i, unitCost: cost } : i));
   };
 
   const createMutation = useMutation({
@@ -120,6 +155,19 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
       toast.error("Please fill all required fields and add at least one item.");
       return;
     }
+    for (const i of items) {
+      const places = i.kind === "INGREDIENT" ? 3 : 0;
+      if (!(i.quantity > 0) || !hasAtMostDecimals(i.quantity, places)) {
+        toast.error(i.kind === "INGREDIENT"
+          ? `${i.name}: enter a quantity above zero, to at most 3 decimal places.`
+          : `${i.name}: packaged items are ordered in whole units.`);
+        return;
+      }
+      if (!(i.unitCost >= 0) || !hasAtMostDecimals(i.unitCost, i.kind === "INGREDIENT" ? 4 : 2)) {
+        toast.error(`${i.name}: check the unit cost.`);
+        return;
+      }
+    }
 
     const requestData: PurchaseOrderRequest = {
       supplierId,
@@ -127,7 +175,7 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
       expectedDate: expectedDate ? `${expectedDate}T00:00:00` : undefined,
       notes,
       items: items.map(i => ({
-        productId: i.id,
+        ...(i.kind === "INGREDIENT" ? { ingredientId: i.refId } : { productId: i.refId }),
         quantity: i.quantity,
         unitCost: i.unitCost
       }))
@@ -140,7 +188,7 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[700px] h-[90vh] flex flex-col bg-card border-border text-foreground p-0">
+      <DialogContent className="max-w-[760px] h-[90vh] flex flex-col bg-card border-border text-foreground p-0">
         <DialogHeader className="p-6 pb-2 border-b border-border">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Truck className="h-5 w-5 text-primary" />
@@ -180,20 +228,20 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
                     </SelectContent>
                   </Select>
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label>Expected Date</Label>
-                  <Input 
+                  <Input
                     type="date"
                     value={expectedDate}
                     onChange={(e) => setExpectedDate(e.target.value)}
                     className="bg-background border-border [color-scheme:dark]"
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label>Notes</Label>
-                  <Input 
+                  <Input
                     placeholder="Optional remarks..."
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -204,63 +252,96 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
 
               {/* Items Section */}
               <div className="space-y-4 pt-4 border-t border-border">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-3 flex-wrap">
                   <Label className="text-lg font-semibold">Order Items</Label>
-                  <div className="w-[300px]">
-                    <Select onValueChange={addProduct} value="">
-                      <SelectTrigger className="bg-background border-border h-8">
-                        <SelectValue placeholder="+ Select product to add..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-card border-border text-foreground">
-                        {products.map(p => (
-                          <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="flex items-center gap-2">
+                    <Tabs value={pickerKind} onValueChange={(v) => setPickerKind(v as LineKind)}>
+                      <TabsList className="h-8">
+                        <TabsTrigger value="INGREDIENT" className="text-xs h-6">Ingredients</TabsTrigger>
+                        <TabsTrigger value="PRODUCT" className="text-xs h-6">Packaged items</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                    <div className="w-[260px]">
+                      {pickerKind === "INGREDIENT" ? (
+                        <Select onValueChange={addIngredient} value="">
+                          <SelectTrigger className="bg-background border-border h-8" aria-label="Add an ingredient">
+                            <SelectValue placeholder={ingredients.length ? "+ Add ingredient..." : "No ingredients yet"} />
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border-border text-foreground">
+                            {ingredients.map(i => (
+                              <SelectItem key={i.id} value={i.id}>{i.name} ({unitShort(i.unit)})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Select onValueChange={addProduct} value="">
+                          <SelectTrigger className="bg-background border-border h-8" aria-label="Add a packaged item">
+                            <SelectValue placeholder={packagedItems.length ? "+ Add packaged item..." : "No stock-tracked items"} />
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border-border text-foreground">
+                            {packagedItems.map(p => (
+                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {items.length === 0 ? (
-                  <div className="text-center py-8 bg-background rounded border border-dashed border-border text-muted-foreground">
-                    No products added yet. Select products from the dropdown above.
+                  <div className="text-center py-8 bg-background rounded border border-dashed border-border text-muted-foreground text-sm px-6">
+                    Nothing added yet. Pick ingredients (rice, oil, vegetables) or packaged items
+                    you resell (bottled drinks) from the dropdown above.
                   </div>
                 ) : (
                   <div className="border border-border rounded-md overflow-hidden bg-background">
                     <table className="w-full text-sm">
                       <thead className="bg-card text-muted-foreground border-b border-border">
                         <tr>
-                          <th className="text-left py-2 px-3 font-medium">Product</th>
-                          <th className="text-left py-2 px-3 font-medium w-24">Unit Cost</th>
-                          <th className="text-left py-2 px-3 font-medium w-24">Quantity</th>
+                          <th className="text-left py-2 px-3 font-medium">Item</th>
+                          <th className="text-left py-2 px-3 font-medium w-28">Unit Cost</th>
+                          <th className="text-left py-2 px-3 font-medium w-32">Quantity</th>
                           <th className="text-right py-2 px-3 font-medium w-28">Total</th>
                           <th className="w-10"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {items.map(item => (
-                          <tr key={item.id} className="border-b border-border/50 last:border-0 hover:bg-card/50 transition-colors">
+                        {items.map(item => {
+                          const isIngredient = item.kind === "INGREDIENT";
+                          const unit = unitShort(item.unit);
+                          return (
+                          <tr key={item.key} className="border-b border-border/50 last:border-0 hover:bg-card/50 transition-colors">
                             <td className="py-2 px-3">
                               <div className="font-medium">{item.name}</div>
-                              <div className="text-xs text-muted-foreground">{item.sku}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {isIngredient ? "Ingredient" : "Packaged item"}
+                              </div>
                             </td>
                             <td className="py-2 px-3">
-                              <Input 
-                                type="number" 
-                                min="0" 
-                                step="0.01"
+                              <Input
+                                type="number"
+                                min="0"
+                                step={isIngredient ? "0.0001" : "0.01"}
+                                aria-label={`Cost per ${unit} for ${item.name}`}
                                 className="h-8 bg-card border-border px-2"
                                 value={item.unitCost}
-                                onChange={(e) => updateItemCost(item.id, Number(e.target.value))}
+                                onChange={(e) => updateItemCost(item.key, Number(e.target.value))}
                               />
                             </td>
                             <td className="py-2 px-3">
-                              <Input 
-                                type="number" 
-                                min="1" 
-                                className="h-8 bg-card border-border px-2"
-                                value={item.quantity}
-                                onChange={(e) => updateItemQty(item.id, Number(e.target.value))}
-                              />
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  type="number"
+                                  min={isIngredient ? "0.001" : "1"}
+                                  step={isIngredient ? "0.001" : "1"}
+                                  aria-label={`Quantity of ${item.name}`}
+                                  className="h-8 bg-card border-border px-2"
+                                  value={item.quantity}
+                                  onChange={(e) => updateItemQty(item.key, Number(e.target.value))}
+                                />
+                                <span className="text-xs text-muted-foreground w-7 shrink-0">{unit}</span>
+                              </div>
                             </td>
                             <td className="py-2 px-3 text-right font-medium text-success">
                               {CURRENCY.symbol} {(item.quantity * item.unitCost).toFixed(2)}
@@ -273,13 +354,14 @@ export function CreatePOModal({ isOpen, onClose }: CreatePOModalProps) {
                                 aria-label="Remove item"
                                 title="Remove item"
                                 className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => removeProduct(item.id)}
+                                onClick={() => removeLine(item.key)}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

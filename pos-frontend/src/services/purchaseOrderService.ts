@@ -2,11 +2,20 @@ import api from './api';
 
 export type POStatus = 'DRAFT' | 'ORDERED' | 'PARTIAL' | 'RECEIVED' | 'CANCELLED';
 
+export type PurchaseOrderItemType = 'PRODUCT' | 'INGREDIENT';
+
 export interface PurchaseOrderItem {
   id: string;
-  productId: string;
+  itemType: PurchaseOrderItemType;
+  /** The product's or the ingredient's name. */
+  name: string;
+  /** The ingredient's unit (KG, L, ...); PCS for a packaged item. */
+  unit: string;
+  productId?: string | null;
+  ingredientId?: string | null;
   productName: string;
-  sku: string;
+  sku?: string | null;
+  /** Up to 3 decimals on an ingredient line (2.5 kg); whole on a packaged item. */
   orderedQuantity: number;
   receivedQuantity: number;
   unitCost: number;
@@ -33,8 +42,10 @@ export interface PurchaseOrder {
   updatedAt: string;
 }
 
+/** Exactly one of productId (a stock-tracked menu item) or ingredientId. */
 export interface PurchaseOrderItemRequest {
-  productId: string;
+  productId?: string;
+  ingredientId?: string;
   quantity: number;
   unitCost: number;
 }

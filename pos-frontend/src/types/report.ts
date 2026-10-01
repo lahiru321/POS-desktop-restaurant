@@ -40,6 +40,16 @@ export interface InventoryValuationReport {
   totalRetailValue: number;
   potentialProfit: number;
   categoryBreakdown: CategoryValuation[];
+  /** Ingredients on hand, valued at their last cost — not in the totals above. */
+  totalIngredients: number;
+  ingredientCostValue: number;
+  ingredientBreakdown: IngredientBranchValuation[];
+}
+
+export interface IngredientBranchValuation {
+  branchName: string;
+  ingredientCount: number;
+  costValue: number;
 }
 
 export interface CategoryValuation {

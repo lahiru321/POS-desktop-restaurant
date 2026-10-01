@@ -40,6 +40,8 @@ public class FeatureGuardInterceptor implements HandlerInterceptor {
     static {
         FEATURE_ROUTES.put("/api/v1/purchase-orders", "PURCHASE_ORDERS");
         FEATURE_ROUTES.put("/api/v1/stock-transfers", "STOCK_TRANSFERS");
+        // Every plan carries INVENTORY; listed so a tenant without it can't buy around it.
+        FEATURE_ROUTES.put("/api/v1/ingredients", "INVENTORY");
         FEATURE_ROUTES.put("/api/v1/returns", "RETURNS");
         FEATURE_ROUTES.put("/api/v1/taxes", "TAX_CONFIG");
         FEATURE_ROUTES.put("/api/v1/time-records", "TIME_CLOCK");

@@ -17,6 +17,7 @@ import {
   UserCircle,
   LayoutGrid,
   Salad,
+  Wheat,
   type LucideIcon,
 } from 'lucide-react';
 import { QK } from '@/lib/queryKeys';
@@ -62,6 +63,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Tags,
     requiredFeature: 'INVENTORY',
     keywords: 'categories sections',
+  },
+  {
+    label: 'Ingredients',
+    href: '/inventory/ingredients',
+    icon: Wheat,
+    roles: STOCK,
+    requiredFeature: 'INVENTORY',
+    keywords: 'stock kitchen raw materials wastage count',
   },
   { label: 'Tables', href: '/restaurant/tables', icon: LayoutGrid, roles: MANAGERS, keywords: 'floor areas' },
   { label: 'Add-ons', href: '/restaurant/toppings', icon: Salad, roles: MANAGERS, keywords: 'toppings extras modifiers' },

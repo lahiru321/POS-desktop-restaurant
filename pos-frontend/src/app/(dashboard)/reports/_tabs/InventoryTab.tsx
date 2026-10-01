@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { reportService } from "@/services/reportService";
 import { InventoryValuationReport } from "@/types/report";
 import { format } from "date-fns";
-import { TrendingUp, DollarSign, Download } from "lucide-react";
+import { TrendingUp, DollarSign, Download, Wheat } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -26,6 +26,7 @@ export function InventoryTab({ branchId }: { branchId?: string }) {
   });
 
   const breakdown = data?.categoryBreakdown ?? [];
+  const ingredientBreakdown = data?.ingredientBreakdown ?? [];
   const paged = breakdown.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(breakdown.length / PAGE_SIZE));
 
@@ -51,7 +52,7 @@ export function InventoryTab({ branchId }: { branchId?: string }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-muted-foreground">The net value based on product cost price.</p>
+            <p className="text-xs text-muted-foreground">Packaged menu items at cost. Ingredients are counted separately below.</p>
           </CardContent>
         </Card>
         <Card className="bg-card/50 border-border">
@@ -136,6 +137,57 @@ export function InventoryTab({ branchId }: { branchId?: string }) {
             onPageChange={setPage}
             isLoading={isLoading}
           />
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card/50 border-border">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Wheat className="h-5 w-5 text-primary" /> Ingredients
+            </CardTitle>
+            <CardDescription>Kitchen stock on hand, valued at the last price paid.</CardDescription>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-muted-foreground">Ingredient stock value</div>
+            <div className="text-2xl font-bold">{isLoading ? "..." : fc(data?.ingredientCostValue ?? 0)}</div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border border-border bg-card/40">
+            <Table>
+              <TableHeader className="bg-muted/50">
+                <TableRow>
+                  <TableHead>Branch</TableHead>
+                  <TableHead className="text-center">Ingredients in stock</TableHead>
+                  <TableHead className="text-right">Cost Value</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center py-6 text-muted-foreground animate-pulse">
+                      Loading...
+                    </TableCell>
+                  </TableRow>
+                ) : ingredientBreakdown.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center py-6 text-muted-foreground">
+                      No ingredient stock yet. It arrives when a purchase order is received.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  ingredientBreakdown.map(row => (
+                    <TableRow key={row.branchName} className="hover:bg-muted/50">
+                      <TableCell className="font-medium">{row.branchName}</TableCell>
+                      <TableCell className="text-center">{row.ingredientCount}</TableCell>
+                      <TableCell className="text-right">{fc(row.costValue)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

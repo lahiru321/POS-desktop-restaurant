@@ -6,6 +6,9 @@ import com.lumora.pos.branch.entity.BranchEntity;
 import com.lumora.pos.branch.repository.BranchRepository;
 import com.lumora.pos.branch.service.BranchAccessGuard;
 import com.lumora.pos.common.exception.BusinessException;
+import com.lumora.pos.ingredient.entity.IngredientEntity;
+import com.lumora.pos.ingredient.service.IngredientService;
+import com.lumora.pos.ingredient.service.IngredientStockService;
 import com.lumora.pos.inventory.entity.ProductEntity;
 import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.inventory.service.ProductService;
@@ -27,6 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,6 +48,8 @@ public class PurchaseOrderService {
     private final AuditService auditService;
     private final UserRepository userRepository;
     private final BranchAccessGuard branchAccessGuard;
+    private final IngredientService ingredientService;
+    private final IngredientStockService ingredientStockService;
 
     @Transactional
     public PurchaseOrderResponse createPurchaseOrder(PurchaseOrderRequest request) {
@@ -74,18 +80,42 @@ public class PurchaseOrderService {
         BigDecimal totalAmount = BigDecimal.ZERO;
 
         for (PurchaseOrderRequest.PurchaseOrderItemRequest itemReq : request.getItems()) {
-            ProductEntity product = productRepository.findByIdAndTenantId(itemReq.getProductId(), tenantId)
-                    .orElseThrow(() -> new BusinessException("Product not found: " + itemReq.getProductId()));
+            boolean hasProduct = itemReq.getProductId() != null;
+            if (hasProduct == (itemReq.getIngredientId() != null)) {
+                throw new BusinessException("Each line must be either an ingredient or a menu item");
+            }
 
-            BigDecimal itemTotal = itemReq.getUnitCost().multiply(BigDecimal.valueOf(itemReq.getQuantity()));
+            ProductEntity product = null;
+            IngredientEntity ingredient = null;
+            BigDecimal quantity;
+            BigDecimal unitCost;
+            if (hasProduct) {
+                product = productRepository.findByIdAndTenantId(itemReq.getProductId(), tenantId)
+                        .orElseThrow(() -> new BusinessException("Product not found: " + itemReq.getProductId()));
+                // Receiving an untracked item used to add nothing and say nothing.
+                if (!product.isTrackStock()) {
+                    throw new BusinessException(product.getName()
+                            + " is made to order, so it has no stock to buy. Turn on \"Sold as a packaged item\""
+                            + " on the menu item, or order its ingredients instead");
+                }
+                quantity = wholeQuantity(itemReq.getQuantity(), product.getName());
+                unitCost = itemReq.getUnitCost().setScale(2, RoundingMode.HALF_UP);
+            } else {
+                ingredient = ingredientService.requireActive(itemReq.getIngredientId());
+                quantity = ingredientQuantity(itemReq.getQuantity());
+                unitCost = ingredientCost(itemReq.getUnitCost());
+            }
+
+            BigDecimal itemTotal = unitCost.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
             totalAmount = totalAmount.add(itemTotal);
 
             PurchaseOrderItemEntity item = PurchaseOrderItemEntity.builder()
                     .purchaseOrder(po)
                     .product(product)
-                    .orderedQuantity(itemReq.getQuantity())
-                    .receivedQuantity(0)
-                    .unitCost(itemReq.getUnitCost())
+                    .ingredient(ingredient)
+                    .orderedQuantity(quantity)
+                    .receivedQuantity(BigDecimal.ZERO)
+                    .unitCost(unitCost)
                     .totalCost(itemTotal)
                     .build();
             item.setTenantId(tenantId);
@@ -140,43 +170,56 @@ public class PurchaseOrderService {
                     .orElseThrow(() -> new BusinessException("Purchase Order Item not found: " + req.getPoItemId()));
 
             // Calculate how many NEW items we are receiving in this transaction
-            int newQuantityToReceive = req.getReceivedQuantity();
-            if (newQuantityToReceive <= 0)
+            BigDecimal newQuantityToReceive = poItem.isIngredientLine()
+                    ? ingredientQuantity(req.getReceivedQuantity())
+                    : wholeQuantity(req.getReceivedQuantity(), poItem.getItemName());
+            if (newQuantityToReceive.signum() <= 0)
                 continue;
 
-            int previousReceived = poItem.getReceivedQuantity();
-            int totalNowReceived = previousReceived + newQuantityToReceive;
+            BigDecimal totalNowReceived = poItem.getReceivedQuantity().add(newQuantityToReceive);
 
-            if (totalNowReceived > poItem.getOrderedQuantity()) {
+            if (totalNowReceived.compareTo(poItem.getOrderedQuantity()) > 0) {
                 throw new BusinessException(
-                        "Cannot receive more than ordered for product: " + poItem.getProduct().getName());
+                        "Cannot receive more than ordered for: " + poItem.getItemName());
             }
 
             // Update item received quantity
             poItem.setReceivedQuantity(totalNowReceived);
 
-            // Critical phase: Automatically update the inventory stock
-            // We pass branchId into the stock adjustment to ensure it increments the
-            // correct warehouse
-            productService.updateStockForBranch(
-                    poItem.getProduct().getId(),
-                    po.getBranch().getId(),
-                    newQuantityToReceive,
-                    "PO Reception: " + po.getPoNumber());
+            if (poItem.isIngredientLine()) {
+                // Adds stock, writes a PURCHASE movement and takes this price as the last cost.
+                ingredientStockService.receive(poItem.getIngredient(), po.getBranch().getId(),
+                        newQuantityToReceive, poItem.getUnitCost(), po.getId(), po.getPoNumber());
+            } else {
+                // Stock tracking can be switched off after the PO was raised; receiving
+                // would then silently add nothing.
+                if (!poItem.getProduct().isTrackStock()) {
+                    throw new BusinessException(poItem.getItemName()
+                            + " no longer tracks stock — turn \"Sold as a packaged item\" back on to receive it");
+                }
+                // Critical phase: Automatically update the inventory stock
+                // We pass branchId into the stock adjustment to ensure it increments the
+                // correct warehouse
+                productService.updateStockForBranch(
+                        poItem.getProduct().getId(),
+                        po.getBranch().getId(),
+                        newQuantityToReceive.intValueExact(),
+                        "PO Reception: " + po.getPoNumber());
 
-            // Update product's cost price to reflect the new PO value
-            ProductEntity product = poItem.getProduct();
-            product.setCostPrice(poItem.getUnitCost());
-            productRepository.save(product);
+                // Update product's cost price to reflect the new PO value
+                ProductEntity product = poItem.getProduct();
+                product.setCostPrice(poItem.getUnitCost().setScale(2, RoundingMode.HALF_UP));
+                productRepository.save(product);
+            }
 
-            if (totalNowReceived < poItem.getOrderedQuantity()) {
+            if (totalNowReceived.compareTo(poItem.getOrderedQuantity()) < 0) {
                 allFullyReceived = false;
             }
         }
 
         // Double check all items
         for (PurchaseOrderItemEntity item : po.getItems()) {
-            if (item.getReceivedQuantity() < item.getOrderedQuantity()) {
+            if (item.getReceivedQuantity().compareTo(item.getOrderedQuantity()) < 0) {
                 allFullyReceived = false;
                 break;
             }
@@ -246,16 +289,51 @@ public class PurchaseOrderService {
     }
 
     private PurchaseOrderResponse.PurchaseOrderItemResponse mapItemToResponse(PurchaseOrderItemEntity item) {
+        boolean ingredientLine = item.isIngredientLine();
         return PurchaseOrderResponse.PurchaseOrderItemResponse.builder()
                 .id(item.getId())
-                .productId(item.getProduct().getId())
-                .productName(item.getProduct().getName())
-                .sku(item.getProduct().getSku())
+                .itemType(ingredientLine ? "INGREDIENT" : "PRODUCT")
+                .name(item.getItemName())
+                .unit(ingredientLine ? item.getIngredient().getUnit().name() : "PCS")
+                .productId(ingredientLine ? null : item.getProduct().getId())
+                .ingredientId(ingredientLine ? item.getIngredient().getId() : null)
+                .productName(item.getItemName())
+                .sku(ingredientLine ? null : item.getProduct().getSku())
                 .orderedQuantity(item.getOrderedQuantity())
                 .receivedQuantity(item.getReceivedQuantity())
                 .unitCost(item.getUnitCost())
                 .totalCost(item.getTotalCost())
                 .build();
+    }
+
+    /** Product stock is an INT, so a menu-item line is ordered and received in whole units. */
+    private static BigDecimal wholeQuantity(BigDecimal quantity, String name) {
+        if (quantity == null) {
+            throw new BusinessException("Quantity is required");
+        }
+        BigDecimal stripped = quantity.stripTrailingZeros();
+        if (stripped.scale() > 0) {
+            throw new BusinessException(name + " is counted in whole units, not "
+                    + stripped.toPlainString());
+        }
+        return quantity.setScale(3, RoundingMode.UNNECESSARY);
+    }
+
+    private static BigDecimal ingredientQuantity(BigDecimal quantity) {
+        if (quantity == null) {
+            throw new BusinessException("Quantity is required");
+        }
+        if (quantity.stripTrailingZeros().scale() > 3) {
+            throw new BusinessException("Quantities can have at most 3 decimal places");
+        }
+        return quantity.setScale(3, RoundingMode.UNNECESSARY);
+    }
+
+    private static BigDecimal ingredientCost(BigDecimal unitCost) {
+        if (unitCost.stripTrailingZeros().scale() > 4) {
+            throw new BusinessException("Unit cost can have at most 4 decimal places");
+        }
+        return unitCost.setScale(4, RoundingMode.UNNECESSARY);
     }
 
     private UUID getCurrentUserId() {

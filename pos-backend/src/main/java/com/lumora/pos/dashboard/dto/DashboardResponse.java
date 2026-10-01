@@ -72,11 +72,17 @@ public class DashboardResponse {
     @Data
     @Builder
     public static class LowStockAlert {
+        /** PRODUCT (a packaged menu item) or INGREDIENT. */
+        private String kind;
+        /** The product's or ingredient's id; the field name predates ingredients. */
         private String productId;
         private String productName;
         private String sku;
-        private int currentStock;
-        private int threshold;
+        /** Decimal for ingredients (2.5 kg); whole for products. */
+        private BigDecimal currentStock;
+        private BigDecimal threshold;
+        /** KG, L, ... for an ingredient; null for a product. */
+        private String unit;
     }
 
     @Data

@@ -52,11 +52,17 @@ export interface PaymentMethodBreakdown {
 }
 
 export interface LowStockAlert {
+  /** PRODUCT (a packaged menu item) or INGREDIENT. */
+  kind: 'PRODUCT' | 'INGREDIENT';
+  /** The product's or ingredient's id. */
   productId: string;
   productName: string;
-  sku: string;
+  sku?: string | null;
+  /** Decimal for an ingredient (2.5 kg). */
   currentStock: number;
   threshold: number;
+  /** KG, L, ... for an ingredient. */
+  unit?: string | null;
 }
 
 export interface RecentTransaction {

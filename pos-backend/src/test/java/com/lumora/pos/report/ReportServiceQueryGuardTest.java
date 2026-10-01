@@ -60,6 +60,7 @@ class ReportServiceQueryGuardTest {
     @Mock private InventoryAdjustmentRepository inventoryAdjustmentRepository;
     @Mock private CashSessionRepository cashSessionRepository;
     @Mock private BranchAccessGuard branchAccessGuard;
+    @Mock private com.lumora.pos.ingredient.repository.IngredientStockLevelRepository ingredientStockLevelRepository;
 
     private ReportService reportService;
     private final UUID tenantId = UUID.randomUUID();
@@ -69,7 +70,7 @@ class ReportServiceQueryGuardTest {
         reportService = new ReportService(
                 saleRepository, productRepository, userRepository, customerRepository,
                 creditTransactionRepository, purchaseOrderItemRepository, inventoryAdjustmentRepository,
-                cashSessionRepository, branchAccessGuard
+                cashSessionRepository, branchAccessGuard, ingredientStockLevelRepository
         );
         TenantContext.setTenantId(tenantId);
     }

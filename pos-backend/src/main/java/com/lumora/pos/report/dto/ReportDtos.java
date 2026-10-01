@@ -57,6 +57,20 @@ public class ReportDtos {
         private BigDecimal totalRetailValue; // stock * basePrice
         private BigDecimal potentialProfit; // totalRetail - totalCost
         private List<CategoryValuation> categoryBreakdown;
+        /** Ingredients on hand (V72), valued at their last cost. Not in the totals above. */
+        private int totalIngredients;
+        private BigDecimal ingredientCostValue;
+        private List<IngredientBranchValuation> ingredientBreakdown;
+    }
+
+    @Data
+    @Builder
+    public static class IngredientBranchValuation {
+        private String branchName;
+        /** Ingredients with stock at this branch. */
+        private int ingredientCount;
+        /** Sum of quantity x cost per unit. */
+        private BigDecimal costValue;
     }
 
     @Data

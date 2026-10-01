@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { CreatePOModal } from "./CreatePOModal";
 import { ReceivePOModal } from "./ReceivePOModal";
 import { CURRENCY } from '@/lib/utils';
+import { formatQty, formatUnitCost } from '@/lib/ingredientUnits';
 import { FeatureGuard } from "@/components/auth/FeatureGuard";
 import { useConfirmDialog } from "@/components/super-admin/ConfirmDialog";
 
@@ -343,8 +344,8 @@ export default function PurchaseOrdersPage() {
                               <table className="w-full text-sm">
                                 <thead>
                                   <tr className="text-muted-foreground text-xs uppercase">
-                                    <th className="text-left pb-2 pr-4">Product</th>
-                                    <th className="text-left pb-2 pr-4">SKU</th>
+                                    <th className="text-left pb-2 pr-4">Item</th>
+                                    <th className="text-left pb-2 pr-4">Type</th>
                                     <th className="text-center pb-2 pr-4">Ordered</th>
                                     <th className="text-center pb-2 pr-4">Received</th>
                                     <th className="text-right pb-2 pr-4">Unit Cost</th>
@@ -354,11 +355,13 @@ export default function PurchaseOrdersPage() {
                                 <tbody>
                                   {po.items?.map((item, idx) => (
                                     <tr key={idx} className="border-t border-border/30">
-                                      <td className="py-2 pr-4 text-foreground font-medium">{item.productName}</td>
-                                      <td className="py-2 pr-4 text-muted-foreground font-mono text-xs">{item.sku || 'N/A'}</td>
-                                      <td className="py-2 pr-4 text-center text-foreground font-medium">{item.orderedQuantity}</td>
-                                      <td className="py-2 pr-4 text-center text-success font-semibold">{item.receivedQuantity}</td>
-                                      <td className="py-2 pr-4 text-right text-foreground">{CURRENCY.symbol} {item.unitCost.toFixed(2)}</td>
+                                      <td className="py-2 pr-4 text-foreground font-medium">{item.name ?? item.productName}</td>
+                                      <td className="py-2 pr-4 text-muted-foreground text-xs">
+                                        {item.itemType === 'INGREDIENT' ? 'Ingredient' : 'Packaged item'}
+                                      </td>
+                                      <td className="py-2 pr-4 text-center text-foreground font-medium">{formatQty(item.orderedQuantity, item.unit)}</td>
+                                      <td className="py-2 pr-4 text-center text-success font-semibold">{formatQty(item.receivedQuantity, item.unit)}</td>
+                                      <td className="py-2 pr-4 text-right text-foreground">{CURRENCY.symbol} {formatUnitCost(item.unitCost)}</td>
                                       <td className="py-2 text-right font-semibold text-foreground">{CURRENCY.symbol} {item.totalCost.toFixed(2)}</td>
                                     </tr>
                                   ))}

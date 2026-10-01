@@ -1,6 +1,7 @@
 package com.lumora.pos.purchase.dto;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -38,13 +39,18 @@ public class PurchaseOrderRequest {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class PurchaseOrderItemRequest {
-        @NotNull(message = "Product ID is required")
+        /** A stock-tracked menu item. Exactly one of productId / ingredientId. */
         private UUID productId;
 
+        private UUID ingredientId;
+
+        /** Whole for a product; up to 3 places for an ingredient (2.5 kg). */
         @NotNull(message = "Quantity is required")
-        private Integer quantity;
+        @DecimalMin(value = "0", inclusive = false, message = "Quantity must be more than zero")
+        private BigDecimal quantity;
 
         @NotNull(message = "Unit cost is required")
+        @DecimalMin(value = "0", message = "Unit cost cannot be negative")
         private BigDecimal unitCost;
     }
 }
