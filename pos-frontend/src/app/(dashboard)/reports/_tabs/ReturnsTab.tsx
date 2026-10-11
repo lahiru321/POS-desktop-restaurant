@@ -168,7 +168,7 @@ export function ReturnsTab() {
                             <table className="w-full text-sm">
                               <thead>
                                 <tr className="text-muted-foreground text-xs uppercase">
-                                  <th className="text-left pb-2 pr-4">Product</th>
+                                  <th className="text-left pb-2 pr-4">Menu Item</th>
                                   <th className="text-center pb-2 pr-4">Qty Returned</th>
                                   <th className="text-right pb-2 pr-4">Unit Price</th>
                                   <th className="text-right pb-2">Refund Amount</th>
@@ -177,7 +177,7 @@ export function ReturnsTab() {
                               <tbody>
                                 {ret.items?.map((item, idx) => (
                                   <tr key={idx} className="border-t border-border/30">
-                                    <td className="py-2 pr-4 text-foreground font-medium">{item.productName || "Unknown Product"}</td>
+                                    <td className="py-2 pr-4 text-foreground font-medium">{item.productName || "Unknown item"}</td>
                                     <td className="py-2 pr-4 text-center text-foreground">{item.quantityReturned}</td>
                                     <td className="py-2 pr-4 text-right text-foreground">{fc(item.unitPrice)}</td>
                                     <td className="py-2 text-right font-semibold text-foreground">{fc(item.refundAmount)}</td>

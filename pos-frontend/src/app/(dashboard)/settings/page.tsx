@@ -622,12 +622,12 @@ export default function SettingsPage() {
             <Info className="text-primary shrink-0 mt-0.5" size={18} />
             <div className="text-sm text-indigo-300/80 leading-relaxed space-y-1">
               <p>
-                Tax rates are applied to products based on their category. Assign
-                a tax rate to a category, and all products in that category will
+                Tax rates are applied to menu items based on their category. Assign
+                a tax rate to a category, and all menu items in that category will
                 use it.
               </p>
               <p className="text-primary/60">
-                <strong>Resolution Order:</strong> Product Category Tax Rate →
+                <strong>Resolution Order:</strong> Menu Category Tax Rate →
                 Default Tax Rate → 0% (tax-exempt)
               </p>
             </div>
@@ -1112,8 +1112,8 @@ export default function SettingsPage() {
             <h2 className="text-xl font-semibold text-foreground">Hardware</h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            Connect and configure physical store peripherals such as barcode scanners,
-            thermal printers, and cash drawers.
+            Connect the till&apos;s receipt printer, cash drawer and barcode scanner, and the
+            kitchen and bar printers.
           </p>
           <HardwareSettings />
         </TabsContent>
@@ -1210,7 +1210,7 @@ export default function SettingsPage() {
                   Default Rate
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Applied when a product&apos;s category has no specific tax rate.
+                  Applied when a menu item&apos;s category has no specific tax rate.
                 </p>
               </div>
               <input
@@ -1277,7 +1277,7 @@ export default function SettingsPage() {
               <span className="text-foreground font-semibold">
                 {deleteConfirm?.name}
               </span>
-              ? This action cannot be undone. Products using this rate will fall
+              ? This action cannot be undone. Menu items using this rate will fall
               back to the default tax.
             </DialogDescription>
           </DialogHeader>

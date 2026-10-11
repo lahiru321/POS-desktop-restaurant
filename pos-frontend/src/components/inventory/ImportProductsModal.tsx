@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, FileDown, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { inventoryService } from "@/services/inventoryService";
 import { toast } from "sonner";
+import { downloadCsv } from "@/lib/csv";
 
 interface ImportError { rowNumber: number; message: string }
 interface ImportResult { successCount: number; failureCount: number; errors: ImportError[] }
@@ -56,22 +57,18 @@ export default function ImportProductsModal({ isOpen, onClose, onSuccess }: Impo
   };
 
   const downloadTemplate = () => {
+    // The same columns, in the same order, as Export (ProductService.MENU_CSV_COLUMNS
+    // — change both together), so an exported menu can be edited and imported back.
     // A dish (cooked to order, no stock) and a bought-in drink (counted). SKU may
-    // stay blank: the server makes one, and matches a re-import by name. A brand
-    // column in an older file is still accepted, just no longer offered.
-    const headers = "name,category,basePrice,trackStock,stockQuantity,lowStockThreshold,barcode,description,costPrice,sku";
-    const examples = [
-      "Chicken Kottu,Kottu,1200.00,false,,,,Spicy chicken kottu,650.00,",
-      "Coca-Cola 500ml,Drinks,250.00,true,48,12,5449000000996,,180.00,",
-    ];
-    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...examples].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "menu_import_template.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // stay blank: the server makes one, and matches a re-import by name.
+    downloadCsv(
+      "menu_import_template.csv",
+      ["name", "category", "basePrice", "costPrice", "trackStock", "stockQuantity", "lowStockThreshold", "sku", "barcode", "description", "isActive"],
+      [
+        ["Chicken Kottu", "Kottu", "1200.00", "650.00", "false", "", "", "", "", "Spicy chicken kottu", "true"],
+        ["Coca-Cola 500ml", "Drinks", "250.00", "180.00", "true", "48", "12", "", "5449000000996", "", "true"],
+      ],
+    );
   };
 
   return (
@@ -80,7 +77,7 @@ export default function ImportProductsModal({ isOpen, onClose, onSuccess }: Impo
         <DialogHeader>
           <DialogTitle>Import menu items</DialogTitle>
           <DialogDescription>
-            Upload a CSV file to add or update menu items in one go. A row matching an existing item (by SKU, or by name when SKU is blank) updates it.
+            Upload a CSV file to add or update menu items in one go. A row matching an existing item (by SKU, or by name when SKU is blank) updates it. An exported menu can be edited and imported back; stock counts only set up new items and never overwrite a count.
           </DialogDescription>
         </DialogHeader>
 

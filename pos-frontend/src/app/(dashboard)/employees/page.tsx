@@ -34,6 +34,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DataTableToolbar } from "@/components/ui/data-table-toolbar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { exportToCsv, type CsvColumn } from "@/lib/exportCsv";
+import { roleLabel } from "@/lib/roles";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useAuthStore } from "@/stores/authStore";
@@ -70,7 +71,7 @@ const USER_CSV_COLUMNS: CsvColumn<UserResponse>[] = [
   { header: "Last Name", value: (u) => u.lastName },
   { header: "Email", value: (u) => u.email },
   { header: "Phone", value: (u) => u.phone ?? "" },
-  { header: "Roles", value: (u) => u.roles.join("; ") },
+  { header: "Roles", value: (u) => u.roles.map(roleLabel).join("; ") },
   { header: "Status", value: (u) => (u.active ? "Active" : "Inactive") },
   { header: "Last Login", value: (u) => (u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "") },
   { header: "Created", value: (u) => new Date(u.createdAt).toLocaleDateString() },
@@ -80,7 +81,7 @@ function RoleBadge({ role }: { role: string }) {
   const cls = ROLE_COLORS[role] ?? "bg-muted text-muted-foreground border-border";
   return (
     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cls}`}>
-      {role}
+      {roleLabel(role)}
     </span>
   );
 }
@@ -142,16 +143,16 @@ function CreateUserModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">First Name *</label>
-              <Input placeholder="John" className="bg-card border-border" value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} />
+              <Input placeholder="Nimal" className="bg-card border-border" value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">Last Name *</label>
-              <Input placeholder="Doe" className="bg-card border-border" value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} />
+              <Input placeholder="Perera" className="bg-card border-border" value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} />
             </div>
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Email Address *</label>
-            <Input type="email" placeholder="john@example.com" className="bg-card border-border" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            <Input type="email" placeholder="nimal@example.com" className="bg-card border-border" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -170,14 +171,14 @@ function CreateUserModal({
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Phone</label>
-            <Input placeholder="+1 234 567 8900" className="bg-card border-border" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+            <Input placeholder="077 123 4567" className="bg-card border-border" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-2 block">Assign Roles *</label>
             <div className="flex gap-2 flex-wrap">
               {ALL_ROLES.map((role) => (
                 <button key={role} type="button" onClick={() => toggleRole(role)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${form.roleNames.includes(role) ? ROLE_COLORS[role] + " border-current" : "border-border text-muted-foreground hover:border-border"}`}>
-                  <Shield size={11} className="inline mr-1.5" />{role}
+                  <Shield size={11} className="inline mr-1.5" />{roleLabel(role)}
                 </button>
               ))}
             </div>
@@ -322,7 +323,7 @@ function EditUserModal({
 
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Phone</label>
-            <Input placeholder="+1 234 567 8900" className="bg-card border-border" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+            <Input placeholder="077 123 4567" className="bg-card border-border" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
           </div>
 
           {/* PIN status (read-only). For security, a PIN can only be set or changed
@@ -345,7 +346,7 @@ function EditUserModal({
             <div className="flex gap-2 flex-wrap">
               {ALL_ROLES.map((role) => (
                 <button key={role} type="button" onClick={() => toggleRole(role)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${(form.roleNames ?? []).includes(role) ? ROLE_COLORS[role] + " border-current" : "border-border text-muted-foreground hover:border-border"}`}>
-                  <Shield size={11} className="inline mr-1.5" />{role}
+                  <Shield size={11} className="inline mr-1.5" />{roleLabel(role)}
                 </button>
               ))}
             </div>

@@ -106,7 +106,7 @@ export default function ToppingsPage() {
     const ok = await confirm({
       title: `Delete "${group.name}"?`,
       description:
-        "Its add-ons and every product attachment go with it. Sales already rung keep their printed names, so past receipts are unaffected.",
+        "Its add-ons go with it, and it comes off every menu item it is attached to. Sales already rung keep their printed names, so past receipts are unaffected.",
       confirmLabel: "Delete group",
       variant: "destructive",
     });
@@ -151,8 +151,8 @@ export default function ToppingsPage() {
       {!isLoading && groups.length === 0 && (
         <Card className="bg-card border-border">
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No add-on groups yet. Create one above, then attach it to a product
-            from that product&apos;s edit page.
+            No add-on groups yet. Create one above, then attach it to a menu item
+            from that item&apos;s edit page.
           </CardContent>
         </Card>
       )}

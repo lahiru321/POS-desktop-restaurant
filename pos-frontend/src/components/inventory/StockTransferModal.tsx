@@ -54,7 +54,8 @@ export function StockTransferModal({ onClose }: StockTransferModalProps) {
   };
 
   const branches = branchesData?.filter(b => b.isActive) || [];
-  const products = productsData?.content || [];
+  // Only counted items have stock to move; a dish cooked to order has none.
+  const products = (productsData?.content || []).filter(p => p.trackStock);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -68,14 +69,14 @@ export function StockTransferModal({ onClose }: StockTransferModalProps) {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Product</label>
+            <label className="text-sm font-medium text-foreground">Packaged item</label>
             <select
               required
               className="w-full bg-card border border-border rounded-xl px-4 py-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
               value={formData.productId}
               onChange={(e) => setFormData({ ...formData, productId: e.target.value })}
             >
-              <option value="" disabled>Select a product...</option>
+              <option value="" disabled>Select a packaged item...</option>
               {products.map(p => (
                 <option key={p.id} value={p.id}>{p.name} (SKU: {p.sku})</option>
               ))}

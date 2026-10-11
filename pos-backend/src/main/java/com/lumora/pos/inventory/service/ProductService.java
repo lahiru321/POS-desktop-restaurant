@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.stream.Collectors;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStreamReader;
@@ -527,42 +526,66 @@ public class ProductService {
                 .build();
     }
 
+    /**
+     * The menu file, in the order the export writes it. The import template
+     * (ImportProductsModal) offers the same columns — change both together. An
+     * export re-imports as-is: each row finds its item again by SKU.
+     */
+    public static final String[] MENU_CSV_COLUMNS = {
+            "name", "category", "basePrice", "costPrice", "trackStock", "stockQuantity",
+            "lowStockThreshold", "sku", "barcode", "description", "isActive"};
+
+    /** Headers other files use for the same thing, keyed like {@link #headerKey}.
+     *  Covers the old retail export ("Base Price", "Stock", "Is Active"). */
+    private static final Map<String, String> MENU_CSV_ALIASES = Map.of(
+            "item", "name", "itemname", "name", "menuitem", "name",
+            "price", "basePrice", "cost", "costPrice",
+            "stock", "stockQuantity", "quantity", "stockQuantity",
+            "active", "isActive", "status", "isActive");
+
     @Transactional(readOnly = true)
     public byte[] exportProductsToCsv() {
         UUID tenantId = TenantContext.getTenantId();
-        List<ProductEntity> products = productRepository.findAllByTenantId(tenantId);
-        
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream();
-             CSVPrinter printer = new CSVPrinter(new OutputStreamWriter(out, StandardCharsets.UTF_8), 
-                     CSVFormat.DEFAULT.builder().setHeader("Name", "SKU", "Barcode", "Description", "Base Price", "Cost Price", "Stock", "Low Stock Threshold", "Category", "Brand", "Is Active").build())) {
-            
+        List<ProductEntity> products = productRepository.findAllByTenantId(tenantId).stream()
+                .sorted(java.util.Comparator
+                        .comparing((ProductEntity p) -> p.getCategory() != null ? p.getCategory().getName() : "",
+                                String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(ProductEntity::getName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        // Excel reads UTF-8 (Sinhala/Tamil item names) only behind a BOM; the import skips it.
+        out.writeBytes(new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+        try (CSVPrinter printer = new CSVPrinter(new OutputStreamWriter(out, StandardCharsets.UTF_8),
+                CSVFormat.DEFAULT.builder().setHeader(MENU_CSV_COLUMNS).build())) {
             for (ProductEntity p : products) {
+                // A dish cooked to order has no count: its stock cells stay blank, not 0.
+                boolean tracked = p.isTrackStock();
                 printer.printRecord(
                     p.getName(),
+                    p.getCategory() != null ? p.getCategory().getName() : "",
+                    p.getBasePrice().toPlainString(),
+                    p.getCostPrice() != null ? p.getCostPrice().toPlainString() : "",
+                    tracked,
+                    tracked ? java.util.Objects.requireNonNullElse(p.getStockQuantity(), 0) : "",
+                    tracked ? p.getLowStockThreshold() : "",
                     p.getSku(),
                     p.getBarcode() != null ? p.getBarcode() : "",
                     p.getDescription() != null ? p.getDescription() : "",
-                    p.getBasePrice(),
-                    p.getCostPrice(),
-                    p.getStockQuantity(),
-                    p.getLowStockThreshold(),
-                    p.getCategory() != null ? p.getCategory().getName() : "",
-                    p.getBrand() != null ? p.getBrand().getName() : "",
                     p.isActive()
                 );
             }
-            printer.flush();
-            return out.toByteArray();
-        } catch(Exception e) {
-            throw new BusinessException("Failed to export products to CSV");
+        } catch (Exception e) {
+            throw new BusinessException("Failed to export menu items to CSV");
         }
+        return out.toByteArray();
     }
 
     @Transactional
     public int importProductsFromCsv(MultipartFile file) {
         UUID tenantId = TenantContext.getTenantId();
         int importedCount = 0;
-        
+
         Map<String, CategoryEntity> categoryCache = new java.util.HashMap<>();
         Map<String, BrandEntity> brandCache = new java.util.HashMap<>();
         // A menu file usually has no SKU column filled in, so a blank SKU is
@@ -572,146 +595,207 @@ public class ProductService {
         for (ProductEntity existing : productRepository.findAllByTenantId(tenantId)) {
             byName.putIfAbsent(existing.getName().trim().toLowerCase(), existing);
         }
-        
-        try (BufferedReader fileReader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8));
-             CSVParser csvParser = new CSVParser(fileReader, CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).setIgnoreHeaderCase(true).setTrim(true).build())) {
-            
+
+        try (BufferedReader fileReader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+            // Excel's "CSV UTF-8" starts with a BOM, which would otherwise glue itself to the first header.
+            fileReader.mark(1);
+            if (fileReader.read() != '﻿') fileReader.reset();
+
+            CSVParser csvParser = new CSVParser(fileReader, CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).setIgnoreHeaderCase(true).setTrim(true).build());
+            Map<String, String> columns = menuCsvColumns(csvParser.getHeaderNames());
+            if (!columns.containsKey("name")) {
+                throw new BusinessException("The file has no 'name' column. Download the template to see the expected columns.");
+            }
+
             com.lumora.pos.branch.entity.BranchEntity defaultBranch = branchRepository
                     .findByIsDefaultTrueAndTenantId(tenantId)
                     .orElseGet(() -> branchRepository.findAllByTenantId(tenantId).stream().findFirst()
                             .orElseThrow(() -> new BusinessException("No branches found for tenant")));
 
             for (CSVRecord record : csvParser) {
-                String name = record.get("name");
-                String sku = record.isMapped("sku") ? record.get("sku") : null;
-                if (name == null || name.isEmpty()) {
-                    continue; // Skip invalid records
-                }
-
-                ProductEntity product;
-                if (sku != null && !sku.isEmpty()) {
-                    product = productRepository.findBySkuAndTenantId(sku, tenantId).orElse(new ProductEntity());
-                } else {
-                    product = byName.getOrDefault(name.trim().toLowerCase(), new ProductEntity());
-                    sku = product.getSku() != null ? product.getSku()
-                            : "PRD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-                }
-
-                product.setName(name);
-                product.setSku(sku);
-                product.setTenantId(tenantId);
-                
-                // Blank cells are null, not "": V29's unique (barcode, tenant_id) counts
-                // an empty string as a value, so the second dish without a barcode
-                // would otherwise fail the whole import.
-                if (record.isMapped("barcode")) product.setBarcode(blankToNull(record.get("barcode")));
-                if (record.isMapped("description")) product.setDescription(blankToNull(record.get("description")));
-                if (record.isMapped("basePrice") && !record.get("basePrice").isEmpty()) product.setBasePrice(new BigDecimal(record.get("basePrice")));
-                if (record.isMapped("costPrice") && !record.get("costPrice").isEmpty()) product.setCostPrice(new BigDecimal(record.get("costPrice")));
-
-                int stockQty = 0;
-                if (record.isMapped("stockQuantity") && !record.get("stockQuantity").isEmpty()) {
-                    stockQty = Integer.parseInt(record.get("stockQuantity"));
-                }
-                
-                boolean isNew = product.getId() == null;
-                if (!isNew) {
-                    // product.setStockQuantity(product.getStockQuantity()); // Removed – derived field
-                } else {
-                    long currentCount = productRepository.countByTenantId(tenantId);
-                    com.lumora.pos.superadmin.entity.TenantConfigurationEntity config = tenantConfigurationRepository.findByTenantId(tenantId)
-                            .orElseThrow(() -> new BusinessException("Tenant configuration not found"));
-                    if (currentCount >= config.getMaxProducts()) {
-                        throw new BusinessException("Subscription limit reached: Cannot import further products. Maximum allowed is " + config.getMaxProducts());
+                long row = record.getRecordNumber() + 1; // the row a spreadsheet shows; the header is row 1
+                try {
+                    String name = cell(record, columns, "name");
+                    String sku = cell(record, columns, "sku");
+                    if (name == null) {
+                        continue; // blank line
                     }
-                    // product.setStockQuantity(stockQty); // Removed – derived field
-                }
-                
-                // An explicit trackStock column wins. Without one — an older retail
-                // file — a new item is tracked only if the row gives it stock, so a
-                // dish is never counted and a stocked line never loses its count.
-                boolean trackStock;
-                if (record.isMapped("trackStock") && !record.get("trackStock").isEmpty()) {
-                    trackStock = Boolean.parseBoolean(record.get("trackStock"));
-                } else {
-                    trackStock = isNew ? stockQty > 0 : product.isTrackStock();
-                }
-                product.setTrackStock(trackStock);
 
-                if (record.isMapped("lowStockThreshold") && !record.get("lowStockThreshold").isEmpty()) {
-                    product.setLowStockThreshold(Integer.parseInt(record.get("lowStockThreshold")));
-                } else {
-                    product.setLowStockThreshold(5);
-                }
+                    ProductEntity product;
+                    if (sku != null) {
+                        product = productRepository.findBySkuAndTenantId(sku, tenantId).orElse(new ProductEntity());
+                    } else {
+                        product = byName.getOrDefault(name.toLowerCase(), new ProductEntity());
+                        sku = product.getSku() != null ? product.getSku()
+                                : "PRD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+                    }
 
-                if (record.isMapped("isActive") && !record.get("isActive").isEmpty()) {
-                    product.setActive(Boolean.parseBoolean(record.get("isActive")));
-                } else {
-                    product.setActive(true);
-                }
+                    product.setName(name);
+                    product.setSku(sku);
+                    product.setTenantId(tenantId);
 
-                // Process Category
-                if (record.isMapped("category") && !record.get("category").isEmpty()) {
-                    String catName = record.get("category");
-                    CategoryEntity category = categoryCache.computeIfAbsent(catName, k -> {
-                        return categoryRepository.findAllByTenantId(tenantId).stream()
-                            .filter(c -> c.getName().equalsIgnoreCase(catName)).findFirst()
-                            .orElseGet(() -> {
-                                CategoryEntity newCat = CategoryEntity.builder().name(catName).build();
-                                newCat.setTenantId(tenantId);
-                                return categoryRepository.save(newCat);
-                            });
-                    });
-                    product.setCategory(category);
-                }
-                
-                // Process Brand
-                if (record.isMapped("brand") && !record.get("brand").isEmpty()) {
-                    String brandName = record.get("brand");
-                    BrandEntity brand = brandCache.computeIfAbsent(brandName, k -> {
-                        return brandRepository.findAllByTenantId(tenantId).stream()
-                            .filter(b -> b.getName().equalsIgnoreCase(brandName)).findFirst()
-                            .orElseGet(() -> {
-                                BrandEntity newBrand = BrandEntity.builder().name(brandName).build();
-                                newBrand.setTenantId(tenantId);
-                                return brandRepository.save(newBrand);
-                            });
-                    });
-                    product.setBrand(brand);
-                }
-                
-                // Base price is required (NOT NULL). Skip rows that don't supply one
-                // rather than failing the whole import with a constraint violation.
-                if (product.getBasePrice() == null) {
-                    continue;
-                }
+                    // Blank cells are null, not "": V29's unique (barcode, tenant_id) counts
+                    // an empty string as a value, so the second dish without a barcode
+                    // would otherwise fail the whole import.
+                    if (columns.containsKey("barcode")) product.setBarcode(cell(record, columns, "barcode"));
+                    if (columns.containsKey("description")) product.setDescription(cell(record, columns, "description"));
+                    String basePrice = cell(record, columns, "basePrice");
+                    if (basePrice != null) product.setBasePrice(csvNumber(basePrice, "basePrice"));
+                    String costPrice = cell(record, columns, "costPrice");
+                    if (costPrice != null) product.setCostPrice(csvNumber(costPrice, "costPrice"));
 
-                product = productRepository.save(product);
-                byName.putIfAbsent(name.trim().toLowerCase(), product);
+                    String stockCell = cell(record, columns, "stockQuantity");
+                    int stockQty = stockCell != null ? csvWholeNumber(stockCell, "stockQuantity") : 0;
 
-                // Untracked items have no stock row (V59). A tracked one gets one in
-                // the default branch if it has none there yet.
-                boolean needsStockRow = trackStock && (isNew || stockLevelRepository
-                        .findByProductIdAndBranchIdAndTenantId(product.getId(), defaultBranch.getId(), tenantId)
-                        .isEmpty());
-                if (needsStockRow) {
-                    com.lumora.pos.inventory.entity.StockLevelEntity stockLevel = com.lumora.pos.inventory.entity.StockLevelEntity
-                            .builder()
-                            .product(product)
-                            .branch(defaultBranch)
-                            .quantity(stockQty)
-                            .build();
-                    stockLevel.setTenantId(tenantId);
-                    stockLevelRepository.save(stockLevel);
+                    boolean isNew = product.getId() == null;
+                    if (isNew) {
+                        long currentCount = productRepository.countByTenantId(tenantId);
+                        com.lumora.pos.superadmin.entity.TenantConfigurationEntity config = tenantConfigurationRepository.findByTenantId(tenantId)
+                                .orElseThrow(() -> new BusinessException("Tenant configuration not found"));
+                        if (currentCount >= config.getMaxProducts()) {
+                            throw new BusinessException("Subscription limit reached: Cannot import further menu items. Maximum allowed is " + config.getMaxProducts());
+                        }
+                    }
+
+                    // An explicit trackStock column wins. Without one — an older retail
+                    // file — a new item is tracked only if the row gives it stock, so a
+                    // dish is never counted and a stocked line never loses its count.
+                    String trackCell = cell(record, columns, "trackStock");
+                    boolean trackStock = trackCell != null ? csvFlag(trackCell, "trackStock")
+                            : isNew ? stockQty > 0 : product.isTrackStock();
+                    product.setTrackStock(trackStock);
+
+                    String threshold = cell(record, columns, "lowStockThreshold");
+                    if (threshold != null) {
+                        product.setLowStockThreshold(csvWholeNumber(threshold, "lowStockThreshold"));
+                    } else if (isNew) {
+                        product.setLowStockThreshold(5);
+                    }
+
+                    String active = cell(record, columns, "isActive");
+                    if (active != null) {
+                        product.setActive(csvFlag(active, "isActive"));
+                    } else if (isNew) {
+                        product.setActive(true);
+                    }
+
+                    // Process Category
+                    String catName = cell(record, columns, "category");
+                    if (catName != null) {
+                        CategoryEntity category = categoryCache.computeIfAbsent(catName.toLowerCase(), k -> {
+                            return categoryRepository.findAllByTenantId(tenantId).stream()
+                                .filter(c -> c.getName().equalsIgnoreCase(catName)).findFirst()
+                                .orElseGet(() -> {
+                                    CategoryEntity newCat = CategoryEntity.builder().name(catName).build();
+                                    newCat.setTenantId(tenantId);
+                                    return categoryRepository.save(newCat);
+                                });
+                        });
+                        product.setCategory(category);
+                    }
+
+                    // Brands are hidden in the restaurant UI, but an older file's column still applies.
+                    String brandName = cell(record, columns, "brand");
+                    if (brandName != null) {
+                        BrandEntity brand = brandCache.computeIfAbsent(brandName.toLowerCase(), k -> {
+                            return brandRepository.findAllByTenantId(tenantId).stream()
+                                .filter(b -> b.getName().equalsIgnoreCase(brandName)).findFirst()
+                                .orElseGet(() -> {
+                                    BrandEntity newBrand = BrandEntity.builder().name(brandName).build();
+                                    newBrand.setTenantId(tenantId);
+                                    return brandRepository.save(newBrand);
+                                });
+                        });
+                        product.setBrand(brand);
+                    }
+
+                    // Base price is required (NOT NULL). Skip rows that don't supply one
+                    // rather than failing the whole import with a constraint violation.
+                    if (product.getBasePrice() == null) {
+                        continue;
+                    }
+
+                    product = productRepository.save(product);
+                    byName.putIfAbsent(name.toLowerCase(), product);
+
+                    // Untracked items have no stock row (V59). A tracked one gets one in
+                    // the default branch if it has none there yet; an existing count is
+                    // never overwritten, so re-importing an export leaves stock alone.
+                    boolean needsStockRow = trackStock && (isNew || stockLevelRepository
+                            .findByProductIdAndBranchIdAndTenantId(product.getId(), defaultBranch.getId(), tenantId)
+                            .isEmpty());
+                    if (needsStockRow) {
+                        com.lumora.pos.inventory.entity.StockLevelEntity stockLevel = com.lumora.pos.inventory.entity.StockLevelEntity
+                                .builder()
+                                .product(product)
+                                .branch(defaultBranch)
+                                .quantity(stockQty)
+                                .build();
+                        stockLevel.setTenantId(tenantId);
+                        stockLevelRepository.save(stockLevel);
+                    }
+
+                    importedCount++;
+                } catch (BusinessException e) {
+                    throw new BusinessException("Row " + row + ": " + e.getMessage());
                 }
-                
-                importedCount++;
             }
             auditService.log(AuditAction.UPDATE, "PRODUCT_IMPORT", null, null, Map.of("importedCount", importedCount));
             return importedCount;
-        } catch(Exception e) {
-            throw new BusinessException("Failed to import products from CSV: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException("Failed to import menu items from CSV: " + e.getMessage());
         }
+    }
+
+    /** Canonical column name → the header the file actually used. */
+    private static Map<String, String> menuCsvColumns(List<String> headers) {
+        Map<String, String> canonical = new java.util.HashMap<>(MENU_CSV_ALIASES);
+        for (String column : MENU_CSV_COLUMNS) canonical.put(headerKey(column), column);
+        canonical.put("brand", "brand");
+
+        Map<String, String> columns = new java.util.HashMap<>();
+        for (String header : headers) {
+            String column = canonical.get(headerKey(header));
+            if (column != null) columns.putIfAbsent(column, header);
+        }
+        return columns;
+    }
+
+    /** "Base Price", "base_price" and "basePrice" are the same column. */
+    private static String headerKey(String header) {
+        return header.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private static String cell(CSVRecord record, Map<String, String> columns, String column) {
+        String header = columns.get(column);
+        return header != null && record.isSet(header) ? blankToNull(record.get(header)) : null;
+    }
+
+    /** A spreadsheet writes "1,200.00" once a cell is formatted as a number. */
+    private static BigDecimal csvNumber(String value, String column) {
+        try {
+            return new BigDecimal(value.replace(",", ""));
+        } catch (NumberFormatException e) {
+            throw new BusinessException(column + " '" + value + "' is not a number");
+        }
+    }
+
+    private static int csvWholeNumber(String value, String column) {
+        try {
+            return csvNumber(value, column).intValueExact();
+        } catch (ArithmeticException e) {
+            throw new BusinessException(column + " '" + value + "' must be a whole number");
+        }
+    }
+
+    private static boolean csvFlag(String value, String column) {
+        return switch (value.toLowerCase(java.util.Locale.ROOT)) {
+            case "true", "yes", "y", "1", "active" -> true;
+            case "false", "no", "n", "0", "inactive" -> false;
+            default -> throw new BusinessException(column + " '" + value + "' must be true or false");
+        };
     }
 
     private static String blankToNull(String value) {

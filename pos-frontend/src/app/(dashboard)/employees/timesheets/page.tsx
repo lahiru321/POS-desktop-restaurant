@@ -19,6 +19,7 @@ import { FeatureGuard } from "@/components/auth/FeatureGuard";
 import { Pagination } from "@/components/ui/pagination";
 import { DateRangePicker, DateRangeValue } from "@/components/ui/date-range-picker";
 import { useAuthStore } from "@/stores/authStore";
+import { roleLabel } from "@/lib/roles";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const todayEnd   = () => format(new Date(), "yyyy-MM-dd'T'23:59:59");
@@ -37,7 +38,7 @@ function RoleBadge({ role }: { role: string }) {
   const cls = ROLE_COLORS[role] ?? "bg-muted text-muted-foreground border-border";
   return (
     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cls}`}>
-      {role}
+      {roleLabel(role)}
     </span>
   );
 }

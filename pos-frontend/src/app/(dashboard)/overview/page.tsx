@@ -21,6 +21,7 @@ import {
   Clock,
 } from "lucide-react";
 import { LowStockWidget } from "@/components/dashboard/LowStockWidget";
+import { OpenTabsCard } from "@/components/dashboard/OpenTabsCard";
 import {
   AreaChart,
   Area,
@@ -227,7 +228,7 @@ export default function OverviewPage() {
           gradient="from-emerald-500 to-emerald-600"
         />
         <KPICard
-          title="Transactions"
+          title="Bills"
           value={data.todayTransactions.toString()}
           change={txnChange}
           icon={ShoppingCart}
@@ -241,7 +242,7 @@ export default function OverviewPage() {
           gradient="from-amber-500 to-amber-600"
         />
         <KPICard
-          title="Active Products"
+          title="Active Menu Items"
           value={`${data.activeProducts} / ${data.totalProducts}`}
           change={{ pct: `${data.totalProducts - data.activeProducts} inactive`, positive: true }}
           icon={Package}
@@ -269,7 +270,9 @@ export default function OverviewPage() {
         </div>
       )}
 
-      {/* Charts Row 1: Sales Trend + Top Products */}
+      <OpenTabsCard />
+
+      {/* Charts Row 1: Sales Trend + Top Menu Items */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Sales Trend — 2/3 width */}
         <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-6">
@@ -320,10 +323,10 @@ export default function OverviewPage() {
           </div>
         </div>
 
-        {/* Top Products — 1/3 width */}
+        {/* Top Menu Items — 1/3 width */}
         <div className="bg-card border border-border rounded-2xl p-6">
           <div className="mb-6">
-            <h3 className="text-lg font-semibold">Top Products</h3>
+            <h3 className="text-lg font-semibold">Top Menu Items</h3>
             <p className="text-xs text-muted-foreground mt-0.5">Best sellers (30 days)</p>
           </div>
           {data.topProducts.length === 0 ? (

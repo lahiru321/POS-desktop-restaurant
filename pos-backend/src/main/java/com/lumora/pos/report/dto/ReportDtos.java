@@ -31,7 +31,64 @@ public class ReportDtos {
         private BigDecimal amountTendered;
         /** Change given back = amountTendered − netAmount, floored at 0. */
         private BigDecimal changeDue;
+        /** DINE_IN, TAKEAWAY, or COUNTER for a sale rung with no tab. */
+        private String orderType;
+        /** "T4", "T1+T2" or null — the table a dine-in bill was for. */
+        private String tableName;
+        private BigDecimal serviceChargeAmount;
         private List<SalesReportItemRecord> items;
+    }
+
+    /** The owner's day at a glance: how the money came in, and what came off tabs. */
+    @Data
+    @Builder
+    public static class RestaurantSummaryReport {
+        private int bills;
+        private BigDecimal revenue;
+        private BigDecimal averageBill;
+        /** Guests seated on dine-in bills. */
+        private int covers;
+        /** Dine-in revenue per guest; zero when no covers were entered. */
+        private BigDecimal revenuePerCover;
+        /** Always DINE_IN, TAKEAWAY, COUNTER, in that order. */
+        private List<OrderTypeLine> orderTypes;
+        private BigDecimal serviceChargeCollected;
+        private int serviceChargeWaivedBills;
+        private int voidCount;
+        private BigDecimal voidedAmount;
+        /** The part of {@code voidedAmount} the kitchen had already been told to cook. */
+        private BigDecimal voidedAfterKitchenAmount;
+        private int voidedTabs;
+        private List<VoidRecord> voids;
+    }
+
+    @Data
+    @Builder
+    public static class OrderTypeLine {
+        private String orderType;
+        private int bills;
+        private BigDecimal revenue;
+        private BigDecimal averageBill;
+        private BigDecimal sharePct;
+        private int covers;
+    }
+
+    @Data
+    @Builder
+    public static class VoidRecord {
+        private UUID id;
+        private LocalDateTime voidedAt;
+        /** "#12 · T4" or "#13 · Takeaway". */
+        private String orderLabel;
+        private String itemName;
+        private BigDecimal quantity;
+        /** How much of it the kitchen already had. */
+        private BigDecimal firedQuantity;
+        private BigDecimal amount;
+        private boolean wholeTab;
+        private String reason;
+        private String voidedBy;
+        private String approvedBy;
     }
 
     @Data

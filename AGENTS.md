@@ -97,6 +97,14 @@ everything and should not be relitigated without reading it:
   exactly one of** `product_id` / `ingredient_id` (V73 CHECK); quantities are decimal, but a product line must be
   `trackStock` and whole (product stock is an INT) — refused at create *and* at receive, so receiving can no longer
   silently add nothing. Ingredients are never deleted, only deactivated (movements and POs point at them).
+- **Every void is a `restaurant_voids` row (V74)** written by `RestaurantOrderService.recordVoid` in the void's own
+  transaction — `voidItem` one row, `voidOrder` one per line (`whole_tab`). It is the source for Reports → Summary/Voids
+  (`GET /reports/restaurant-summary`); a new path that takes food off a tab must call it too, or the owner never sees it.
+  Order type on a sale is derived, not stored: `restaurant_orders.sale_id` → DINE_IN/TAKEAWAY, no order → COUNTER.
+  The product is one PC on the cashier desk, so Reports keeps only Summary, Sales History, Voids, Menu Items, Add-ons,
+  Cash Drawer, Returns (pending-refund approval lives there), Tax and Customer Credit; the retail tabs' backend
+  endpoints (`inventory-valuation`, `employee-performance`, `top-customers`, `sold-items-by-supplier`, `stock-variance`)
+  remain but nothing calls them.
 - **Everything printed goes through `qzTrayService.printRaw`, which sends ISO-8859-1 and cleans every
   string to printable ASCII (`printerText.toPrinterText`)** — the target printers (DBL 822, 80mm ESC/POS,
   48 cols) carry a Chinese GB18030 font and no Sinhala/Tamil, so UTF-8 or a stray byte prints as garbage.
@@ -244,12 +252,12 @@ default, overridable with `LUMORA_ACTIVATION_URL`.
 ## Flyway version reservation
 
 Migrations live in `pos-backend/src/main/resources/db/migration/`. Reserve the next `V<n>__` number
-before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V73`**: V59
+before writing one — **backend CI hard-fails on duplicates**. **Highest on disk is `V74`**: V59
 `products.track_stock`, V60 toppings, V61 `sale_items.parent_item_id` + `topping_id` + `sort_order` + `notes`, V62 `restaurant_areas`/`restaurant_tables` + the `RESTAURANT` backfill, V63 `restaurant_orders` +
 `restaurant_order_items` + `restaurant_order_item_toppings` + `restaurant_order_counters`. Toppings landed
 before tables — trust disk over the plan. V64 `kitchen_tickets` + `kitchen_ticket_items` + `kitchen_station`
 columns, V65 ticket `notice`, V66 nullable `return_items.product_id`, V67 `split_from_id`,
-V68 `sales.service_charge_*`, V69 `restaurant_tables.pos_x/pos_y` (floor map), V70 `restaurant_orders.released_course` (unused since courses were removed), V71 `restaurant_order_tables` (joined tables), V72 `ingredients` + `ingredient_stock_levels` + `ingredient_movements`, V73 `purchase_order_items.ingredient_id` + decimal quantities. Next free: **V74**.
+V68 `sales.service_charge_*`, V69 `restaurant_tables.pos_x/pos_y` (floor map), V70 `restaurant_orders.released_course` (unused since courses were removed), V71 `restaurant_order_tables` (joined tables), V72 `ingredients` + `ingredient_stock_levels` + `ingredient_movements`, V73 `purchase_order_items.ingredient_id` + decimal quantities, V74 `restaurant_voids` (void log, backfilled). Next free: **V75**.
 
 V63's `uk_rest_order_open_table` (partial unique on `table_id WHERE status = 'OPEN'`) is what makes "one
 table, one tab" true under a race, and `restaurant_order_counters` breaks house style on purpose — no `id`,

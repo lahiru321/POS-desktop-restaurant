@@ -87,7 +87,7 @@ export default function BranchFormModal({
           <DialogDescription className="text-muted-foreground">
             {initialData 
               ? "Update details for the selected branch physical location." 
-              : "Register a new branch, store, or warehouse for your business."}
+              : "Add another outlet or a central kitchen for your business."}
           </DialogDescription>
         </DialogHeader>
 

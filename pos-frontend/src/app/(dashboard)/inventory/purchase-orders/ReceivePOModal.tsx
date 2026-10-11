@@ -66,7 +66,7 @@ export function ReceivePOModal({ isOpen, onClose, purchaseOrder }: ReceivePOModa
       onClose();
     },
     onError: (error: unknown) => {
-      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to receive products");
+      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to receive the order");
     },
   });
 

@@ -71,12 +71,12 @@ export default function ProductTable({
                     checked={!!allSelected}
                     indeterminate={!!someSelected && !allSelected}
                     onCheckedChange={(c) => onTogglePage?.(c)}
-                    aria-label="Select all products on this page"
+                    aria-label="Select all menu items on this page"
                   />
                 </TableHead>
               )}
               <SortableHeader
-                label="Product"
+                label="Menu Item"
                 sortKey="name"
                 currentSort={sortKey}
                 currentDirection={sortDirection}

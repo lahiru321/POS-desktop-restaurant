@@ -4,6 +4,7 @@ import com.lumora.pos.auth.entity.UserEntity;
 import com.lumora.pos.auth.repository.UserRepository;
 import com.lumora.pos.branch.entity.BranchEntity;
 import com.lumora.pos.branch.repository.BranchRepository;
+import com.lumora.pos.common.exception.BusinessException;
 import com.lumora.pos.inventory.entity.ProductEntity;
 import com.lumora.pos.inventory.entity.StockLevelEntity;
 import com.lumora.pos.inventory.repository.ProductRepository;
@@ -12,6 +13,7 @@ import com.lumora.pos.inventory.service.ProductService;
 import com.lumora.pos.superadmin.entity.TenantConfigurationEntity;
 import com.lumora.pos.superadmin.repository.TenantConfigurationRepository;
 import com.lumora.pos.tenant.TenantContext;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * A restaurant menu is mostly cooked-to-order items with no stock count, plus a
@@ -48,6 +51,7 @@ class MenuItemIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private BranchRepository branchRepository;
     @Autowired private TenantConfigurationRepository tenantConfigurationRepository;
+    @Autowired private EntityManager entityManager;
 
     private UUID tenantId;
     private BranchEntity branch;
@@ -137,6 +141,71 @@ class MenuItemIntegrationTest {
         List<ProductEntity> all = productRepository.findAllByTenantId(tenantId);
         assertThat(byName(all, "Bottled water").isTrackStock()).isTrue();
         assertThat(byName(all, "Plain hopper").isTrackStock()).isFalse();
+    }
+
+    @Test
+    void anExportReimportsAsIsAndLeavesStockAlone() {
+        productService.importProductsFromCsv(file(String.join("\n",
+                "name,category,basePrice,trackStock,stockQuantity,lowStockThreshold,barcode,description,costPrice,sku",
+                "Chicken Kottu,Kottu,1200.00,false,,,,\"Spicy, with egg\",650.00,",
+                "Coca-Cola 500ml,Drinks,250.00,true,48,12,5449000000996,,180.00,")));
+        entityManager.flush();
+        entityManager.clear(); // stock is a @Formula: read it fresh, as the export request would
+
+        String exported = new String(productService.exportProductsToCsv(), StandardCharsets.UTF_8);
+
+        assertThat(exported).startsWith("﻿" + String.join(",", ProductService.MENU_CSV_COLUMNS) + "\r\n");
+        // A dish has no count: blank stock cells, not 0. No retail Brand column.
+        assertThat(exported).contains("Chicken Kottu,Kottu,1200.00,650.00,false,,,PRD-");
+        assertThat(exported).contains("Coca-Cola 500ml,Drinks,250.00,180.00,true,48,12,");
+        assertThat(exported).doesNotContainIgnoringCase("brand");
+
+        // Someone sold 6 colas since; re-importing the export must not reset the count.
+        ProductEntity cola = byName(productRepository.findAllByTenantId(tenantId), "Coca-Cola 500ml");
+        StockLevelEntity level = stockLevelRepository
+                .findByProductIdAndBranchIdAndTenantId(cola.getId(), branch.getId(), tenantId).orElseThrow();
+        level.setQuantity(42);
+        stockLevelRepository.saveAndFlush(level);
+
+        int count = productService.importProductsFromCsv(file(exported));
+
+        assertThat(count).isEqualTo(2);
+        List<ProductEntity> all = productRepository.findAllByTenantId(tenantId);
+        assertThat(all).hasSize(2);
+        assertThat(byName(all, "Chicken Kottu").getDescription()).isEqualTo("Spicy, with egg");
+        assertThat(stockLevelRepository.findByProductIdAndBranchIdAndTenantId(cola.getId(), branch.getId(), tenantId))
+                .get().extracting(StockLevelEntity::getQuantity).isEqualTo(42);
+    }
+
+    @Test
+    void readsTheOldRetailExportHeaders() {
+        String csv = String.join("\n",
+                "Name,SKU,Barcode,Description,Base Price,Cost Price,Stock,Low Stock Threshold,Category,Brand,Is Active",
+                "Bottled water,WTR-1,,,\"1,100.00\",80.00,24,6,Drinks,,true",
+                "Old special,OLD-1,,,500.00,,0,5,Mains,,false");
+
+        productService.importProductsFromCsv(file(csv));
+
+        List<ProductEntity> all = productRepository.findAllByTenantId(tenantId);
+        ProductEntity water = byName(all, "Bottled water");
+        assertThat(water.getBasePrice()).isEqualByComparingTo("1100.00");
+        assertThat(water.isTrackStock()).isTrue();
+        assertThat(water.getLowStockThreshold()).isEqualTo(6);
+        assertThat(water.getCategory().getName()).isEqualTo("Drinks");
+        assertThat(byName(all, "Old special").isActive()).isFalse();
+    }
+
+    @Test
+    void namesTheRowThatIsWrong() {
+        String csv = String.join("\n",
+                "name,basePrice,trackStock",
+                "Chicken Kottu,1200.00,false",
+                "Egg Fried Rice,nine hundred,false");
+
+        assertThatThrownBy(() -> productService.importProductsFromCsv(file(csv)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Row 3")
+                .hasMessageContaining("nine hundred");
     }
 
     private ProductEntity product(String name, boolean trackStock) {

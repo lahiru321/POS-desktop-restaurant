@@ -128,7 +128,7 @@ public class ProductController {
         @PreAuthorize("hasAnyRole('ADMIN', 'INVENTORY_MANAGER')")
         public ResponseEntity<ApiResponse<Integer>> importProducts(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
                 int count = productService.importProductsFromCsv(file);
-                return ResponseEntity.ok(ApiResponse.success(count, "Successfully imported " + count + " products"));
+                return ResponseEntity.ok(ApiResponse.success(count, "Imported " + count + " menu items"));
         }
 
         @GetMapping("/export")
@@ -136,8 +136,8 @@ public class ProductController {
         public ResponseEntity<byte[]> exportProducts() {
                 byte[] csvData = productService.exportProductsToCsv();
                 return ResponseEntity.ok()
-                        .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"products.csv\"")
-                        .header(org.springframework.http.HttpHeaders.CONTENT_TYPE, "text/csv")
+                        .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"menu_items.csv\"")
+                        .header(org.springframework.http.HttpHeaders.CONTENT_TYPE, "text/csv; charset=UTF-8")
                         .body(csvData);
         }
 }

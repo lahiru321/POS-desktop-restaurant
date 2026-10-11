@@ -9,6 +9,10 @@ import com.lumora.pos.inventory.repository.ProductRepository;
 import com.lumora.pos.inventory.entity.ProductEntity;
 import com.lumora.pos.purchase.entity.PurchaseOrderEntity;
 import com.lumora.pos.purchase.repository.PurchaseOrderItemRepository;
+import com.lumora.pos.restaurant.entity.RestaurantOrderEntity;
+import com.lumora.pos.restaurant.entity.RestaurantVoidEntity;
+import com.lumora.pos.restaurant.repository.RestaurantOrderRepository;
+import com.lumora.pos.restaurant.repository.RestaurantVoidRepository;
 import com.lumora.pos.report.dto.ReportDtos.*;
 import com.lumora.pos.sales.entity.SaleEntity;
 import com.lumora.pos.sales.entity.SaleItemEntity;
@@ -44,6 +48,8 @@ public class ReportService {
         private final CashSessionRepository cashSessionRepository;
         private final BranchAccessGuard branchAccessGuard;
         private final IngredientStockLevelRepository ingredientStockLevelRepository;
+        private final RestaurantOrderRepository restaurantOrderRepository;
+        private final RestaurantVoidRepository restaurantVoidRepository;
 
         /**
          * Get paginated sales history for a specific date range.
@@ -81,7 +87,151 @@ public class ReportService {
                         productRepository.findAllById(productIds).forEach(p -> productMap.put(p.getId(), p));
                 }
 
-                return sales.map(s -> mapToSalesReportRecord(s, cashierNames, productMap));
+                // Which tab or takeaway each sale settled (one batch query); none = counter sale.
+                Set<UUID> saleIds = sales.stream().map(SaleEntity::getId).collect(Collectors.toSet());
+                Map<UUID, RestaurantOrderEntity> orderBySale = new HashMap<>();
+                if (!saleIds.isEmpty()) {
+                        restaurantOrderRepository.findAllByTenantIdAndSaleIdIn(tenantId, saleIds)
+                                        .forEach(o -> orderBySale.put(o.getSaleId(), o));
+                }
+
+                return sales.map(s -> {
+                        SalesReportRecord record = mapToSalesReportRecord(s, cashierNames, productMap);
+                        RestaurantOrderEntity order = orderBySale.get(s.getId());
+                        record.setOrderType(order != null ? order.getOrderType().name() : COUNTER);
+                        record.setTableName(order != null ? order.tableLabel() : null);
+                        record.setServiceChargeAmount(s.getServiceChargeAmount());
+                        return record;
+                });
+        }
+
+        /** The order type of a sale no tab or takeaway points at. */
+        private static final String COUNTER = "COUNTER";
+
+        /**
+         * Dine-in vs takeaway vs counter, service charge, and every void in the
+         * period. Counts every sale in the range, as the dashboard and the other
+         * sales reports do.
+         */
+        @Transactional(readOnly = true)
+        public RestaurantSummaryReport getRestaurantSummary(LocalDateTime start, LocalDateTime end, UUID branchId) {
+                UUID tenantId = TenantContext.getTenantId();
+                Optional<Set<UUID>> branchFilter = branchAccessGuard.reportBranchFilter(branchId);
+
+                List<Object[]> rows = branchFilter.isPresent()
+                                ? (branchFilter.get().isEmpty() ? List.of()
+                                                : saleRepository.aggregateByOrderTypeAndBranch(tenantId, start, end,
+                                                                branchFilter.get()))
+                                : saleRepository.aggregateByOrderType(tenantId, start, end);
+
+                Map<String, Object[]> byType = new HashMap<>();
+                for (Object[] row : rows) {
+                        byType.put(row[0] != null ? row[0].toString() : COUNTER, row);
+                }
+
+                int bills = 0;
+                BigDecimal revenue = BigDecimal.ZERO;
+                BigDecimal serviceCharge = BigDecimal.ZERO;
+                int waived = 0;
+                for (Object[] row : rows) {
+                        bills += ((Number) row[1]).intValue();
+                        revenue = revenue.add((BigDecimal) row[2]);
+                        serviceCharge = serviceCharge.add((BigDecimal) row[3]);
+                        waived += row[4] != null ? ((Number) row[4]).intValue() : 0;
+                }
+
+                List<OrderTypeLine> lines = new ArrayList<>();
+                for (String type : List.of(RestaurantOrderEntity.OrderType.DINE_IN.name(),
+                                RestaurantOrderEntity.OrderType.TAKEAWAY.name(), COUNTER)) {
+                        Object[] row = byType.get(type);
+                        int count = row != null ? ((Number) row[1]).intValue() : 0;
+                        BigDecimal typeRevenue = row != null ? (BigDecimal) row[2] : BigDecimal.ZERO;
+                        lines.add(OrderTypeLine.builder()
+                                        .orderType(type)
+                                        .bills(count)
+                                        .revenue(typeRevenue)
+                                        .averageBill(divide(typeRevenue, count))
+                                        .sharePct(revenue.signum() > 0
+                                                        ? typeRevenue.multiply(BigDecimal.valueOf(100))
+                                                                        .divide(revenue, 1, RoundingMode.HALF_UP)
+                                                        : BigDecimal.ZERO)
+                                        .covers(row != null ? ((Number) row[5]).intValue() : 0)
+                                        .build());
+                }
+                OrderTypeLine dineIn = lines.get(0);
+
+                List<RestaurantVoidEntity> voids = branchFilter.isPresent()
+                                ? (branchFilter.get().isEmpty() ? List.of()
+                                                : restaurantVoidRepository
+                                                                .findAllByTenantIdAndBranchIdInAndVoidedAtBetweenOrderByVoidedAtDesc(
+                                                                                tenantId, branchFilter.get(), start, end))
+                                : restaurantVoidRepository.findAllByTenantIdAndVoidedAtBetweenOrderByVoidedAtDesc(
+                                                tenantId, start, end);
+
+                Set<UUID> userIds = new HashSet<>();
+                Set<UUID> orderIds = new HashSet<>();
+                for (RestaurantVoidEntity v : voids) {
+                        if (v.getVoidedBy() != null) userIds.add(v.getVoidedBy());
+                        if (v.getApprovedBy() != null) userIds.add(v.getApprovedBy());
+                        orderIds.add(v.getOrderId());
+                }
+                Map<UUID, String> names = new HashMap<>();
+                if (!userIds.isEmpty()) {
+                        userRepository.findAllById(userIds).forEach(u ->
+                                        names.put(u.getId(), u.getFirstName() + " " + u.getLastName()));
+                }
+                Map<UUID, String> orderLabels = new HashMap<>();
+                if (!orderIds.isEmpty()) {
+                        restaurantOrderRepository.findAllByTenantIdAndIdIn(tenantId, orderIds).forEach(o ->
+                                        orderLabels.put(o.getId(), "#" + o.getOrderNumber() + " · "
+                                                        + (o.getTable() != null ? o.tableLabel() : "Takeaway")));
+                }
+
+                BigDecimal voidedAmount = BigDecimal.ZERO;
+                BigDecimal afterKitchen = BigDecimal.ZERO;
+                Set<UUID> voidedTabs = new HashSet<>();
+                List<VoidRecord> voidRecords = new ArrayList<>();
+                for (RestaurantVoidEntity v : voids) {
+                        voidedAmount = voidedAmount.add(v.getAmount());
+                        if (v.getFiredQuantity().signum() > 0 && v.getQuantity().signum() > 0) {
+                                afterKitchen = afterKitchen.add(v.getAmount().multiply(v.getFiredQuantity())
+                                                .divide(v.getQuantity(), 2, RoundingMode.HALF_UP));
+                        }
+                        if (v.isWholeTab()) voidedTabs.add(v.getOrderId());
+                        voidRecords.add(VoidRecord.builder()
+                                        .id(v.getId())
+                                        .voidedAt(v.getVoidedAt())
+                                        .orderLabel(orderLabels.getOrDefault(v.getOrderId(), "—"))
+                                        .itemName(v.getItemName())
+                                        .quantity(v.getQuantity())
+                                        .firedQuantity(v.getFiredQuantity())
+                                        .amount(v.getAmount())
+                                        .wholeTab(v.isWholeTab())
+                                        .reason(v.getReason())
+                                        .voidedBy(v.getVoidedBy() != null ? names.getOrDefault(v.getVoidedBy(), "Unknown") : "Unknown")
+                                        .approvedBy(v.getApprovedBy() != null ? names.getOrDefault(v.getApprovedBy(), "Unknown") : null)
+                                        .build());
+                }
+
+                return RestaurantSummaryReport.builder()
+                                .bills(bills)
+                                .revenue(revenue)
+                                .averageBill(divide(revenue, bills))
+                                .covers(dineIn.getCovers())
+                                .revenuePerCover(divide(dineIn.getRevenue(), dineIn.getCovers()))
+                                .orderTypes(lines)
+                                .serviceChargeCollected(serviceCharge)
+                                .serviceChargeWaivedBills(waived)
+                                .voidCount(voids.size())
+                                .voidedAmount(voidedAmount)
+                                .voidedAfterKitchenAmount(afterKitchen)
+                                .voidedTabs(voidedTabs.size())
+                                .voids(voidRecords)
+                                .build();
+        }
+
+        private static BigDecimal divide(BigDecimal amount, int count) {
+                return count > 0 ? amount.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP) : BigDecimal.ZERO;
         }
 
         /**

@@ -73,7 +73,7 @@ export default function CategoriesPage() {
   const handleDelete = async (id: string) => {
     const ok = await confirm({
       title: "Delete this category?",
-      description: "Products in this category will become uncategorized. This cannot be undone.",
+      description: "Menu items in this category will become uncategorized. This cannot be undone.",
       confirmLabel: "Delete category",
       variant: "destructive",
     });

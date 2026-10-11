@@ -18,7 +18,63 @@ export interface SalesReportRecord {
   amountTendered?: number | null;
   /** Change given back = amountTendered − netAmount, floored at 0. */
   changeDue?: number | null;
+  /** COUNTER is a sale rung with no tab or takeaway order. */
+  orderType: OrderTypeName;
+  /** "T4", "T1+T2"; null for takeaway and counter. */
+  tableName: string | null;
+  serviceChargeAmount: number;
   items: SalesReportItemRecord[];
+}
+
+export type OrderTypeName = "DINE_IN" | "TAKEAWAY" | "COUNTER";
+
+export const ORDER_TYPE_LABELS: Record<OrderTypeName, string> = {
+  DINE_IN: "Dine-in",
+  TAKEAWAY: "Takeaway",
+  COUNTER: "Counter",
+};
+
+export interface OrderTypeLine {
+  orderType: OrderTypeName;
+  bills: number;
+  revenue: number;
+  averageBill: number;
+  sharePct: number;
+  covers: number;
+}
+
+export interface VoidRecord {
+  id: string;
+  voidedAt: string;
+  /** "#12 · T4" or "#13 · Takeaway". */
+  orderLabel: string;
+  itemName: string;
+  quantity: number;
+  /** How much of it the kitchen already had. */
+  firedQuantity: number;
+  amount: number;
+  wholeTab: boolean;
+  reason: string | null;
+  voidedBy: string;
+  approvedBy: string | null;
+}
+
+export interface RestaurantSummaryReport {
+  bills: number;
+  revenue: number;
+  averageBill: number;
+  covers: number;
+  revenuePerCover: number;
+  /** Always DINE_IN, TAKEAWAY, COUNTER, in that order. */
+  orderTypes: OrderTypeLine[];
+  serviceChargeCollected: number;
+  serviceChargeWaivedBills: number;
+  voidCount: number;
+  voidedAmount: number;
+  voidedAfterKitchenAmount: number;
+  voidedTabs: number;
+  /** Newest first. */
+  voids: VoidRecord[];
 }
 
 export interface SalesReportItemRecord {
@@ -31,53 +87,6 @@ export interface SalesReportItemRecord {
   taxAmount: number;
   discountAmount: number;
   totalAmount: number;
-}
-
-export interface InventoryValuationReport {
-  totalProducts: number;
-  totalStockItems: number;
-  totalCostValue: number;
-  totalRetailValue: number;
-  potentialProfit: number;
-  categoryBreakdown: CategoryValuation[];
-  /** Ingredients on hand, valued at their last cost — not in the totals above. */
-  totalIngredients: number;
-  ingredientCostValue: number;
-  ingredientBreakdown: IngredientBranchValuation[];
-}
-
-export interface IngredientBranchValuation {
-  branchName: string;
-  ingredientCount: number;
-  costValue: number;
-}
-
-export interface CategoryValuation {
-  categoryName: string;
-  productCount: number;
-  stockCount: number;
-  costValue: number;
-  retailValue: number;
-}
-
-export interface EmployeePerformanceRecord {
-  userId: string;
-  employeeName: string;
-  email: string;
-  transactionCount: number;
-  totalRevenue: number;
-  avgTransactionValue: number;
-  totalDiscount: number;
-}
-
-export interface TopCustomerRecord {
-  customerId: string;
-  customerName: string;
-  email: string;
-  phone: string;
-  transactionCount: number;
-  totalSpent: number;
-  loyaltyPoints: number;
 }
 
 export interface CustomerCreditRecord {
@@ -122,58 +131,6 @@ export interface ProfitabilityReport {
   totalProfit: number;
   overallMarginPct: number;
   products: import("./common").Page<ProductProfitRecord>;
-}
-
-export interface SoldItemDetail {
-  productId: string;
-  productName: string;
-  sku: string | null;
-  unitsSold: number;
-  revenue: number;
-  cogs: number;
-  grossProfit: number;
-  marginPct: number;
-}
-
-export interface SoldItemsBySupplierRecord {
-  supplierId: string | null;
-  supplierName: string;
-  supplierActive: boolean;
-  productCount: number;
-  totalUnitsSold: number;
-  totalRevenue: number;
-  totalCogs: number;
-  grossProfit: number;
-  marginPct: number;
-  items: SoldItemDetail[];
-}
-
-export interface SoldItemsBySupplierReport {
-  totalRevenue: number;
-  totalCogs: number;
-  totalProfit: number;
-  overallMarginPct: number;
-  totalUnitsSold: number;
-  supplierCount: number;
-  suppliers: SoldItemsBySupplierRecord[];
-}
-
-export interface StockVarianceRecord {
-  productId: string;
-  productName: string;
-  sku: string | null;
-  reconciledUnits: number;
-  damagedUnits: number;
-  stockOutUnits: number;
-  totalLost: number;
-  costImpact: number;
-}
-
-export interface StockVarianceReport {
-  totalUnitsLost: number;
-  estimatedCostLoss: number;
-  productsAffected: number;
-  products: StockVarianceRecord[];
 }
 
 export interface CashReconciliationRecord {

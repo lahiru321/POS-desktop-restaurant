@@ -241,4 +241,32 @@ public interface SaleRepository extends JpaRepository<SaleEntity, UUID> {
     @Query("SELECT COALESCE(SUM(s.cashTendered), 0) FROM SaleEntity s " +
            "WHERE s.cashSessionId = :sessionId")
     BigDecimal sumCashSalesBySessionId(@Param("sessionId") UUID sessionId);
+
+    /**
+     * Bills per order type for the restaurant summary: count, net revenue,
+     * service charge, bills with the charge waived, and covers. A settled tab or
+     * takeaway points at its sale ({@code restaurant_orders.sale_id}); a sale no
+     * order points at was rung at the counter, so its type comes back null.
+     */
+    @Query("SELECT o.orderType, COUNT(s), COALESCE(SUM(s.netAmount), 0), " +
+           "COALESCE(SUM(s.serviceChargeAmount), 0), " +
+           "SUM(CASE WHEN s.serviceChargeWaived = true THEN 1 ELSE 0 END), COALESCE(SUM(o.covers), 0) " +
+           "FROM SaleEntity s LEFT JOIN RestaurantOrderEntity o ON o.saleId = s.id AND o.tenantId = s.tenantId " +
+           "WHERE s.tenantId = :tenantId AND s.createdAt BETWEEN :start AND :end " +
+           "GROUP BY o.orderType")
+    List<Object[]> aggregateByOrderType(@Param("tenantId") UUID tenantId,
+                                        @Param("start") LocalDateTime start,
+                                        @Param("end") LocalDateTime end);
+
+    @Query("SELECT o.orderType, COUNT(s), COALESCE(SUM(s.netAmount), 0), " +
+           "COALESCE(SUM(s.serviceChargeAmount), 0), " +
+           "SUM(CASE WHEN s.serviceChargeWaived = true THEN 1 ELSE 0 END), COALESCE(SUM(o.covers), 0) " +
+           "FROM SaleEntity s LEFT JOIN RestaurantOrderEntity o ON o.saleId = s.id AND o.tenantId = s.tenantId " +
+           "WHERE s.tenantId = :tenantId AND s.createdAt BETWEEN :start AND :end " +
+           "AND s.branch.id IN :branchIds " +
+           "GROUP BY o.orderType")
+    List<Object[]> aggregateByOrderTypeAndBranch(@Param("tenantId") UUID tenantId,
+                                                 @Param("start") LocalDateTime start,
+                                                 @Param("end") LocalDateTime end,
+                                                 @Param("branchIds") Collection<UUID> branchIds);
 }

@@ -73,7 +73,7 @@ export default function BrandsPage() {
   const handleDelete = async (id: string) => {
     const ok = await confirm({
       title: "Delete this brand?",
-      description: "Products under this brand will become unbranded. This cannot be undone.",
+      description: "Menu items under this brand will become unbranded. This cannot be undone.",
       confirmLabel: "Delete brand",
       variant: "destructive",
     });
@@ -101,7 +101,7 @@ export default function BrandsPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Brands</h1>
-          <p className="text-muted-foreground">Manage product manufacturers and brands.</p>
+          <p className="text-muted-foreground">Makers of the packaged items you sell.</p>
         </div>
         <Button onClick={handleCreate} className="gap-2">
           <Plus size={18} /> Add Brand

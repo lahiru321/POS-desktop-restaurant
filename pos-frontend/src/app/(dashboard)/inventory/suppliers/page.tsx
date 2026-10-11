@@ -174,7 +174,7 @@ export default function SuppliersPage() {
     <div className="p-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground mb-2">Suppliers</h1>
-        <p className="text-muted-foreground">Manage vendors and product suppliers</p>
+        <p className="text-muted-foreground">Who you buy ingredients and packaged items from</p>
       </div>
 
       <DataTableToolbar

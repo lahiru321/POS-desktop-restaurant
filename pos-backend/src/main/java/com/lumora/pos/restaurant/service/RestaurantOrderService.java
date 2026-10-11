@@ -16,6 +16,7 @@ import com.lumora.pos.restaurant.repository.RestaurantOrderItemRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderTableRepository;
 import com.lumora.pos.restaurant.repository.RestaurantTableRepository;
+import com.lumora.pos.restaurant.repository.RestaurantVoidRepository;
 import com.lumora.pos.restaurant.repository.ToppingRepository;
 import com.lumora.pos.sales.dto.SaleRequest;
 import com.lumora.pos.sales.dto.SaleResponse;
@@ -74,6 +75,7 @@ public class RestaurantOrderService {
     private final RestaurantOrderItemRepository itemRepository;
     private final RestaurantTableRepository tableRepository;
     private final RestaurantOrderTableRepository orderTableRepository;
+    private final RestaurantVoidRepository voidRepository;
     private final RestaurantOrderCounterDao counterDao;
     private final ProductRepository productRepository;
     private final ToppingRepository toppingRepository;
@@ -256,6 +258,7 @@ public class RestaurantOrderService {
 
         item.setVoidedQuantity(item.getVoidedQuantity().add(amount));
         item.setFiredQuantity(item.getFiredQuantity().subtract(firedPortion));
+        recordVoid(order, item, amount, firedPortion, false, reason, approvedBy);
 
         Map<RestaurantOrderItemEntity, BigDecimal> portions = new LinkedHashMap<>();
         portions.put(item, firedPortion);
@@ -271,6 +274,35 @@ public class RestaurantOrderService {
         }
         auditService.log(AuditAction.UPDATE, "RESTAURANT_ORDER_ITEM", itemId, null, audit);
         return withTickets(saved, tickets);
+    }
+
+    /**
+     * One row for the owner's void report (V74), in the void's own transaction.
+     * Valued at the menu price plus add-ons — what the food was worth, not what
+     * a discount had brought it down to.
+     */
+    private void recordVoid(RestaurantOrderEntity order, RestaurantOrderItemEntity item, BigDecimal quantity,
+            BigDecimal firedPortion, boolean wholeTab, String reason, UUID approvedBy) {
+        BigDecimal perUnit = item.getUnitPriceSnapshot();
+        for (RestaurantOrderItemToppingEntity topping : item.getToppings()) {
+            perUnit = perUnit.add(topping.getUnitPrice().multiply(topping.getQuantity()));
+        }
+        RestaurantVoidEntity row = RestaurantVoidEntity.builder()
+                .branchId(order.getBranch().getId())
+                .orderId(order.getId())
+                .orderItemId(item.getId())
+                .itemName(item.getItemName())
+                .quantity(quantity)
+                .firedQuantity(firedPortion)
+                .amount(perUnit.multiply(quantity).setScale(2, RoundingMode.HALF_UP))
+                .wholeTab(wholeTab)
+                .reason(reason == null || reason.isBlank() ? null : reason.trim())
+                .voidedBy(currentUserId())
+                .approvedBy(approvedBy)
+                .voidedAt(LocalDateTime.now())
+                .build();
+        row.setTenantId(order.getTenantId());
+        voidRepository.save(row);
     }
 
     /**
@@ -731,6 +763,9 @@ public class RestaurantOrderService {
 
         Map<RestaurantOrderItemEntity, BigDecimal> firedPortions = new LinkedHashMap<>();
         for (RestaurantOrderItemEntity item : order.getItems()) {
+            if (item.billableQuantity().signum() > 0) {
+                recordVoid(order, item, item.billableQuantity(), item.getFiredQuantity(), true, "Tab voided", null);
+            }
             firedPortions.put(item, item.getFiredQuantity());
             item.setVoidedQuantity(item.getQuantity());
             item.setFiredQuantity(BigDecimal.ZERO);

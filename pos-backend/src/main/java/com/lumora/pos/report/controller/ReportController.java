@@ -126,6 +126,17 @@ public class ReportController {
                 "Stock variance report retrieved successfully"));
     }
 
+    @GetMapping("/restaurant-summary")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<RestaurantSummaryReport>> getRestaurantSummary(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
+            @RequestParam(required = false) java.util.UUID branchId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                reportService.getRestaurantSummary(start, end, branchId),
+                "Restaurant summary retrieved successfully"));
+    }
+
     @GetMapping("/cash-reconciliation")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<Page<CashReconciliationRecord>>> getCashReconciliation(

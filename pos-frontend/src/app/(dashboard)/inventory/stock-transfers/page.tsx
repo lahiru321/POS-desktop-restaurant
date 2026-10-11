@@ -155,7 +155,7 @@ export default function StockTransfersPage() {
             <thead className="bg-background/50 text-muted-foreground uppercase text-xs font-semibold">
               <tr>
                 <th className="px-6 py-4">Transfer ID / Date</th>
-                <th className="px-6 py-4">Product</th>
+                <th className="px-6 py-4">Item</th>
                 <th className="px-6 py-4">Route</th>
                 <th className="px-6 py-4 text-center">Qty</th>
                 <th className="px-6 py-4 text-center">Status</th>

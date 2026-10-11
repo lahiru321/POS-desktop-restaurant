@@ -22,6 +22,11 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
     List<RestaurantOrderEntity> findAllByTenantIdAndStatusOrderByOpenedAtDesc(
             UUID tenantId, RestaurantOrderEntity.OrderStatus status);
 
+    /** The tabs and takeaways a page of sales came from (reports). */
+    List<RestaurantOrderEntity> findAllByTenantIdAndSaleIdIn(UUID tenantId, java.util.Collection<UUID> saleIds);
+
+    List<RestaurantOrderEntity> findAllByTenantIdAndIdIn(UUID tenantId, java.util.Collection<UUID> ids);
+
     /**
      * Row lock for settle and void.
      *

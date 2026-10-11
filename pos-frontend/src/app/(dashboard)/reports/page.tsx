@@ -5,14 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import {
   TrendingUp,
-  PieChart,
-  Users,
   Receipt,
   BarChart3,
-  Star,
-  Truck,
-  AlertTriangle,
   Wallet,
+  LayoutDashboard,
+  Ban,
+  HandCoins,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ReturnModal } from "@/components/pos/ReturnModal";
@@ -21,15 +19,12 @@ import { RotateCcw, Salad } from "lucide-react";
 import { FeatureGuard } from "@/components/auth/FeatureGuard";
 import { ReturnItemRequest } from "@/services/returnService";
 
+import { SummaryTab } from "./_tabs/SummaryTab";
 import { SalesTab } from "./_tabs/SalesTab";
+import { VoidsTab } from "./_tabs/VoidsTab";
 import { ReturnsTab } from "./_tabs/ReturnsTab";
-import { InventoryTab } from "./_tabs/InventoryTab";
-import { EmployeesTab } from "./_tabs/EmployeesTab";
-import { CustomersTab } from "./_tabs/CustomersTab";
 import { TaxTab } from "./_tabs/TaxTab";
 import { ProfitabilityTab } from "./_tabs/ProfitabilityTab";
-import { SupplierSalesTab } from "./_tabs/SupplierSalesTab";
-import { StockVarianceTab } from "./_tabs/StockVarianceTab";
 import { CashReconciliationTab } from "./_tabs/CashReconciliationTab";
 import { CreditReportTab } from "./_tabs/CreditReportTab";
 import { ToppingSalesTab } from "./_tabs/ToppingSalesTab";
@@ -49,7 +44,7 @@ export default function ReportsPage() {
     router.replace(qs ? `?${qs}` : "?", { scroll: false });
   };
 
-  const [activeTab, setActiveTab] = useState("sales");
+  const [activeTab, setActiveTab] = useState("summary");
   const [returnSaleId, setReturnSaleId] = useState<string | null>(null);
   const [exchangeData, setExchangeData] = useState<{
     saleId: string;
@@ -66,66 +61,35 @@ export default function ReportsPage() {
     <div className="p-8 space-y-8 animate-in fade-in duration-500">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Financial Reports</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
           <p className="text-muted-foreground mt-2">
-            Analyze your business performance and inventory health.
+            How the restaurant is doing: sales, voids, the cash drawer and tax.
           </p>
         </div>
         <BranchFilter value={branchId} onChange={setBranchId} className="print:hidden" />
       </div>
 
-      <Tabs defaultValue="sales" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+      {/* One till on the cashier desk: the owner's few reports, most used first.
+          Returns stays because it is where a manager approves a pending refund;
+          Customer Credit because it is the only list of who owes money. */}
+      <Tabs defaultValue="summary" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="flex flex-wrap h-auto gap-1 justify-start bg-card border border-border p-1 print:hidden">
+          <TabsTrigger value="summary" className="gap-2 px-3">
+            <LayoutDashboard size={16} />
+            <span>Summary</span>
+          </TabsTrigger>
           <TabsTrigger value="sales" className="gap-2 px-3">
             <TrendingUp size={16} />
             <span>Sales History</span>
           </TabsTrigger>
-          <FeatureGuard feature="RETURNS">
-            <TabsTrigger value="returns" className="gap-2 px-3">
-              <RotateCcw size={16} />
-              <span>Returns History</span>
-            </TabsTrigger>
-          </FeatureGuard>
-          <FeatureGuard feature="INVENTORY">
-            <TabsTrigger value="inventory" className="gap-2 px-3">
-              <PieChart size={16} />
-              <span>Inventory Valuation</span>
-            </TabsTrigger>
-          </FeatureGuard>
-          <FeatureGuard feature="EMPLOYEES">
-            <TabsTrigger value="employees" className="gap-2 px-3">
-              <Users size={16} />
-              <span>Employee Performance</span>
-            </TabsTrigger>
-          </FeatureGuard>
-          <FeatureGuard feature="CUSTOMERS">
-            <TabsTrigger value="customers" className="gap-2 px-3">
-              <Star size={16} />
-              <span>Top Customers</span>
-            </TabsTrigger>
-          </FeatureGuard>
-          <FeatureGuard feature="TAX_CONFIG">
-            <TabsTrigger value="tax" className="gap-2 px-3">
-              <Receipt size={16} />
-              <span>Tax Summary</span>
-            </TabsTrigger>
-          </FeatureGuard>
+          <TabsTrigger value="voids" className="gap-2 px-3">
+            <Ban size={16} />
+            <span>Voids</span>
+          </TabsTrigger>
           <FeatureGuard feature="ADVANCED_ANALYTICS">
             <TabsTrigger value="profitability" className="gap-2 px-3">
               <BarChart3 size={16} />
-              <span>Profitability</span>
-            </TabsTrigger>
-          </FeatureGuard>
-          <FeatureGuard feature="INVENTORY">
-            <TabsTrigger value="supplier-sales" className="gap-2 px-3">
-              <Truck size={16} />
-              <span>Supplier Sales</span>
-            </TabsTrigger>
-          </FeatureGuard>
-          <FeatureGuard feature="INVENTORY">
-            <TabsTrigger value="stock-variance" className="gap-2 px-3">
-              <AlertTriangle size={16} />
-              <span>Stock Variance</span>
+              <span>Menu Items</span>
             </TabsTrigger>
           </FeatureGuard>
           <TabsTrigger value="addons" className="gap-2 px-3">
@@ -134,15 +98,36 @@ export default function ReportsPage() {
           </TabsTrigger>
           <TabsTrigger value="cash-reconciliation" className="gap-2 px-3">
             <Wallet size={16} />
-            <span>Cash Reconciliation</span>
+            <span>Cash Drawer</span>
           </TabsTrigger>
+          <FeatureGuard feature="RETURNS">
+            <TabsTrigger value="returns" className="gap-2 px-3">
+              <RotateCcw size={16} />
+              <span>Returns</span>
+            </TabsTrigger>
+          </FeatureGuard>
+          <FeatureGuard feature="TAX_CONFIG">
+            <TabsTrigger value="tax" className="gap-2 px-3">
+              <Receipt size={16} />
+              <span>Tax</span>
+            </TabsTrigger>
+          </FeatureGuard>
           <FeatureGuard feature="STORE_CREDIT">
             <TabsTrigger value="customer-credit" className="gap-2 px-3">
-              <Wallet size={16} />
-              <span>Accounts Receivable</span>
+              <HandCoins size={16} />
+              <span>Customer Credit</span>
             </TabsTrigger>
           </FeatureGuard>
         </TabsList>
+
+        <TabsContent value="summary" className="space-y-6">
+          <SummaryTab
+            dateRange={dateRange}
+            onDateChange={setDateRange}
+            branchId={branchId}
+            onShowVoids={() => setActiveTab("voids")}
+          />
+        </TabsContent>
 
         <TabsContent value="sales" className="space-y-6">
           <SalesTab
@@ -153,51 +138,13 @@ export default function ReportsPage() {
           />
         </TabsContent>
 
-        <FeatureGuard feature="RETURNS">
-          <TabsContent value="returns" className="space-y-6">
-            <ReturnsTab />
-          </TabsContent>
-        </FeatureGuard>
-
-        <FeatureGuard feature="INVENTORY">
-          <TabsContent value="inventory" className="space-y-6">
-            <InventoryTab branchId={branchId} />
-          </TabsContent>
-        </FeatureGuard>
-
-        <FeatureGuard feature="EMPLOYEES">
-          <TabsContent value="employees" className="space-y-6">
-            <EmployeesTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
-          </TabsContent>
-        </FeatureGuard>
-
-        <FeatureGuard feature="CUSTOMERS">
-          <TabsContent value="customers" className="space-y-6">
-            <CustomersTab />
-          </TabsContent>
-        </FeatureGuard>
-
-        <FeatureGuard feature="TAX_CONFIG">
-          <TabsContent value="tax" className="space-y-6">
-            <TaxTab dateRange={dateRange} onDateChange={setDateRange} />
-          </TabsContent>
-        </FeatureGuard>
+        <TabsContent value="voids" className="space-y-6">
+          <VoidsTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
+        </TabsContent>
 
         <FeatureGuard feature="ADVANCED_ANALYTICS">
           <TabsContent value="profitability" className="space-y-6">
             <ProfitabilityTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
-          </TabsContent>
-        </FeatureGuard>
-
-        <FeatureGuard feature="INVENTORY">
-          <TabsContent value="supplier-sales" className="space-y-6">
-            <SupplierSalesTab dateRange={dateRange} onDateChange={setDateRange} />
-          </TabsContent>
-        </FeatureGuard>
-
-        <FeatureGuard feature="INVENTORY">
-          <TabsContent value="stock-variance" className="space-y-6">
-            <StockVarianceTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
           </TabsContent>
         </FeatureGuard>
 
@@ -208,6 +155,18 @@ export default function ReportsPage() {
         <TabsContent value="cash-reconciliation" className="space-y-6">
           <CashReconciliationTab dateRange={dateRange} onDateChange={setDateRange} branchId={branchId} />
         </TabsContent>
+
+        <FeatureGuard feature="RETURNS">
+          <TabsContent value="returns" className="space-y-6">
+            <ReturnsTab />
+          </TabsContent>
+        </FeatureGuard>
+
+        <FeatureGuard feature="TAX_CONFIG">
+          <TabsContent value="tax" className="space-y-6">
+            <TaxTab dateRange={dateRange} onDateChange={setDateRange} />
+          </TabsContent>
+        </FeatureGuard>
 
         <FeatureGuard feature="STORE_CREDIT">
           <TabsContent value="customer-credit" className="space-y-6">

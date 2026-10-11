@@ -110,14 +110,16 @@ export const inventoryService = {
   },
 
   exportProducts: () => {
+    // Same columns as the import template, so the file can be edited and imported back.
     return api.get("/products/export", { responseType: 'blob' }).then(res => {
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv;charset=utf-8;' }));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `products_export_${new Date().getTime()}.csv`);
+      link.setAttribute('download', `menu_items_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
     });
   },
 };

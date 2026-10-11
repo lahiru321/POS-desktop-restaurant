@@ -47,7 +47,7 @@ export function ProfitabilityTab({ dateRange, onDateChange, branchId }: Props) {
       const all = await fetchAllPages(
         async (p, s) => (await reportService.getProfitabilityReport(dateRange.start, dateRange.end, p, s, branchId)).products,
       );
-      const headers = ["Product", "SKU", "Category", "Units Sold", "Revenue", "COGS", "Profit", "Margin %"];
+      const headers = ["Menu Item", "SKU", "Category", "Units Sold", "Revenue", "COGS", "Gross Profit", "Margin %"];
       const rows = all.map(p => [
         p.productName, p.sku, p.category, p.unitsSold,
         p.revenue, p.costOfGoodsSold, p.grossProfit, p.marginPct,
@@ -65,7 +65,7 @@ export function ProfitabilityTab({ dateRange, onDateChange, branchId }: Props) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="md:col-span-2 bg-card/50 border-border backdrop-blur-sm h-[320px]">
           <CardHeader className="pb-0">
-            <CardTitle className="text-sm font-medium">Top 10 Profitable Products</CardTitle>
+            <CardTitle className="text-sm font-medium">Top 10 Profitable Menu Items</CardTitle>
           </CardHeader>
           <CardContent className="h-full pb-10">
             <div className="w-full h-full">
@@ -88,7 +88,7 @@ export function ProfitabilityTab({ dateRange, onDateChange, branchId }: Props) {
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-xs italic">
-                  <p>Visual breakdown of product revenue vs profit</p>
+                  <p>Revenue vs profit for your best-earning menu items</p>
                 </div>
               )}
             </div>
@@ -113,8 +113,8 @@ export function ProfitabilityTab({ dateRange, onDateChange, branchId }: Props) {
         <CardHeader className="space-y-3 pb-3">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="space-y-1">
-              <CardTitle>Product Profitability Breakdown</CardTitle>
-              <CardDescription>Revenue, cost, and margin per product sold in the period.</CardDescription>
+              <CardTitle>Menu Item Profitability Breakdown</CardTitle>
+              <CardDescription>Revenue, cost, and margin per menu item sold in the period.</CardDescription>
             </div>
             <Button variant="outline" size="sm" className="border-border text-foreground gap-1" onClick={exportCSV} disabled={isExporting}>
               <Download size={14} /> {isExporting ? "Exporting…" : "CSV"}
@@ -127,7 +127,7 @@ export function ProfitabilityTab({ dateRange, onDateChange, branchId }: Props) {
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
-                  <TableHead>Product</TableHead>
+                  <TableHead>Menu Item</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead className="text-center">Units Sold</TableHead>
                   <TableHead className="text-right">Revenue</TableHead>

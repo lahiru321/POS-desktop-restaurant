@@ -398,7 +398,7 @@ export function HardwareSettings() {
             {otherStations.length === 0 ? (
               <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
                 Every dish prints on the kitchen printer. To send drinks to a bar printer, set a Kitchen station
-                such as BAR on the category or product in Inventory — it then appears here to give it a printer.
+                such as BAR on the menu category or menu item — it then appears here to give it a printer.
               </p>
             ) : (
               <>

@@ -1,6 +1,6 @@
 /**
  * Client-side CSV export for dashboard tables that have no server-side export
- * endpoint (customers, suppliers, employees). Products use the backend
+ * endpoint (customers, suppliers, employees). Menu items use the backend
  * /products/export instead — see inventoryService.exportProducts.
  */
 

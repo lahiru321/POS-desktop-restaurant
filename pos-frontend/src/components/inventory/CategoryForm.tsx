@@ -218,7 +218,7 @@ export default function CategoryForm({
               </FormControl>
               <p className="text-[11px] text-muted-foreground">
                 Which kitchen printer this category&apos;s dishes print on — e.g. BAR for drinks. Leave empty for
-                the main kitchen. A product can override it.
+                the main kitchen. A menu item can override it.
               </p>
               <FormMessage />
             </FormItem>

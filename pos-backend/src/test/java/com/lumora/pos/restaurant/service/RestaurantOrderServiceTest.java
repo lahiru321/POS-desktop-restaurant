@@ -16,6 +16,7 @@ import com.lumora.pos.restaurant.repository.RestaurantOrderItemRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderRepository;
 import com.lumora.pos.restaurant.repository.RestaurantOrderTableRepository;
 import com.lumora.pos.restaurant.repository.RestaurantTableRepository;
+import com.lumora.pos.restaurant.repository.RestaurantVoidRepository;
 import com.lumora.pos.restaurant.repository.ToppingRepository;
 import com.lumora.pos.sales.dto.SaleRequest;
 import com.lumora.pos.sales.dto.SaleResponse;
@@ -57,6 +58,7 @@ class RestaurantOrderServiceTest {
     @Mock private RestaurantOrderItemRepository itemRepository;
     @Mock private RestaurantTableRepository tableRepository;
     @Mock private RestaurantOrderTableRepository orderTableRepository;
+    @Mock private RestaurantVoidRepository voidRepository;
     @Mock private RestaurantOrderCounterDao counterDao;
     @Mock private ProductRepository productRepository;
     @Mock private ToppingRepository toppingRepository;
@@ -410,6 +412,20 @@ class RestaurantOrderServiceTest {
             assertThat(item.getFiredQuantity()).isEqualByComparingTo("1");
             assertThat(item.getVoidedQuantity()).isEqualByComparingTo("2");
             assertThat(item.pendingQuantity()).isEqualByComparingTo("0");
+
+            // The owner's void log: both units, one of them already cooking.
+            ArgumentCaptor<RestaurantVoidEntity> logged = ArgumentCaptor.forClass(RestaurantVoidEntity.class);
+            verify(voidRepository).save(logged.capture());
+            RestaurantVoidEntity row = logged.getValue();
+            assertThat(row.getItemName()).isEqualTo("Kottu");
+            assertThat(row.getQuantity()).isEqualByComparingTo("2");
+            assertThat(row.getFiredQuantity()).isEqualByComparingTo("1");
+            assertThat(row.getAmount()).isEqualByComparingTo("1900.00");
+            assertThat(row.getReason()).isEqualTo("changed mind");
+            assertThat(row.isWholeTab()).isFalse();
+            assertThat(row.getOrderId()).isEqualTo(order.getId());
+            assertThat(row.getBranchId()).isEqualTo(branch.getId());
+            assertThat(row.getVoidedAt()).isNotNull();
         }
 
         @Test
@@ -458,6 +474,10 @@ class RestaurantOrderServiceTest {
             verify(auditService).log(eq(AuditAction.UPDATE), eq("RESTAURANT_ORDER_ITEM"), eq(item.getId()),
                     any(), audit.capture());
             assertThat((Map<String, Object>) audit.getValue()).containsEntry("approvedBy", manager.getId());
+
+            ArgumentCaptor<RestaurantVoidEntity> logged = ArgumentCaptor.forClass(RestaurantVoidEntity.class);
+            verify(voidRepository).save(logged.capture());
+            assertThat(logged.getValue().getApprovedBy()).isEqualTo(manager.getId());
         }
 
         @Test
@@ -907,6 +927,17 @@ class RestaurantOrderServiceTest {
             assertThat(firedPortionPassedFor(order, unsent)).isEqualByComparingTo("0");
             assertThat(cooking.getVoidedQuantity()).isEqualByComparingTo("3");
             assertThat(cooking.getFiredQuantity()).isEqualByComparingTo("0");
+
+            // One log row per line, both marked as a whole-tab void.
+            ArgumentCaptor<RestaurantVoidEntity> logged = ArgumentCaptor.forClass(RestaurantVoidEntity.class);
+            verify(voidRepository, times(2)).save(logged.capture());
+            assertThat(logged.getAllValues()).allMatch(RestaurantVoidEntity::isWholeTab);
+            assertThat(logged.getAllValues()).extracting(RestaurantVoidEntity::getAmount)
+                    .usingElementComparator(BigDecimal::compareTo)
+                    .containsExactly(new BigDecimal("2850.00"), new BigDecimal("300.00"));
+            assertThat(logged.getAllValues()).extracting(RestaurantVoidEntity::getFiredQuantity)
+                    .usingElementComparator(BigDecimal::compareTo)
+                    .containsExactly(new BigDecimal("2"), BigDecimal.ZERO);
         }
     }
 

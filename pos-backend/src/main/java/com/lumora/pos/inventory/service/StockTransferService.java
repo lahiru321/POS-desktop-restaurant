@@ -63,6 +63,9 @@ public class StockTransferService {
         // Validate product exists
         ProductEntity product = productRepository.findByIdAndTenantId(request.getProductId(), tenantId)
                 .orElseThrow(() -> new BusinessException("Product not found"));
+        if (!product.isTrackStock()) {
+            throw new BusinessException(product.getName() + " is cooked to order and has no stock to transfer");
+        }
 
         // Validate source branch has sufficient stock
         StockLevelEntity sourceStock = stockLevelRepository

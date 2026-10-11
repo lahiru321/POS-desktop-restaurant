@@ -3,7 +3,7 @@
 import { useState, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { reportService } from "@/services/reportService";
-import { SalesReportRecord } from "@/types/report";
+import { ORDER_TYPE_LABELS, SalesReportRecord } from "@/types/report";
 import { Page } from "@/types/common";
 import { format } from "date-fns";
 import { Download, ChevronRight, ChevronDown, RotateCcw } from "lucide-react";
@@ -56,11 +56,12 @@ export function SalesTab({ dateRange, onDateChange, onReturn, branchId }: Props)
       const all = await fetchAllPages(
         (p, s) => reportService.getSalesReport(dateRange.start, dateRange.end, p, s, branchId),
       );
-      const headers = ["Invoice #", "Date", "Customer", "Cashier", "Payment", "Status", "Total", "Tax", "Net", "Cash Tendered", "Change Given"];
+      const headers = ["Invoice #", "Date", "Order Type", "Table", "Customer", "Cashier", "Payment", "Status", "Total", "Tax", "Service Charge", "Net", "Cash Tendered", "Change Given"];
       const rows = all.map(s => [
         s.invoiceNumber, format(new Date(s.createdAt), "yyyy-MM-dd HH:mm"),
+        ORDER_TYPE_LABELS[s.orderType] ?? s.orderType, s.tableName ?? "",
         s.customerName, s.cashierName, s.paymentMethod,
-        s.paymentStatus, s.totalAmount, s.taxAmount, s.netAmount,
+        s.paymentStatus, s.totalAmount, s.taxAmount, s.serviceChargeAmount ?? 0, s.netAmount,
         s.amountTendered ?? "", s.amountTendered != null ? (s.changeDue ?? 0) : "",
       ]);
       downloadCsv(`report-sales-${format(new Date(), "yyyyMMdd")}.csv`, headers, rows);
@@ -149,6 +150,7 @@ export function SalesTab({ dateRange, onDateChange, onReturn, branchId }: Props)
                   <TableHead className="w-10" />
                   <TableHead>Invoice #</TableHead>
                   <TableHead>Date &amp; Time</TableHead>
+                  <TableHead>Order</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Cashier</TableHead>
                   <TableHead>Payment</TableHead>
@@ -160,13 +162,13 @@ export function SalesTab({ dateRange, onDateChange, onReturn, branchId }: Props)
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground animate-pulse">
+                    <TableCell colSpan={10} className="text-center py-10 text-muted-foreground animate-pulse">
                       Loading sales report...
                     </TableCell>
                   </TableRow>
                 ) : !data?.content?.length ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
                       No sales found for the selected period.
                     </TableCell>
                   </TableRow>
@@ -185,6 +187,10 @@ export function SalesTab({ dateRange, onDateChange, onReturn, branchId }: Props)
                         <TableCell className="font-mono text-primary">{sale.invoiceNumber}</TableCell>
                         <TableCell className="text-foreground">
                           {format(new Date(sale.createdAt), "MMM dd, yyyy HH:mm")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {ORDER_TYPE_LABELS[sale.orderType] ?? sale.orderType}
+                          {sale.tableName && <span className="text-muted-foreground"> · {sale.tableName}</span>}
                         </TableCell>
                         <TableCell>{sale.customerName}</TableCell>
                         <TableCell className="text-muted-foreground text-xs">{sale.cashierName}</TableCell>
@@ -221,7 +227,7 @@ export function SalesTab({ dateRange, onDateChange, onReturn, branchId }: Props)
                       </TableRow>
                       {expanded[sale.saleId] && (
                         <TableRow key={`${sale.saleId}-items`}>
-                          <TableCell colSpan={9} className="p-0 border-b border-border">
+                          <TableCell colSpan={10} className="p-0 border-b border-border">
                             <div className="bg-background/80 px-6 py-4 ml-8 mr-4 my-2 rounded-lg border border-border/50">
                               {/* Cash handling — only meaningful when physical cash
                                   changed hands (CASH/SPLIT). Net cancels out the change,
@@ -253,7 +259,7 @@ export function SalesTab({ dateRange, onDateChange, onReturn, branchId }: Props)
                               <table className="w-full text-sm">
                                 <thead>
                                   <tr className="text-muted-foreground text-xs uppercase">
-                                    <th className="text-left pb-2 pr-4">Product</th>
+                                    <th className="text-left pb-2 pr-4">Menu Item</th>
                                     <th className="text-left pb-2 pr-4">SKU</th>
                                     <th className="text-center pb-2 pr-4">Qty</th>
                                     <th className="text-right pb-2 pr-4">Unit Price</th>
